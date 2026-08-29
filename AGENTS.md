@@ -15,18 +15,21 @@ Follow them when adding the planned layout:
 
 ## Build, Test, and Development Commands
 
-Tooling is introduced by milestone M0. Once its configuration exists, use:
-
 ```bash
-git submodule update --init --recursive  # obtain pinned domain libraries
-uv sync                                  # create the Python environment
-uv run ruff check .                      # lint Python
-uv run pytest                            # run Python tests
-cmake -S cpp -B build && cmake --build build
-ctest --test-dir build --output-on-failure
+git submodule update --init third_party/skelarm third_party/rtctrl  # top-level pins
+git submodule update --init --recursive third_party/rclib            # rclib needs its nested submodules
+uv sync                                  # locked Python environment (builds rclib/skelarm)
+uv run nox                               # full gate: lint, type_check, tests, cpp
+uv run nox -s lint                       # ruff check + format check
+uv run nox -s type_check                 # basedpyright (strict)
+uv run nox -s tests                      # pytest with coverage
+uv run nox -s cpp                        # cmake configure/build + ctest (-Werror)
+uv run nox -s pre_commit                 # all pre-commit hooks
 ```
 
-Before M0 lands, validate documentation with `git diff --check`.
+See `README.md` for the equivalent raw commands, the external storage root,
+and the smoke experiment. After advancing a submodule pin run
+`uv sync --reinstall-package rclib --reinstall-package skelarm`.
 
 ## Coding Style & Naming Conventions
 

@@ -2,6 +2,7 @@
 name = "arm-rc-ctrl"
 version = "0.1.0.dev0"
 description = "Reservoir-computing target generators for robot-arm control: experiments, protocols, and adapters around rclib, skelarm, and rtctrl."
+readme = "README.md"
 license = "GPL-3.0-only"
 license-files = ["LICENSE"]
 authors = [{ name = "Hiroshi Atsuta", email = "atsuta@ieee.org" }]
