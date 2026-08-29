@@ -38,6 +38,7 @@ __all__ = [
     "DEFAULT_ROOT",
     "ENV_VAR",
     "URI_SCHEME",
+    "AccessMode",
     "ArtifactUri",
     "InvalidArtifactUriError",
     "ResolvedRoot",
@@ -259,14 +260,17 @@ class StorageRoot:
                 msg = f"{parsed} is not readable"
                 raise StorageAccessError(msg)
             return resolved
-        if not os.access(self._root, os.W_OK):
-            msg = f"storage root {self._root} is not writable"
-            raise StorageAccessError(msg)
-        resolved.parent.mkdir(parents=True, exist_ok=True)
-        if not os.access(resolved.parent, os.W_OK):
-            msg = f"directory of {parsed} is not writable"
-            raise StorageAccessError(msg)
-        return resolved
+        if mode == "write":
+            if not os.access(self._root, os.W_OK):
+                msg = f"storage root {self._root} is not writable"
+                raise StorageAccessError(msg)
+            resolved.parent.mkdir(parents=True, exist_ok=True)
+            if not os.access(resolved.parent, os.W_OK):
+                msg = f"directory of {parsed} is not writable"
+                raise StorageAccessError(msg)
+            return resolved
+        msg = f"unknown access mode {mode!r}; expected 'read' or 'write'"
+        raise ValueError(msg)
 
     def uri_for(self, path: Path) -> ArtifactUri:
         """Return the logical URI of a canonical path beneath the root."""

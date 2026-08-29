@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -16,6 +17,7 @@ from arm_rc_ctrl.storage import (
     BUCKETS,
     DEFAULT_ROOT,
     ENV_VAR,
+    AccessMode,
     ArtifactUri,
     InvalidArtifactUriError,
     StorageAccessError,
@@ -263,6 +265,13 @@ def test_symlink_escaping_root_is_refused(store: StorageRoot, tmp_path: Path) ->
         store.path("armrc://raw/leak.npz", mode="read")
     with pytest.raises(StorageAccessError, match="outside the storage root"):
         store.path("armrc://raw/new.npz", mode="write")
+
+
+def test_unknown_access_mode_is_rejected_without_side_effects(store: StorageRoot) -> None:
+    """A mode other than read/write is an error and creates nothing."""
+    with pytest.raises(ValueError, match="unknown access mode 'append'"):
+        store.path("armrc://runs/new/log.npz", mode=cast("AccessMode", "append"))
+    assert not (store.root / "runs").exists()
 
 
 def test_uri_for_rejects_paths_outside_root(store: StorageRoot, tmp_path: Path) -> None:
