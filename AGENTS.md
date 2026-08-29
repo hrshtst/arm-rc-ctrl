@@ -19,7 +19,8 @@ Follow them when adding the planned layout:
 git submodule update --init third_party/skelarm third_party/rtctrl  # top-level pins
 git submodule update --init --recursive third_party/rclib            # rclib needs its nested submodules
 uv sync                                  # locked Python environment (builds rclib/skelarm)
-uv run nox                               # full gate: lint, type_check, tests, cpp
+uv run python -m arm_rc_ctrl.dependencies rebuild  # reinstall from submodules + record build identity
+uv run nox                               # full gate: deps, lint, type_check, tests, cpp
 uv run nox -s lint                       # ruff check + format check
 uv run nox -s type_check                 # basedpyright (strict)
 uv run nox -s tests                      # pytest with coverage
@@ -29,7 +30,7 @@ uv run nox -s pre_commit                 # all pre-commit hooks
 
 See `README.md` for the equivalent raw commands, the external storage root,
 and the smoke experiment. After advancing a submodule pin run
-`uv sync --reinstall-package rclib --reinstall-package skelarm`.
+`uv run python -m arm_rc_ctrl.dependencies rebuild` again.
 
 ## Coding Style & Naming Conventions
 

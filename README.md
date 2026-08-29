@@ -43,24 +43,29 @@ git submodule update --init --recursive third_party/rclib
 
 # Locked Python environment; builds rclib and skelarm from the submodules.
 uv sync
+
+# Reinstall both packages from the checked-out submodules and record their
+# build identity (submodule commit, installed version, digests of the Python
+# sources and compiled extensions) in the environment's build manifest.
+uv run python -m arm_rc_ctrl.dependencies rebuild
 ```
 
-After advancing a submodule pin, rebuild the affected package explicitly, as
-uv does not track source changes inside path dependencies:
-
-```bash
-uv sync --reinstall-package rclib --reinstall-package skelarm
-```
-
-`tests/unit/test_dependency_wiring.py` fails when the installed copies are
-stale.
+uv does not rebuild a path dependency when only its sources change, and a
+compiled extension carries no revision of its own, so the manifest is the only
+link between the installed binaries and the pins. Run the `rebuild` command
+again after every submodule pin advance. `uv run nox -s deps` (part of the
+default gate) and every provenance-collecting command verify the manifest and
+fail when it is missing, the pin moved, a submodule is dirty, or an installed
+file differs from what was stamped. Editable installs, used only for upstream
+development, are recorded as such and rejected for confirmatory runs.
 
 ## Quality gate
 
 Everything runs from the locked environment through nox:
 
 ```bash
-uv run nox                 # lint, type_check, tests, cpp (the full gate)
+uv run nox                 # deps, lint, type_check, tests, cpp (the full gate)
+uv run nox -s deps         # verify rclib/skelarm build identity (-- --rebuild to rebuild)
 uv run nox -s lint         # ruff check + ruff format --check
 uv run nox -s type_check   # basedpyright, strict mode
 uv run nox -s tests        # pytest with branch coverage (coverage.xml)

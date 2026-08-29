@@ -25,7 +25,7 @@ from pathlib import Path
 
 from arm_rc_ctrl import __version__, dependencies
 from arm_rc_ctrl.config import from_mapping, to_mapping
-from arm_rc_ctrl.dependencies import SubmoduleRevision
+from arm_rc_ctrl.dependencies import BuildIdentity, SubmoduleRevision
 from arm_rc_ctrl.repo import git_output, repository_root
 from arm_rc_ctrl.storage import ArtifactUri, StorageRoot
 
@@ -127,6 +127,8 @@ class ProvenanceRecord:
     project_commit: str
     project_dirty: bool
     submodules: tuple[SubmoduleRevision, ...]
+    builds: tuple[BuildIdentity, ...]
+    """Verified identity of the packages built from submodules (see ``arm_rc_ctrl.dependencies``)."""
     lock_sha256: str
     config_json: str
     config_sha256: str
@@ -161,9 +163,11 @@ class ProvenanceRecord:
 
     @property
     def is_clean(self) -> bool:
-        """Whether the project and every initialized submodule are unmodified and on their pins."""
-        return not self.project_dirty and all(
-            (s.dirty is not True) and (s.checked_out is None or s.matches_pin) for s in self.submodules
+        """Whether the checkout is unmodified, submodules are on their pins, and builds are verifiable."""
+        return (
+            not self.project_dirty
+            and all((s.dirty is not True) and (s.checked_out is None or s.matches_pin) for s in self.submodules)
+            and all(not b.editable and not b.source_dirty for b in self.builds)
         )
 
 
@@ -253,6 +257,7 @@ def collect_provenance(
         msg = "timestamp must be timezone-aware"
         raise ValueError(msg)
     commit, dirty = worktree_state(root)
+    builds = dependencies.verify_builds(root)
     config_json, digest = config_digest(config)
     for name, seed in seeds.items():
         if isinstance(seed, bool) or seed < 0:
@@ -263,6 +268,7 @@ def collect_provenance(
         project_commit=commit,
         project_dirty=dirty,
         submodules=dependencies.submodule_revisions(root),
+        builds=builds,
         lock_sha256=sha256_file(root / "uv.lock"),
         config_json=config_json,
         config_sha256=digest,
@@ -289,5 +295,7 @@ def require_clean_for_confirmatory(record: ProvenanceRecord) -> None:
         for s in record.submodules
         if s.checked_out is not None and not s.matches_pin
     )
+    problems.extend(f"{b.name} is an editable install (build identity not fixed)" for b in record.builds if b.editable)
+    problems.extend(f"{b.name} was built from a dirty submodule" for b in record.builds if b.source_dirty)
     msg = "confirmatory results require a clean checkout: " + "; ".join(problems)
     raise DirtyWorktreeError(msg)

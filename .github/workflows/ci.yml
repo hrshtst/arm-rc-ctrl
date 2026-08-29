@@ -60,11 +60,14 @@ jobs:
       - name: Sync locked environment (builds rclib and skelarm from the submodules)
         run: uv sync --locked
 
-      - name: Lint, type check, and test
+      - name: Rebuild rclib/skelarm from the checked-out submodules and record their build identity
+        run: uv run --locked python -m arm_rc_ctrl.dependencies rebuild
+
+      - name: Verify builds, lint, type check, and test
         # Every nox session asserts it runs under the matrix interpreter.
         env:
           ARM_RC_CTRL_EXPECTED_PYTHON: ${{ matrix.python-version }}
-        run: uv run --locked nox -s lint type_check tests
+        run: uv run --locked nox -s deps lint type_check tests
 
       - name: Upload coverage report
         if: always()

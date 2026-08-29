@@ -41,10 +41,17 @@ def test_installed_versions_match_submodule_pyprojects() -> None:
     assert versions["skelarm"] == dependencies.submodule_version("skelarm")
 
 
-def test_installed_sources_are_not_stale() -> None:
-    """The installed Python sources equal the submodule checkout (else `uv sync --reinstall-package`)."""
-    stale = dependencies.stale_installs()
-    assert stale == {}, f"stale installs, run `uv sync --reinstall-package rclib --reinstall-package skelarm`: {stale}"
+def test_installed_builds_are_verified_against_the_pins() -> None:
+    """The build manifest ties the installed binaries to the checked-out submodules."""
+    identities = dependencies.verify_builds()
+    by_name = {b.name: b for b in identities}
+    for revision in dependencies.submodule_revisions():
+        if revision.name in by_name:
+            assert by_name[revision.name].source_commit == revision.checked_out == revision.recorded
+            assert by_name[revision.name].source_dirty is False
+            assert by_name[revision.name].editable is False
+    assert by_name["rclib"].extension_sha256 is not None
+    assert by_name["skelarm"].extension_sha256 is None
 
 
 def test_submodule_revisions_are_recorded_and_checked_out(record_property: Callable[[str, object], None]) -> None:

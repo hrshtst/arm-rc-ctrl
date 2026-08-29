@@ -16,7 +16,7 @@ import pytest
 
 from arm_rc_ctrl import __version__
 from arm_rc_ctrl.config import ConfigError
-from arm_rc_ctrl.dependencies import SubmoduleRevision
+from arm_rc_ctrl.dependencies import BuildIdentity, SubmoduleRevision
 from arm_rc_ctrl.provenance import (
     ArtifactMismatchError,
     ArtifactReference,
@@ -196,6 +196,8 @@ def test_collect_provenance_captures_everything(store: StorageRoot) -> None:
     assert record.project_commit == worktree_state(REPO_ROOT)[0]
     assert isinstance(record.project_dirty, bool)
     assert [s.name for s in record.submodules] == ["rclib", "skelarm", "rtctrl"]
+    assert [b.name for b in record.builds] == ["rclib", "skelarm"]
+    assert record.builds[0].source_commit == record.submodules[0].recorded
     assert record.lock_sha256 == sha256_file(REPO_ROOT / "uv.lock")
     assert (record.config_json, record.config_sha256) == config_digest(CONFIG)
     assert record.config["inner"] == {"gain": 0.5, "path": "/data/x.npz"}
@@ -249,9 +251,31 @@ def test_record_mapping_is_strictly_validated() -> None:
 # --- confirmatory policy ------------------------------------------------------
 
 
-def _record(*, dirty: bool, submodules: tuple[SubmoduleRevision, ...], exploratory: bool = False) -> ProvenanceRecord:
+def _record(
+    *,
+    dirty: bool,
+    submodules: tuple[SubmoduleRevision, ...],
+    exploratory: bool = False,
+    builds: tuple[BuildIdentity, ...] | None = None,
+) -> ProvenanceRecord:
     base = collect_provenance(CONFIG, seeds={}, now=FIXED_TIME, env={})
-    return dataclasses.replace(base, project_dirty=dirty, submodules=submodules, exploratory=exploratory)
+    changes: dict[str, object] = {"project_dirty": dirty, "submodules": submodules, "exploratory": exploratory}
+    if builds is not None:
+        changes["builds"] = builds
+    return dataclasses.replace(base, **changes)
+
+
+def _build(**changes: object) -> BuildIdentity:
+    base = BuildIdentity(
+        name="rclib",
+        version="0.1.0",
+        source_commit="a" * 40,
+        source_dirty=False,
+        editable=False,
+        python_sources_sha256="1" * 64,
+        extension_sha256="2" * 64,
+    )
+    return dataclasses.replace(base, **changes)
 
 
 def test_clean_record_passes_confirmatory_policy() -> None:
@@ -280,3 +304,32 @@ def test_dirty_or_drifted_record_is_rejected_unless_exploratory(
     with pytest.raises(DirtyWorktreeError, match=message):
         require_clean_for_confirmatory(record)
     require_clean_for_confirmatory(_record(dirty=dirty, submodules=(sub,), exploratory=True))
+
+
+@pytest.mark.parametrize(
+    ("build", "message"),
+    [
+        (_build(editable=True, extension_sha256=None), "rclib is an editable install"),
+        (_build(source_dirty=True), "rclib was built from a dirty submodule"),
+    ],
+)
+def test_unverifiable_builds_are_rejected_unless_exploratory(build: BuildIdentity, message: str) -> None:
+    """Editable or dirty-source builds cannot back a confirmatory result."""
+    clean_sub = SubmoduleRevision("rclib", "third_party/rclib", "a" * 40, "a" * 40, dirty=False)
+    record = _record(dirty=False, submodules=(clean_sub,), builds=(build,))
+    assert not record.is_clean
+    with pytest.raises(DirtyWorktreeError, match=message):
+        require_clean_for_confirmatory(record)
+    require_clean_for_confirmatory(_record(dirty=False, submodules=(clean_sub,), builds=(build,), exploratory=True))
+
+
+def test_collect_provenance_fails_on_unknown_build_identity(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Provenance can never report a pin that the installed binaries are not known to derive from."""
+    from arm_rc_ctrl import dependencies
+
+    def absent(_site: Path | None = None) -> dependencies.BuildManifest | None:
+        return None
+
+    monkeypatch.setattr(dependencies, "read_manifest", absent)
+    with pytest.raises(dependencies.BuildIdentityError, match="unknown build identity"):
+        collect_provenance(CONFIG, seeds={}, now=FIXED_TIME, env={}, exploratory=True)

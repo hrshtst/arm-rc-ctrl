@@ -23,7 +23,7 @@ from pathlib import Path
 
 import nox
 
-nox.options.sessions = ["lint", "type_check", "tests", "cpp"]
+nox.options.sessions = ["deps", "lint", "type_check", "tests", "cpp"]
 nox.options.default_venv_backend = "none"
 
 REPO_ROOT = Path(__file__).resolve().parent
@@ -48,6 +48,17 @@ def _require_project_interpreter(session: nox.Session) -> None:
 def _python(session: nox.Session, *args: str) -> None:
     """Run a module of the current interpreter (the project environment)."""
     session.run(sys.executable, *args, external=True)
+
+
+@nox.session
+def deps(session: nox.Session) -> None:
+    """Verify that the installed rclib/skelarm builds match the pinned submodules.
+
+    Pass ``-- --rebuild`` to reinstall both packages from the checkout and re-stamp.
+    """
+    _require_project_interpreter(session)
+    command = "rebuild" if "--rebuild" in session.posargs else "verify"
+    _python(session, "-m", "arm_rc_ctrl.dependencies", command)
 
 
 @nox.session
