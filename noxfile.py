@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import nox
 
-nox.options.sessions = ["lint", "type_check", "tests"]
+nox.options.sessions = ["lint", "type_check", "tests", "cpp"]
 nox.options.default_venv_backend = "none"
 
 UV_RUN = ("uv", "run", "--locked")
@@ -50,3 +50,20 @@ def tests(session: nox.Session) -> None:
 def pre_commit(session: nox.Session) -> None:
     """Run every pre-commit hook against all files."""
     session.run(*UV_RUN, "pre-commit", "run", "--all-files", "--show-diff-on-failure", external=True)
+
+
+@nox.session
+def cpp(session: nox.Session) -> None:
+    """Configure, build, and run the C++ tests (Catch2 is fetched at configure time)."""
+    session.run(
+        "cmake",
+        "-S",
+        "cpp",
+        "-B",
+        "build",
+        "-DCMAKE_BUILD_TYPE=Release",
+        "-DARM_RC_CTRL_WERROR=ON",
+        external=True,
+    )
+    session.run("cmake", "--build", "build", "-j", external=True)
+    session.run("ctest", "--test-dir", "build", "--output-on-failure", external=True)
