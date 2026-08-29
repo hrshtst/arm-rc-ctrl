@@ -22,7 +22,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M0-001` — establish project metadata and the Python package.
+- **Next task:** `M0-007` — add `.gitignore` and external data/artifact conventions.
 - **Current milestone:** M0 — repository foundation.
 - **Active blockers:** None.
 - **Latest completed planning work:** `DOC-001` and `DOC-002`.
@@ -31,7 +31,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
-| M0 | Clean recursive checkout installs and passes documented Python/C++ quality commands | `TODO` |
+| M0 | Clean recursive checkout installs and passes documented Python/C++ quality commands | `IN PROGRESS` |
 | M1 | Demonstration preprocessing and both direct-replay baselines are reproducible | `TODO` |
 | M2 | Task 1-a ESN completes a provenance-complete nominal closed-loop run | `TODO` |
 | M3 | Frozen task 1-a model and confirmatory robustness report reproduce with one command | `TODO` |
@@ -51,7 +51,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 | ID | Status | Task | Depends on | Acceptance/evidence |
 | --- | --- | --- | --- | --- |
-| M0-001 | `TODO` | Add `pyproject.toml`, `src/arm_rc_ctrl`, Python 3.12 requirement, and `uv` dependency groups | DOC-002 | `uv sync` installs a clean environment; package imports in a test |
+| M0-001 | `DONE` | Add `pyproject.toml`, `src/arm_rc_ctrl`, Python 3.12 requirement, and `uv` dependency groups | DOC-002 | `uv sync` installs a clean environment from `pyproject.toml`/`uv.lock` (Python 3.12 via `.python-version`); `tests/unit/test_package.py` imports the package and checks the installed version |
 | M0-002 | `TODO` | Add recursive submodules at `third_party/rclib`, `third_party/skelarm`, and `third_party/rtctrl` | M0-001 | Fresh clone plus `git submodule update --init --recursive` checks out recorded commits |
 | M0-003 | `TODO` | Wire local/pinned Python builds of `rclib` and `skelarm` into the `uv` environment | M0-002 | Test imports both projects and records their revisions |
 | M0-004 | `TODO` | Add Ruff, strict type checking, pytest, coverage, and pre-commit configuration | M0-001 | Deliberately invalid fixture proves each check runs; clean tree passes all checks |

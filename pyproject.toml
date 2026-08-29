@@ -1,0 +1,46 @@
+[project]
+name = "arm-rc-ctrl"
+version = "0.1.0.dev0"
+description = "Reservoir-computing target generators for robot-arm control: experiments, protocols, and adapters around rclib, skelarm, and rtctrl."
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+authors = [{ name = "Hiroshi Atsuta", email = "atsuta@ieee.org" }]
+# Floor shared with skelarm (>=3.12). 3.14 is deliberately not claimed yet:
+# rclib's CI and wheels stop at 3.13.
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=2.0.0",
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Science/Research",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Physics",
+  "Typing :: Typed",
+]
+keywords = ["reservoir-computing", "echo-state-networks", "robot-arm", "control", "crane-x7"]
+
+[project.urls]
+Repository = "https://github.com/hrshtst/arm-rc-ctrl"
+
+[build-system]
+requires = ["uv_build>=0.9.16,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+# Test runner and plugins.
+test = [
+  "pytest>=8.4.2",
+  "pytest-cov>=7.0.0",
+]
+# Default development environment. Kept light: heavier experiment tooling
+# (MLflow, Optuna, DVC) is added by the milestone that first needs it.
+dev = [
+  { include-group = "test" },
+]
+
+[tool.uv]
+default-groups = ["dev"]
