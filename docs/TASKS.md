@@ -22,7 +22,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M0-007` — add `.gitignore` and external data/artifact conventions.
+- **Next task:** `M0-004` — add Ruff, strict type checking, pytest, coverage, and pre-commit configuration.
 - **Current milestone:** M0 — repository foundation.
 - **Active blockers:** None.
 - **Latest completed planning work:** `DOC-001` and `DOC-002`.
@@ -57,7 +57,7 @@ are complete. Do not mark research software complete merely because it runs once
 | M0-004 | `TODO` | Add Ruff, strict type checking, pytest, coverage, and pre-commit configuration | M0-001 | Deliberately invalid fixture proves each check runs; clean tree passes all checks |
 | M0-005 | `TODO` | Add CMake skeleton under `cpp/` with Catch2 and an empty library/application vertical slice | M0-002 | Configure, build, and CTest smoke test pass without a robot |
 | M0-006 | `TODO` | Add CI for Python lint/type/test and C++ configure/build/test | M0-003, M0-004, M0-005 | CI starts from recursive checkout and all jobs pass |
-| M0-007 | `TODO` | Add `.gitignore` and external data/artifact conventions | M0-001 | Payloads, materialized DVC data, machine config, MLflow/Optuna state, builds, and runs stay untracked; records remain trackable |
+| M0-007 | `DONE` | Add `.gitignore` and external data/artifact conventions | M0-001 | `.gitignore` excludes payload formats, external-layout directories, DVC cache/local config, `storage.toml`, builds, and tool caches while `data/records/**/*.toml`, DVC metafiles, `configs/*.example.toml`, and `tests/fixtures/` stay trackable; `data/README.md` states the conventions; `tests/unit/test_gitignore_conventions.py` verifies 43 representative paths with `git check-ignore` |
 | M0-008 | `TODO` | Add README setup, quality, and recursive-checkout commands | M0-003, M0-005 | A clean-room walkthrough uses only documented commands |
 | M0-009 | `DONE` | Add GPL-3.0-only licensing and initial third-party notice inventory | — | Root `LICENSE`, plan policy, SPDX guidance, and `THIRD_PARTY_NOTICES.md` are committed |
 | M0-010 | `TODO` | Add typed TOML loader with strict unknown-key rejection and relative path resolution | M0-001, M0-004 | Unit tests cover valid, missing, unknown, and type-invalid fields plus nested config paths |

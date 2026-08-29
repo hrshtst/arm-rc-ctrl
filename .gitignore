@@ -1,0 +1,82 @@
+# Git tracks source, configuration, documentation, artifact records, DVC
+# metafiles, and small test fixtures only. Experimental payloads live below the
+# machine-local storage root (docs/PLAN.md section 7.1), never in this tree.
+
+# --- Python -----------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+.nox/
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+.coverage.*
+coverage.xml
+htmlcov/
+dist/
+
+# --- C++ / CMake ------------------------------------------------------------
+/build/
+/build-*/
+/build_*/
+/cpp/build/
+/cpp/build-*/
+compile_commands.json
+CMakeUserPresets.json
+_deps/
+
+# --- Machine-local configuration (never commit absolute storage paths) -------
+storage.toml
+!storage.example.toml
+.envrc
+.env
+*.local
+*.local.toml
+
+# --- DVC: only .dvc metafiles, dvc.yaml, and dvc.lock are tracked -------------
+/.dvc/config.local
+/.dvc/cache/
+/.dvc/tmp/
+/.dvc/plots/
+/dvc-cache/
+/dvc-store/
+
+# --- Experimental payloads and experiment state (external storage only) ------
+*.npz
+*.npy
+*.h5
+*.hdf5
+*.parquet
+*.pkl
+*.pickle
+*.joblib
+*.pt
+*.db
+*.sqlite
+*.sqlite3
+/raw/
+/processed/
+/runs/
+/models/
+/mlflow/
+/mlruns/
+/optuna/
+/data/raw/
+/data/processed/
+/data/runs/
+/data/models/
+/data/mlflow/
+/data/optuna/
+
+# Small synthetic/sanitized fixtures required by automated tests are the only
+# committed binary data. Keep them tiny and reviewed.
+!/tests/fixtures/**
+
+# --- Editors / OS -----------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
