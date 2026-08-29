@@ -80,9 +80,11 @@ ctest --test-dir build --output-on-failure
 ```
 
 Install the Git hooks once with `uv run pre-commit install`. Use
-`UV_PYTHON=3.13 uv run nox` to exercise the other supported interpreter.
-`.github/workflows/ci.yml` runs the same sessions on every push to `main` and
-every pull request.
+`UV_PYTHON=3.13 uv run nox` to exercise the other supported interpreter (uv
+re-creates `.venv` for it); add `ARM_RC_CTRL_EXPECTED_PYTHON=3.13` to make
+every session assert the interpreter it runs under, as CI does from its
+matrix. `.github/workflows/ci.yml` runs the same sessions on every pull
+request and on pushes to `main`.
 
 ## External storage root
 
