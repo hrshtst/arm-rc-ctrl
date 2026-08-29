@@ -1,0 +1,25 @@
+# Citation metadata (Citation File Format 1.2.0). Affiliation and ORCID are
+# intentionally omitted until supplied by the author. No archival release
+# exists yet; see docs/PUBLICATION.md for the release and citation policy.
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata from this file."
+type: software
+title: "arm-rc-ctrl: Reservoir-Computing Control for Robot Arms"
+authors:
+  - family-names: Atsuta
+    given-names: Hiroshi
+    email: atsuta@ieee.org
+version: 0.1.0.dev0
+license: GPL-3.0-only
+repository-code: "https://github.com/hrshtst/arm-rc-ctrl"
+abstract: >-
+  Research software investigating echo state network (reservoir computing)
+  target generators for robot-arm control, from planar simulation with skelarm
+  to the physical CRANE-X7 through rtctrl, with rclib providing the reservoir
+  and readout implementations.
+keywords:
+  - reservoir computing
+  - echo state network
+  - robot arm
+  - motor control
+  - CRANE-X7

@@ -38,6 +38,9 @@ build-backend = "uv_build"
 test = [
   "pytest>=8.4.2",
   "pytest-cov>=7.0.0",
+  # Used only to validate CITATION.cff.
+  "pyyaml>=6.0.3",
+  "types-pyyaml>=6.0.12",
 ]
 # Default development environment. Kept light: heavier experiment tooling
 # (MLflow, Optuna, DVC) is added by the milestone that first needs it.
