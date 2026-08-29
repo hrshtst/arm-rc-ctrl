@@ -153,7 +153,8 @@ def _convert(value: object, annotation: object, location: str, base_dir: Path | 
     if annotation is Path:
         return _path(value, location, base_dir)
     if origin is Literal:
-        if value in args and not isinstance(value, bool):
+        # Equality alone would accept 1.0 or True for Literal[1]; require the exact type too.
+        if any(type(value) is type(choice) and value == choice for choice in args):
             return value
         choices = ", ".join(repr(a) for a in args)
         raise ConfigError(location, f"expected one of {choices}, got {value!r}")

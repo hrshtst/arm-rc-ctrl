@@ -262,6 +262,24 @@ def test_schema_errors_are_type_errors() -> None:
         to_mapping(Experiment)
 
 
+@dataclass(frozen=True)
+class _Order:
+    """Schema with integer and string literals."""
+
+    order: Literal[1, 2]
+    scheme: Literal["euler", "rk4"] = "rk4"
+
+
+def test_literal_requires_exact_type_and_value() -> None:
+    """``1.0`` and ``True`` are not ``Literal[1]``; ``"1"`` is not either."""
+    assert from_mapping({"order": 2}, _Order).order == 2
+    for bad in (1.0, True, "1", 3):
+        with pytest.raises(ConfigError, match=r"order: expected one of 1, 2, got"):
+            from_mapping({"order": bad}, _Order)
+    with pytest.raises(ConfigError, match=r"scheme: expected one of 'euler', 'rk4', got 1"):
+        from_mapping({"order": 1, "scheme": 1}, _Order)
+
+
 def test_optional_field_accepts_missing_and_typed_value() -> None:
     """``T | None`` fields default to None when absent and validate the value when present."""
     base: dict[str, object] = {"dof": 1, "links": [], "limits": {"torque": []}}
