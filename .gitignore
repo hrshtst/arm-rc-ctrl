@@ -71,8 +71,14 @@ storage.toml
 /data/optuna/
 
 # Small synthetic/sanitized fixtures required by automated tests are the only
-# committed binary data. Keep them tiny and reviewed.
-!/tests/fixtures/**
+# committed binary data. Re-include data formats there (never caches or
+# bytecode); keep them tiny and reviewed.
+!/tests/fixtures/**/*.npz
+!/tests/fixtures/**/*.npy
+!/tests/fixtures/**/*.h5
+!/tests/fixtures/**/*.parquet
+!/tests/fixtures/**/*.db
+!/tests/fixtures/**/*.sqlite3
 
 # --- Editors / OS -----------------------------------------------------------
 .vscode/
