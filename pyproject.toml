@@ -57,9 +57,11 @@ dev = [
 default-groups = ["dev"]
 
 # Non-editable builds of the pinned submodules. uv does not rebuild a path
-# dependency when only its source files change, so after advancing a pin run:
-#   uv sync --reinstall-package rclib --reinstall-package skelarm
-# tests/unit/test_dependency_wiring.py fails if the installed copies are stale.
+# dependency when only its source files change, so after `uv sync` on a fresh
+# clone and after every pin advance run:
+#   uv run python -m arm_rc_ctrl.dependencies rebuild
+# which reinstalls both packages and stamps their build identity; `nox -s deps`
+# and every provenance collection verify that stamp (see dependencies.py).
 [tool.uv.sources]
 rclib = { path = "third_party/rclib" }
 skelarm = { path = "third_party/skelarm" }
