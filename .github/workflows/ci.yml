@@ -1,0 +1,110 @@
+# Repository quality gate on GitHub Actions (M0-006).
+#
+# Jobs start from a plain checkout and initialize submodules selectively:
+# rclib recursively (its wheel build needs Eigen/pybind11/Catch2), skelarm and
+# rtctrl top-level only. No secrets are required.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Exact uv version used for the committed lock; keep in sync with README.md.
+  UV_VERSION: "0.12.5"
+  # Deterministic numerics and headless Qt for skelarm (see tests/conftest.py).
+  OMP_NUM_THREADS: "1"
+  QT_QPA_PLATFORM: offscreen
+
+jobs:
+  python:
+    name: Python ${{ matrix.python-version }} (lint, type check, tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Initialize pinned submodules (rclib recursively; skelarm and rtctrl top-level)
+        run: |
+          git submodule update --init third_party/skelarm third_party/rtctrl
+          git submodule update --init --recursive third_party/rclib
+
+      - name: Install headless Qt runtime libraries (skelarm imports PyQt6)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libopengl0 libxkbcommon-x11-0 libdbus-1-3
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Sync locked environment (builds rclib and skelarm from the submodules)
+        run: uv sync --locked
+
+      - name: Lint, type check, and test
+        run: uv run --locked nox -s lint type_check tests
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  cpp:
+    name: C++ (configure, build, ctest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Configure (warnings as errors; Catch2 fetched at its pinned commit)
+        run: cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release -DARM_RC_CTRL_WERROR=ON
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  pre-commit:
+    name: Pre-commit hooks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Run all hooks
+        run: uv run --locked --only-group dev pre-commit run --all-files --show-diff-on-failure

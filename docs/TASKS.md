@@ -22,9 +22,9 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M0-006` — add CI for Python lint/type/test and C++ configure/build/test.
+- **Next task:** `M0-008` — README setup, quality, and checkout commands.
 - **Current milestone:** M0 — repository foundation.
-- **Active blockers:** None.
+- **Active blockers:** `M0-006` needs a push to GitHub to observe the first CI run (commits are intentionally local).
 - **Latest completed planning work:** `DOC-001` and `DOC-002`.
 
 ## Milestone gates
@@ -56,7 +56,7 @@ are complete. Do not mark research software complete merely because it runs once
 | M0-003 | `DONE` | Wire local/pinned Python builds of `rclib` and `skelarm` into the `uv` environment | M0-002 | `[tool.uv.sources]` builds non-editable `rclib`/`skelarm` from the submodules (`uv sync`); `src/arm_rc_ctrl/dependencies.py` reports recorded/checked-out submodule revisions, installed versions, and stale installs; `tests/unit/test_dependency_wiring.py` imports both libraries headless, checks versions/sources against the pins, and records revisions |
 | M0-004 | `DONE` | Add Ruff, strict type checking, pytest, coverage, and pre-commit configuration | M0-001 | Ruff (upstream policy), basedpyright `strict`, pytest (`filterwarnings=error`, strict markers/config), branch coverage, pre-commit, and `noxfile.py` (`lint`, `type_check`, `tests`, `pre_commit`) configured; `tests/unit/test_quality_tools.py` proves each tool reports the planted problems in `tests/fixtures/quality/`; `uv run nox` and `uv run nox -s pre_commit` pass on the clean tree |
 | M0-005 | `DONE` | Add CMake skeleton under `cpp/` with Catch2 and an empty library/application vertical slice | M0-002 | `cpp/` builds library `arm_rc_ctrl` (`version()`), app `arm_rc_ctrl_version`, and a Catch2 test; Catch2 v3.7.1 is fetched by commit `fa43b77`; `uv run nox -s cpp` configures with `-Werror`, builds, and passes 2 CTest cases headless; `tests/unit/test_cpp_skeleton.py` keeps the C++/Python versions and the Catch2 pin consistent |
-| M0-006 | `TODO` | Add CI for Python lint/type/test and C++ configure/build/test | M0-003, M0-004, M0-005 | CI starts from recursive checkout and all jobs pass |
+| M0-006 | `IN PROGRESS` | Add CI for Python lint/type/test and C++ configure/build/test | M0-003, M0-004, M0-005 | `.github/workflows/ci.yml`: jobs `python` (3.12/3.13 matrix: selective submodule init, headless Qt libs, `uv sync --locked`, `nox -s lint type_check tests`, coverage artifact), `cpp` (configure with `-Werror`, build, ctest), `pre-commit` (dev group only); uv pinned to 0.12.5, no secrets, `permissions: contents: read`. YAML validated and every job command executed locally from a clean clone; the acceptance "all jobs pass" awaits the first GitHub Actions run after the branch is pushed |
 | M0-007 | `DONE` | Add `.gitignore` and external data/artifact conventions | M0-001 | `.gitignore` excludes payload formats, external-layout directories, DVC cache/local config, `storage.toml`, builds, and tool caches while `data/records/**/*.toml`, DVC metafiles, `configs/*.example.toml`, and `tests/fixtures/` stay trackable; `data/README.md` states the conventions; `tests/unit/test_gitignore_conventions.py` verifies 43 representative paths with `git check-ignore` |
 | M0-008 | `TODO` | Add README setup, quality, and recursive-checkout commands | M0-003, M0-005 | A clean-room walkthrough uses only documented commands |
 | M0-009 | `DONE` | Add GPL-3.0-only licensing and initial third-party notice inventory | — | Root `LICENSE`, plan policy, SPDX guidance, and `THIRD_PARTY_NOTICES.md` are committed |
