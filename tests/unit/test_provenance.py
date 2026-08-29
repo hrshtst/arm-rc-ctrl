@@ -211,11 +211,12 @@ def test_collect_provenance_captures_everything(store: StorageRoot) -> None:
 
 
 def test_collect_provenance_rejects_naive_timestamp_and_bad_seeds() -> None:
-    """Timestamps must be timezone-aware and seeds non-negative integers."""
+    """Timestamps must be timezone-aware and seeds exact non-negative integers."""
     with pytest.raises(ValueError, match="timezone-aware"):
         collect_provenance(CONFIG, seeds={}, now=datetime(2026, 1, 1))  # noqa: DTZ001
-    with pytest.raises(ValueError, match="seed 'x' must be a non-negative integer"):
-        collect_provenance(CONFIG, seeds={"x": -1}, now=FIXED_TIME)
+    for bad in (-1, 1.5, 1.0, True):
+        with pytest.raises(ValueError, match="seed 'x' must be a non-negative integer"):
+            collect_provenance(CONFIG, seeds={"x": bad}, now=FIXED_TIME)  # type: ignore[dict-item]
 
 
 def test_timestamp_is_normalized_to_utc() -> None:
@@ -248,6 +249,80 @@ def test_record_mapping_is_strictly_validated() -> None:
         ProvenanceRecord.from_mapping(bad)
 
 
+@pytest.mark.parametrize(
+    ("changes", "message"),
+    [
+        ({"config_json": '{"x":2}'}, "config_sha256 does not match config_json"),
+        ({"config_json": '{"x":2}', "config_sha256": "0" * 64}, "config_sha256 does not match config_json"),
+        ({"config_json": '{"b": 1, "a": 2}'}, "config_json is not in canonical form"),
+        ({"config_json": "[1]"}, "config_json must encode a JSON object"),
+        ({"config_json": "{nope"}, "config_json is not valid JSON"),
+        ({"project_commit": "not-a-commit"}, "project_commit must be a 40-hex commit"),
+        ({"project_commit": "A" * 40}, "project_commit must be a 40-hex commit"),
+        ({"lock_sha256": "nope"}, "lock_sha256 must be 64 lowercase hex"),
+        ({"config_sha256": "nope"}, "config_sha256 must be 64 lowercase hex"),
+        ({"schema_version": 99}, "unsupported schema_version 99"),
+        ({"created_at": "2026-08-29T12:00:00"}, "created_at must be timezone-aware in UTC"),
+        ({"created_at": "2026-08-29T21:00:00+09:00"}, "created_at must be timezone-aware in UTC"),
+        ({"created_at": "2026-08-29T12:00:00.5+00:00"}, "second precision"),
+        ({"created_at": "yesterday"}, "not an ISO 8601 timestamp"),
+        ({"seeds": {"a": -3}}, "seed 'a' must be a non-negative integer"),
+    ],
+)
+def test_tampered_records_are_rejected_on_load(changes: dict[str, object], message: str) -> None:
+    """Structurally valid but inconsistent or malformed metadata fails when the record is rebuilt."""
+    mapping = collect_provenance(CONFIG, seeds={"a": 1}, now=FIXED_TIME, env={}).to_mapping()
+    with pytest.raises(ConfigError, match=message):
+        ProvenanceRecord.from_mapping({**mapping, **changes})
+
+
+def test_tampered_nested_entries_are_rejected_on_load() -> None:
+    """Submodule, build, and artifact entries are validated for format, consistency, and uniqueness."""
+    record = collect_provenance(CONFIG, seeds={}, now=FIXED_TIME, env={})
+    mapping = json.loads(record.to_json())
+
+    bad = json.loads(json.dumps(mapping))
+    bad["submodules"][0]["recorded"] = "HEAD"
+    with pytest.raises(ConfigError, match=r"submodules\[0\]: submodule rclib: recorded must be a 40-hex commit"):
+        ProvenanceRecord.from_mapping(bad)
+
+    bad = json.loads(json.dumps(mapping))
+    bad["submodules"][0]["checked_out"] = None
+    with pytest.raises(ConfigError, match="checked_out and dirty must both be null"):
+        ProvenanceRecord.from_mapping(bad)
+
+    bad = json.loads(json.dumps(mapping))
+    bad["submodules"][1] = bad["submodules"][0]
+    with pytest.raises(ConfigError, match="submodules must have unique names"):
+        ProvenanceRecord.from_mapping(bad)
+
+    bad = json.loads(json.dumps(mapping))
+    bad["builds"][0]["extension_sha256"] = "zz"
+    with pytest.raises(ConfigError, match="extension_sha256 must be 64 hex"):
+        ProvenanceRecord.from_mapping(bad)
+
+    bad = json.loads(json.dumps(mapping))
+    bad["builds"][0]["name"] = "eigen"
+    with pytest.raises(ConfigError, match="build 'eigen' has no matching submodule entry"):
+        ProvenanceRecord.from_mapping(bad)
+
+    ref = {"uri": "armrc://raw/a/x.npz", "sha256": "0" * 64, "size": 1}
+    with pytest.raises(ConfigError, match="artifacts must have unique URIs"):
+        ProvenanceRecord.from_mapping({**mapping, "artifacts": [ref, ref]})
+
+    bad = json.loads(json.dumps(mapping))
+    bad["platform"]["python"] = ""
+    with pytest.raises(ConfigError, match=r"platform\.python must not be empty"):
+        ProvenanceRecord.from_mapping(bad)
+
+
+def test_direct_construction_is_validated_too() -> None:
+    """Validation is in __post_init__, so dataclasses.replace cannot forge an inconsistent record."""
+    record = collect_provenance(CONFIG, seeds={}, now=FIXED_TIME, env={})
+    with pytest.raises(ValueError, match="config_sha256 does not match"):
+        dataclasses.replace(record, config_sha256="0" * 64)
+
+
 # --- confirmatory policy ------------------------------------------------------
 
 
@@ -259,10 +334,11 @@ def _record(
     builds: tuple[BuildIdentity, ...] | None = None,
 ) -> ProvenanceRecord:
     base = collect_provenance(CONFIG, seeds={}, now=FIXED_TIME, env={})
-    changes: dict[str, object] = {"project_dirty": dirty, "submodules": submodules, "exploratory": exploratory}
-    if builds is not None:
-        changes["builds"] = builds
-    return dataclasses.replace(base, **changes)
+    if builds is None:
+        # Every build must name one of the given submodules.
+        names = {s.name for s in submodules}
+        builds = tuple(b for b in base.builds if b.name in names)
+    return dataclasses.replace(base, project_dirty=dirty, submodules=submodules, exploratory=exploratory, builds=builds)
 
 
 def _build(**changes: object) -> BuildIdentity:

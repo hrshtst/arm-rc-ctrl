@@ -17,9 +17,11 @@ Rules
   ``tuple[T, ...]``, ``dict[str, T]``, and ``T | None``.
 
 Errors in the *document* raise :class:`ConfigError` with a dotted location such
-as ``robot.links[1].mass``. Errors in the *schema* (unsupported annotations,
-non-dataclass types) raise :class:`TypeError`, since they are programming
-mistakes rather than user input problems.
+as ``robot.links[1].mass``; a ``ValueError`` raised by a schema's
+``__post_init__`` (semantic validation) is reported the same way. Errors in the
+*schema* (unsupported annotations, non-dataclass types) raise
+:class:`TypeError`, since they are programming mistakes rather than user input
+problems.
 """
 
 from __future__ import annotations
@@ -226,7 +228,11 @@ def _dataclass(value: object, schema: type[DataclassInstance], location: str, ba
             kwargs[name] = field.default_factory()
         else:
             raise ConfigError(here, "required key is missing")
-    return cast("Callable[..., object]", schema)(**kwargs)
+    try:
+        return cast("Callable[..., object]", schema)(**kwargs)
+    except ValueError as exc:
+        # Semantic checks in a schema's __post_init__ are document errors too.
+        raise ConfigError(location, str(exc)) from exc
 
 
 def _sequence(

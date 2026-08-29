@@ -287,3 +287,29 @@ def test_optional_field_accepts_missing_and_typed_value() -> None:
     assert from_mapping({**base, "gravity": 1.5}, Robot).gravity == 1.5
     with pytest.raises(ConfigError, match=r"gravity: expected float, got string"):
         from_mapping({**base, "gravity": "1.5"}, Robot)
+
+
+@dataclass(frozen=True)
+class _Positive:
+    """Schema with semantic validation in __post_init__."""
+
+    value: int
+
+    def __post_init__(self) -> None:
+        if self.value <= 0:
+            msg = f"value must be positive, got {self.value}"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
+class _Outer:
+    """Nests the validated schema."""
+
+    inner: _Positive
+
+
+def test_post_init_value_errors_become_located_config_errors() -> None:
+    """Semantic validation failures are reported with the table location."""
+    assert from_mapping({"inner": {"value": 1}}, _Outer).inner.value == 1
+    with pytest.raises(ConfigError, match=r"inner: value must be positive, got 0"):
+        from_mapping({"inner": {"value": 0}}, _Outer)

@@ -111,6 +111,21 @@ class SubmoduleRevision:
     dirty: bool | None
     """Whether the working copy has tracked or untracked changes; ``None`` when not initialized."""
 
+    def __post_init__(self) -> None:
+        """Validate identifier formats and the initialized/uninitialized consistency."""
+        if self.path != f"third_party/{self.name}":
+            msg = f"submodule {self.name}: path must be third_party/{self.name}, got {self.path!r}"
+            raise ValueError(msg)
+        if not _is_hex(self.recorded, 40):
+            msg = f"submodule {self.name}: recorded must be a 40-hex commit, got {self.recorded!r}"
+            raise ValueError(msg)
+        if (self.checked_out is None) != (self.dirty is None):
+            msg = f"submodule {self.name}: checked_out and dirty must both be null (uninitialized) or both set"
+            raise ValueError(msg)
+        if self.checked_out is not None and not _is_hex(self.checked_out, 40):
+            msg = f"submodule {self.name}: checked_out must be a 40-hex commit, got {self.checked_out!r}"
+            raise ValueError(msg)
+
     @property
     def matches_pin(self) -> bool:
         """Whether the checked-out commit is exactly the recorded pin."""

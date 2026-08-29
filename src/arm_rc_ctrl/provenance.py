@@ -20,8 +20,9 @@ import os
 import platform
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 
 from arm_rc_ctrl import __version__, dependencies
 from arm_rc_ctrl.config import from_mapping, to_mapping
@@ -30,6 +31,7 @@ from arm_rc_ctrl.repo import git_output, repository_root
 from arm_rc_ctrl.storage import ArtifactUri, StorageRoot
 
 __all__ = [
+    "SCHEMA_VERSION",
     "THREAD_ENVIRONMENT_VARIABLES",
     "ArtifactMismatchError",
     "ArtifactReference",
@@ -51,6 +53,12 @@ THREAD_ENVIRONMENT_VARIABLES: tuple[str, ...] = ("OMP_NUM_THREADS", "OPENBLAS_NU
 """Environment variables that influence numerical determinism and are therefore recorded."""
 
 _SHA256_HEX_LENGTH = 64
+_COMMIT_HEX_LENGTH = 40
+SCHEMA_VERSION = 1
+
+
+def _is_hex(value: str, length: int) -> bool:
+    return len(value) == length and all(c in "0123456789abcdef" for c in value)
 
 
 class ArtifactMismatchError(RuntimeError):
@@ -98,7 +106,7 @@ class ArtifactReference:
     def __post_init__(self) -> None:
         """Validate the URI form, digest format, and size."""
         ArtifactUri.parse(self.uri)
-        if len(self.sha256) != _SHA256_HEX_LENGTH or any(c not in "0123456789abcdef" for c in self.sha256):
+        if not _is_hex(self.sha256, _SHA256_HEX_LENGTH):
             msg = f"sha256 must be 64 lowercase hex characters, got {self.sha256!r}"
             raise ValueError(msg)
         if self.size < 0:
@@ -118,6 +126,16 @@ class PlatformInfo:
     packages: dict[str, str]
     thread_environment: dict[str, str]
 
+    def __post_init__(self) -> None:
+        """Reject empty identification fields."""
+        for name in ("python", "implementation", "system", "machine"):
+            if not getattr(self, name):
+                msg = f"platform.{name} must not be empty"
+                raise ValueError(msg)
+        if not self.packages:
+            msg = "platform.packages must not be empty"
+            raise ValueError(msg)
+
 
 @dataclass(frozen=True)
 class ProvenanceRecord:
@@ -136,7 +154,24 @@ class ProvenanceRecord:
     seeds: dict[str, int]
     platform: PlatformInfo
     exploratory: bool = False
-    schema_version: int = 1
+    schema_version: int = SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        """Validate integrity: formats, canonical configuration and its digest, timestamp, seeds, uniqueness."""
+        if self.schema_version != SCHEMA_VERSION:
+            msg = f"unsupported schema_version {self.schema_version}; expected {SCHEMA_VERSION}"
+            raise ValueError(msg)
+        if not _is_hex(self.project_commit, _COMMIT_HEX_LENGTH):
+            msg = f"project_commit must be a 40-hex commit, got {self.project_commit!r}"
+            raise ValueError(msg)
+        for name in ("lock_sha256", "config_sha256"):
+            if not _is_hex(getattr(self, name), _SHA256_HEX_LENGTH):
+                msg = f"{name} must be 64 lowercase hex characters, got {getattr(self, name)!r}"
+                raise ValueError(msg)
+        _validate_config_json(self.config_json, self.config_sha256)
+        _validate_timestamp(self.created_at)
+        _validate_seeds(self.seeds)
+        _validate_uniqueness(self)
 
     def to_mapping(self) -> dict[str, object]:
         """Plain, serializable form."""
@@ -169,6 +204,68 @@ class ProvenanceRecord:
             and all((s.dirty is not True) and (s.checked_out is None or s.matches_pin) for s in self.submodules)
             and all(not b.editable and not b.source_dirty for b in self.builds)
         )
+
+
+def _validate_config_json(config_json: str, config_sha256: str) -> None:
+    """Require canonical JSON of an object whose digest is ``config_sha256``."""
+    try:
+        parsed: object = json.loads(config_json)
+    except json.JSONDecodeError as exc:
+        msg = f"config_json is not valid JSON: {exc}"
+        raise ValueError(msg) from exc
+    if not isinstance(parsed, dict):
+        # A document error (the stored text is wrong), not a Python type error.
+        msg = "config_json must encode a JSON object"
+        raise ValueError(msg)  # noqa: TRY004
+    if canonical_json(cast("dict[str, object]", parsed)) != config_json:
+        msg = "config_json is not in canonical form (sorted keys, no whitespace)"
+        raise ValueError(msg)
+    if sha256_bytes(config_json.encode("utf-8")) != config_sha256:
+        msg = "config_sha256 does not match config_json"
+        raise ValueError(msg)
+
+
+def _validate_seeds(seeds: Mapping[str, int]) -> None:
+    """Require exact non-negative integers (no bool, no float)."""
+    for name, seed in seeds.items():
+        if type(seed) is not int or seed < 0:
+            msg = f"seed {name!r} must be a non-negative integer, got {seed!r}"
+            raise ValueError(msg)
+
+
+def _validate_uniqueness(record: ProvenanceRecord) -> None:
+    """Artifacts, submodules, and builds must be unique, and every build must name a submodule."""
+    uris = [a.uri for a in record.artifacts]
+    if len(set(uris)) != len(uris):
+        msg = "artifacts must have unique URIs"
+        raise ValueError(msg)
+    for label, names in (
+        ("submodules", [s.name for s in record.submodules]),
+        ("builds", [b.name for b in record.builds]),
+    ):
+        if len(set(names)) != len(names):
+            msg = f"{label} must have unique names"
+            raise ValueError(msg)
+    submodule_names = {s.name for s in record.submodules}
+    for build in record.builds:
+        if build.name not in submodule_names:
+            msg = f"build {build.name!r} has no matching submodule entry"
+            raise ValueError(msg)
+
+
+def _validate_timestamp(value: str) -> None:
+    """Require an ISO 8601 timestamp that is timezone-aware, in UTC, at second precision."""
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError as exc:
+        msg = f"created_at is not an ISO 8601 timestamp: {value!r}"
+        raise ValueError(msg) from exc
+    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
+        msg = f"created_at must be timezone-aware in UTC, got {value!r}"
+        raise ValueError(msg)
+    if parsed.isoformat(timespec="seconds") != value:
+        msg = f"created_at must have second precision with a +00:00 offset, got {value!r}"
+        raise ValueError(msg)
 
 
 def worktree_state(root: Path) -> tuple[str, bool]:
@@ -259,10 +356,7 @@ def collect_provenance(
     commit, dirty = worktree_state(root)
     builds = dependencies.verify_builds(root)
     config_json, digest = config_digest(config)
-    for name, seed in seeds.items():
-        if isinstance(seed, bool) or seed < 0:
-            msg = f"seed {name!r} must be a non-negative integer, got {seed!r}"
-            raise ValueError(msg)
+    _validate_seeds(seeds)
     return ProvenanceRecord(
         created_at=stamp.astimezone(UTC).isoformat(timespec="seconds"),
         project_commit=commit,
