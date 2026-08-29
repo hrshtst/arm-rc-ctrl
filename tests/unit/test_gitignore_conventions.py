@@ -66,8 +66,8 @@ TRACKABLE = [
 
 def _git_ignores(path: str) -> bool:
     """Return whether Git's ignore rules exclude ``path`` (which need not exist)."""
-    result = subprocess.run(  # noqa: S603
-        ["git", "check-ignore", "-q", "--no-index", "--", path],  # noqa: S607
+    result = subprocess.run(
+        ["git", "check-ignore", "-q", "--no-index", "--", path],
         cwd=REPO_ROOT,
         check=False,
         capture_output=True,
@@ -80,9 +80,10 @@ def _git_ignores(path: str) -> bool:
 
 
 @pytest.fixture(scope="module", autouse=True)
-def _require_git_worktree() -> None:
-    result = subprocess.run(  # noqa: S603
-        ["git", "rev-parse", "--is-inside-work-tree"],  # noqa: S607
+def require_git_worktree() -> None:
+    """Skip the module when the checkout is not a Git worktree (e.g. an extracted sdist)."""
+    result = subprocess.run(
+        ["git", "rev-parse", "--is-inside-work-tree"],
         cwd=REPO_ROOT,
         check=False,
         capture_output=True,

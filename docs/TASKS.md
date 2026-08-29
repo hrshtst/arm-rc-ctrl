@@ -22,7 +22,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M0-004` — add Ruff, strict type checking, pytest, coverage, and pre-commit configuration.
+- **Next task:** `M0-002` — add pinned submodules under `third_party/`.
 - **Current milestone:** M0 — repository foundation.
 - **Active blockers:** None.
 - **Latest completed planning work:** `DOC-001` and `DOC-002`.
@@ -54,7 +54,7 @@ are complete. Do not mark research software complete merely because it runs once
 | M0-001 | `DONE` | Add `pyproject.toml`, `src/arm_rc_ctrl`, Python 3.12 requirement, and `uv` dependency groups | DOC-002 | `uv sync` installs a clean environment from `pyproject.toml`/`uv.lock` (Python 3.12 via `.python-version`); `tests/unit/test_package.py` imports the package and checks the installed version |
 | M0-002 | `TODO` | Add recursive submodules at `third_party/rclib`, `third_party/skelarm`, and `third_party/rtctrl` | M0-001 | Fresh clone plus `git submodule update --init --recursive` checks out recorded commits |
 | M0-003 | `TODO` | Wire local/pinned Python builds of `rclib` and `skelarm` into the `uv` environment | M0-002 | Test imports both projects and records their revisions |
-| M0-004 | `TODO` | Add Ruff, strict type checking, pytest, coverage, and pre-commit configuration | M0-001 | Deliberately invalid fixture proves each check runs; clean tree passes all checks |
+| M0-004 | `DONE` | Add Ruff, strict type checking, pytest, coverage, and pre-commit configuration | M0-001 | Ruff (upstream policy), basedpyright `strict`, pytest (`filterwarnings=error`, strict markers/config), branch coverage, pre-commit, and `noxfile.py` (`lint`, `type_check`, `tests`, `pre_commit`) configured; `tests/unit/test_quality_tools.py` proves each tool reports the planted problems in `tests/fixtures/quality/`; `uv run nox` and `uv run nox -s pre_commit` pass on the clean tree |
 | M0-005 | `TODO` | Add CMake skeleton under `cpp/` with Catch2 and an empty library/application vertical slice | M0-002 | Configure, build, and CTest smoke test pass without a robot |
 | M0-006 | `TODO` | Add CI for Python lint/type/test and C++ configure/build/test | M0-003, M0-004, M0-005 | CI starts from recursive checkout and all jobs pass |
 | M0-007 | `DONE` | Add `.gitignore` and external data/artifact conventions | M0-001 | `.gitignore` excludes payload formats, external-layout directories, DVC cache/local config, `storage.toml`, builds, and tool caches while `data/records/**/*.toml`, DVC metafiles, `configs/*.example.toml`, and `tests/fixtures/` stay trackable; `data/README.md` states the conventions; `tests/unit/test_gitignore_conventions.py` verifies 43 representative paths with `git check-ignore` |
