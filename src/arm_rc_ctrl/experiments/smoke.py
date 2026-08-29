@@ -149,22 +149,49 @@ def _validate_links(links: tuple[LinkConfig, ...]) -> None:
             raise ValueError(msg)
 
 
-def _validate_simulation(sim: SimulationConfig, dof: int) -> None:
+def _validate_simulation(sim: SimulationConfig, links: tuple[LinkConfig, ...]) -> None:
+    dof = len(links)
     for name, values in {"initial_q": sim.initial_q, "target_q": sim.target_q, "kp": sim.kp, "kd": sim.kd}.items():
         if len(values) != dof:
             msg = f"simulation.{name} must have {dof} entries (one per joint), got {len(values)}"
             raise ValueError(msg)
+    for name, gains in {"kp": sim.kp, "kd": sim.kd}.items():
+        if any(g < 0 for g in gains):
+            msg = f"simulation.{name} must be non-negative, got {gains}"
+            raise ValueError(msg)
+    for name, posture in {"initial_q": sim.initial_q, "target_q": sim.target_q}.items():
+        for i, (angle, link) in enumerate(zip(posture, links, strict=True)):
+            if not link.q_min <= angle <= link.q_max:
+                msg = f"simulation.{name}[{i}]={angle} lies outside joint limits [{link.q_min}, {link.q_max}]"
+                raise ValueError(msg)
     if sim.dt <= 0 or sim.duration <= 0:
         msg = "simulation.dt and simulation.duration must be positive"
         raise ValueError(msg)
 
 
+def _validate_esn(esn: EsnConfig) -> None:
+    """Mirror rclib's constructor constraints so failures name the configuration key."""
+    checks = (
+        (esn.n_neurons > 0, "esn.n_neurons must be positive"),
+        (esn.spectral_radius >= 0, "esn.spectral_radius must be non-negative"),
+        (0 <= esn.sparsity <= 1, "esn.sparsity must be in [0, 1]"),
+        (0 < esn.leak_rate <= 1, "esn.leak_rate must be in (0, 1]"),
+        (esn.input_scaling >= 0, "esn.input_scaling must be non-negative"),
+        (esn.ridge_alpha >= 0, "esn.ridge_alpha must be non-negative"),
+        (esn.washout >= 0, "esn.washout must be non-negative"),
+    )
+    for ok, message in checks:
+        if not ok:
+            raise ValueError(message)
+
+
 def validate_config(config: SmokeConfig) -> None:
     """Check cross-field consistency that the type-level loader cannot express."""
     _validate_links(config.robot.links)
-    _validate_simulation(config.simulation, len(config.robot.links))
+    _validate_simulation(config.simulation, config.robot.links)
+    _validate_esn(config.esn)
     steps = round(config.simulation.duration / config.simulation.dt)
-    if config.esn.washout < 0 or config.esn.washout >= steps:
+    if config.esn.washout >= steps:
         msg = f"esn.washout must be in [0, {steps}) for {steps} simulation steps, got {config.esn.washout}"
         raise ValueError(msg)
     if config.seed < 0:
