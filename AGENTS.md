@@ -10,7 +10,7 @@ Follow them when adding the planned layout:
 - `cpp/{include,src,apps,tests}/`: C++ inference and `rtctrl` integration.
 - `configs/`: versioned robot, task, controller, study, and evaluation TOML.
 - `scripts/`: thin reproducibility entry points; keep business logic in `src/`.
-- `data/`: DVC-managed inputs; generated runs belong in ignored `artifacts/`.
+- `data/`: Git-tracked pointer records only; payloads use external storage.
 - `third_party/`: pinned recursive submodules for `rclib`, `skelarm`, and `rtctrl`.
 
 ## Build, Test, and Development Commands
@@ -45,8 +45,8 @@ and review `THIRD_PARTY_NOTICES.md` before redistribution.
 
 Develop test-first. Name Python tests `test_<behavior>.py` and C++ tests
 `<behavior>_test.cpp`. Unit-test math and validation; integration-test complete
-data/control paths; use small deterministic regression fixtures. Every bug fix
-requires a reproducing test. Hardware tests are supervised and must first pass
+data/control paths; use deterministic regression fixtures. Bug fixes require
+reproducing tests. Hardware tests are supervised and must first pass
 simulation/emulator gates. Justify numerical tolerances; retain failed runs.
 
 ## Commits & Pull Requests
@@ -56,8 +56,8 @@ Use the established Conventional Commit form, for example
 Keep commits reviewable and reference `docs/TASKS.md` IDs in the body. Update task
 status and evidence in the same commit as implementation.
 
-PRs should explain scope, linked task/issue, test results, config/schema changes,
-reproducibility artifacts, and limitations. Include plots for result changes.
+PRs should explain scope, linked task, test results, config/schema changes,
+artifacts, and limitations. Include plots for result changes.
 Make generic dependency fixes in the owning project, then update its pin
 separately.
 
@@ -66,4 +66,5 @@ separately.
 Never bypass `rtctrl` limits, watchdogs, or abort paths. Do not operate hardware
 without the approved checklist and a human-accessible power cutoff. Results must
 record Git/submodule revisions, resolved config, DVC hashes, seeds, environment,
-raw metrics, and dirty-worktree state.
+raw metrics, and dirty-worktree state. Never commit experimental payloads or
+absolute storage paths.

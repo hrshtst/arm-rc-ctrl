@@ -1,6 +1,6 @@
 # Implementation Task Ledger
 
-**Last updated:** 2026-08-28
+**Last updated:** 2026-08-29
 
 **Plan:** [PLAN.md](PLAN.md)
 
@@ -57,14 +57,15 @@ are complete. Do not mark research software complete merely because it runs once
 | M0-004 | `TODO` | Add Ruff, strict type checking, pytest, coverage, and pre-commit configuration | M0-001 | Deliberately invalid fixture proves each check runs; clean tree passes all checks |
 | M0-005 | `TODO` | Add CMake skeleton under `cpp/` with Catch2 and an empty library/application vertical slice | M0-002 | Configure, build, and CTest smoke test pass without a robot |
 | M0-006 | `TODO` | Add CI for Python lint/type/test and C++ configure/build/test | M0-003, M0-004, M0-005 | CI starts from recursive checkout and all jobs pass |
-| M0-007 | `TODO` | Add `.gitignore`, data/artifact conventions, and local state directories | M0-001 | Generated environments, MLflow, Optuna, build, and run outputs stay untracked; curated files remain trackable |
+| M0-007 | `TODO` | Add `.gitignore` and external data/artifact conventions | M0-001 | Payloads, materialized DVC data, machine config, MLflow/Optuna state, builds, and runs stay untracked; records remain trackable |
 | M0-008 | `TODO` | Add README setup, quality, and recursive-checkout commands | M0-003, M0-005 | A clean-room walkthrough uses only documented commands |
 | M0-009 | `DONE` | Add GPL-3.0-only licensing and initial third-party notice inventory | — | Root `LICENSE`, plan policy, SPDX guidance, and `THIRD_PARTY_NOTICES.md` are committed |
 | M0-010 | `TODO` | Add typed TOML loader with strict unknown-key rejection and relative path resolution | M0-001, M0-004 | Unit tests cover valid, missing, unknown, and type-invalid fields plus nested config paths |
-| M0-011 | `TODO` | Define provenance record and collection utilities | M0-002, M0-010 | Tests capture project/submodule commits, dirty flag, lock hash, config hash, platform, and seeds |
+| M0-011 | `TODO` | Define provenance record and collection utilities | M0-002, M0-010 | Tests capture project/submodule commits, dirty flag, lock/config hashes, logical artifact URIs/digests, platform, and seeds |
 | M0-012 | `TODO` | Add headless deterministic smoke experiment independent of GUI/hardware | M0-003, M0-010, M0-011 | Two same-seed executions produce equal canonical outputs within declared tolerance |
 | M0-013 | `TODO` | Add owner-approved citation and publication metadata | M0-001 | Citation file and publication metadata identify authorship, preferred citation, and release policy |
-| M0-GATE | `TODO` | Review and close the M0 gate | M0-006, M0-007, M0-008, M0-009, M0-012, M0-013 | Reviewer reproduces install and all quality commands from a clean recursive checkout |
+| M0-014 | `TODO` | Implement machine-local external storage-root resolution | M0-010 | Tests enforce environment/XDG/default precedence, `armrc://` resolution, access checks, and no repository fallback |
+| M0-GATE | `TODO` | Review and close the M0 gate | M0-006, M0-007, M0-008, M0-009, M0-012, M0-013, M0-014 | Reviewer reproduces install and all quality commands from a clean recursive checkout |
 
 ## M1 — Demonstration pipeline and frozen baselines
 
@@ -72,20 +73,20 @@ are complete. Do not mark research software complete merely because it runs once
 
 | ID | Status | Task | Depends on | Acceptance/evidence |
 | --- | --- | --- | --- | --- |
-| M1-001 | `TODO` | Define versioned raw-demonstration manifest types | M0-010 | Round-trip tests cover ID, source checksum, scenario, intervals, units, revisions, and notes |
-| M1-002 | `TODO` | Define canonical `samples.npz` arrays and processed manifest types | M1-001 | Schema tests enforce names, shapes, float64 dtype, units, phases, and checksums |
-| M1-003 | `TODO` | Implement raw `skelarm` log loader without modifying source logs | M0-003, M1-001 | Known fixture loads; missing/corrupt/unexpected channels fail with actionable errors |
+| M1-001 | `TODO` | Define versioned raw-demonstration artifact records | M0-010, M0-014 | Round-trip tests cover immutable ID, logical URI, SHA-256/size, format/schema, license/access, scenario, intervals, revisions, and notes |
+| M1-002 | `TODO` | Define canonical `samples.npz` arrays and processed artifact records | M1-001 | Schema tests enforce source IDs, logical URI, digest, names, shapes, float64 dtype, units, and phases |
+| M1-003 | `TODO` | Implement raw `skelarm` log loader through the storage resolver | M0-003, M1-001 | Known fixture loads; missing, inaccessible, mismatched, corrupt, or unexpected data fails without source modification |
 | M1-004 | `TODO` | Implement dataset validation | M1-002 | Tests reject NaN/Inf, time errors, shape errors, missing phases, invalid task codes, and limit violations |
 | M1-005 | `TODO` | Implement configurable smoothing using zero-phase processing for offline demonstrations | M1-003, M1-004 | Analytic noisy-signal tests verify attenuation and absence of measurable phase shift |
 | M1-006 | `TODO` | Implement resampling to the configured control period | M1-005 | Constant/linear analytic signals and endpoint inclusion pass within numerical tolerance |
 | M1-007 | `TODO` | Implement offline derivative generation for `dq`, `ddq`, `dtip`, and `ddtip` | M1-006 | Polynomial/sinusoidal fixtures meet declared interior/boundary error tolerances |
 | M1-008 | `TODO` | Implement or validate explicit prime/move/dwell interval annotation | M1-003 | Missing/overlapping/reversed intervals fail; all samples receive exactly one phase |
 | M1-009 | `TODO` | Implement training-only normalization statistics | M1-004 | Tests prevent evaluation leakage and define near-zero scale handling |
-| M1-010 | `TODO` | Add preprocessing CLI as a thin wrapper around tested functions | M1-006, M1-007, M1-008, M1-009 | Command creates validated manifest/data pair and refuses overwrite without explicit new output ID |
-| M1-011 | `TODO` | Initialize DVC and track raw/processed dataset directories | M0-007, M1-010 | DVC metadata reproduces the fixture dataset from declared inputs |
+| M1-010 | `TODO` | Add transactional preprocessing CLI as a thin wrapper around tested functions | M1-006, M1-007, M1-008, M1-009 | Command writes/validates external payload atomically, then creates its record; overwrite and repository fallback are rejected |
+| M1-011 | `TODO` | Initialize DVC with external per-machine cache and remote | M0-007, M0-014, M1-010 | Ignored local config maps cache/remote below storage root; Git contains only portable DVC metadata and artifact records |
 | M1-012 | `TODO` | Create or select the canonical 2-DOF robot/task 1-a scenario | M0-003 | Versioned TOML fixes robot parameters, target, `dt`, limits, duration, prime, and dwell intervals |
-| M1-013 | `TODO` | Record/import one task 1-a demonstration and its immutable manifest | M1-010, M1-012 | Dataset passes validation; visual/manual review confirms intended reach and dwell |
-| M1-014 | `TODO` | Add preprocessing integration/regression fixture | M1-013 | Clean reproduction yields the expected manifest and arrays/checksums within documented policy |
+| M1-013 | `TODO` | Record/import one external task 1-a demonstration and commit its immutable record | M1-010, M1-012 | Payload is absent from Git, record resolves and validates, and visual/manual review confirms intended reach/dwell |
+| M1-014 | `TODO` | Add preprocessing integration/regression fixture | M1-013 | Clean reproduction through a configured external store yields expected records, arrays, and digests |
 
 ### M1.2 Metrics and run records
 
@@ -95,7 +96,7 @@ are complete. Do not mark research software complete merely because it runs once
 | M1-016 | `TODO` | Implement joint RMSE with per-joint continuous-angle policy | M1-002 | Hand-calculated fixtures test aggregate, per-joint, wrapping, and shape rejection |
 | M1-017 | `TODO` | Implement final-dwell endpoint and stationarity metrics | M1-002 | Fixtures verify mean/RMS/max/p95 error, in-region fraction, dwell duration, and velocity metrics |
 | M1-018 | `TODO` | Implement effort, peak torque, and saturation metrics | M1-002 | Irregular-time analytic fixtures verify integration and saturation fraction |
-| M1-019 | `TODO` | Define provenance-complete run-record schema and serialization | M0-011, M1-015 | Round-trip retains state, references, torque, disturbances, termination, config, and provenance |
+| M1-019 | `TODO` | Define provenance-complete external run-record schema and Git pointer record | M0-011, M0-014, M1-015 | Round-trip retains state, references, torque, disturbances, termination, config, provenance, logical URI, and digest |
 | M1-020 | `TODO` | Add metric report generation from run records | M1-016, M1-017, M1-018, M1-019 | JSON/CSV summaries match pure metric functions and contain no hidden recomputation |
 
 ### M1.3 Direct-replay baselines
@@ -110,7 +111,7 @@ are complete. Do not mark research software complete merely because it runs once
 | M1-026 | `TODO` | Tune, review, and freeze computed-torque gains | M1-024 | Selected config, study summary, metrics, and provenance are committed/logged |
 | M1-027 | `TODO` | Add baseline determinism and paired-run regression tests | M1-025, M1-026 | Fixed fixtures reproduce state/metric results within declared tolerances |
 | M1-028 | `TODO` | Calibrate safe/nontrivial posture and force perturbation levels using frozen baselines | M1-025, M1-026 | Pilot report justifies levels; confirmatory config and seed list are then locked |
-| M1-GATE | `TODO` | Review and close the M1 gate | M1-011, M1-014, M1-020, M1-027, M1-028 | Reviewer reproduces preprocessing and both frozen baselines from raw data |
+| M1-GATE | `TODO` | Review and close the M1 gate | M1-011, M1-014, M1-020, M1-027, M1-028 | Reviewer resolves external records and reproduces preprocessing and both frozen baselines without payloads in Git |
 
 ## M2 — Offline ESN task 1-a vertical slice
 
@@ -146,8 +147,8 @@ are complete. Do not mark research software complete merely because it runs once
 
 | ID | Status | Task | Depends on | Acceptance/evidence |
 | --- | --- | --- | --- | --- |
-| M3-001 | `TODO` | Integrate a local MLflow backend and mandatory run logger | M0-011, M1-019 | Integration test verifies config, revisions, hashes, seeds, metrics, recipe, and plots are logged |
-| M3-002 | `TODO` | Integrate local Optuna SQLite studies with seeded sampler/pruner | M2-012 | Small study creates, resumes, prunes, and selects a trial deterministically where supported |
+| M3-001 | `TODO` | Integrate an external-root MLflow backend and mandatory run logger | M0-011, M0-014, M1-019 | Integration test verifies external storage plus config, revisions, hashes, seeds, metrics, recipe, and plots |
+| M3-002 | `TODO` | Integrate external-root Optuna SQLite studies with seeded sampler/pruner | M0-014, M2-012 | Small study creates, resumes, prunes, and selects a trial deterministically where supported |
 | M3-003 | `TODO` | Define versioned ESN search space and development-only scenarios | M1-028, M3-002 | Config includes all planned parameters, bounds, study seed, budget, and no confirmatory seeds |
 | M3-004 | `TODO` | Implement feasibility checks and documented trial penalty | M2-013, M3-003 | Tests cover divergence, state/torque limits, early termination, dwell failure, and feasible objective |
 | M3-005 | `TODO` | Implement parent study and child trial MLflow logging | M3-001, M3-002, M3-004 | Every trial is traceable and objective components are stored individually |
@@ -157,7 +158,7 @@ are complete. Do not mark research software complete merely because it runs once
 | M3-009 | `TODO` | Implement paired robustness suite across methods | M3-006, M3-007, M3-008 | Each method receives identical scenario IDs and disturbances; failures remain in aggregation |
 | M3-010 | `TODO` | Run locked confirmatory suite exactly once for the study version | M3-009 | Report identifies frozen recipe/config/seeds and is labeled confirmatory; reruns are separately labeled |
 | M3-011 | `TODO` | Generate task 1-a tables, plots, and limitations report | M3-010 | Report includes all primary/secondary metrics, distributions, failures, and paired comparisons |
-| M3-012 | `TODO` | Implement `scripts/reproduce_1a.py` orchestration | M1-011, M3-011 | One documented command rebuilds data, model, evaluation, and report or clearly explains missing DVC data |
+| M3-012 | `TODO` | Implement `scripts/reproduce_1a.py` orchestration | M1-011, M3-011 | One command resolves external records and rebuilds data, model, evaluation, and report or identifies missing/mismatched payloads |
 | M3-013 | `TODO` | Perform clean-checkout reproduction audit | M3-012 | Human records commands, environment, elapsed time, hashes, and any numerical deviation |
 | M3-014 | `TODO` | Review code, experimental fairness, and documentation alignment | M3-013 | Findings are fixed or tracked with explicit IDs; plan reflects tested behavior |
 | M3-GATE | `TODO` | Review and close the M3 gate | M3-014 | Independent reviewer reproduces the selected task 1-a result and accepts provenance/fairness |
