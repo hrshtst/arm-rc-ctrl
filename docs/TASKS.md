@@ -59,11 +59,12 @@ are complete. Do not mark research software complete merely because it runs once
 | M0-006 | `TODO` | Add CI for Python lint/type/test and C++ configure/build/test | M0-003, M0-004, M0-005 | CI starts from recursive checkout and all jobs pass |
 | M0-007 | `TODO` | Add `.gitignore`, data/artifact conventions, and local state directories | M0-001 | Generated environments, MLflow, Optuna, build, and run outputs stay untracked; curated files remain trackable |
 | M0-008 | `TODO` | Add README setup, quality, and recursive-checkout commands | M0-003, M0-005 | A clean-room walkthrough uses only documented commands |
-| M0-009 | `TODO` | Record owner decisions for project license, citation, and publication metadata | M0-001 | Owner-approved files/decision are committed; no license is guessed |
+| M0-009 | `DONE` | Add GPL-3.0-only licensing and initial third-party notice inventory | — | Root `LICENSE`, plan policy, SPDX guidance, and `THIRD_PARTY_NOTICES.md` are committed |
 | M0-010 | `TODO` | Add typed TOML loader with strict unknown-key rejection and relative path resolution | M0-001, M0-004 | Unit tests cover valid, missing, unknown, and type-invalid fields plus nested config paths |
 | M0-011 | `TODO` | Define provenance record and collection utilities | M0-002, M0-010 | Tests capture project/submodule commits, dirty flag, lock hash, config hash, platform, and seeds |
 | M0-012 | `TODO` | Add headless deterministic smoke experiment independent of GUI/hardware | M0-003, M0-010, M0-011 | Two same-seed executions produce equal canonical outputs within declared tolerance |
-| M0-GATE | `TODO` | Review and close the M0 gate | M0-006, M0-007, M0-008, M0-009, M0-012 | Reviewer reproduces install and all quality commands from a clean recursive checkout |
+| M0-013 | `TODO` | Add owner-approved citation and publication metadata | M0-001 | Citation file and publication metadata identify authorship, preferred citation, and release policy |
+| M0-GATE | `TODO` | Review and close the M0 gate | M0-006, M0-007, M0-008, M0-009, M0-012, M0-013 | Reviewer reproduces install and all quality commands from a clean recursive checkout |
 
 ## M1 — Demonstration pipeline and frozen baselines
 

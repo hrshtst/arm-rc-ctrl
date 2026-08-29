@@ -77,6 +77,28 @@ domain libraries. It must not duplicate their core responsibilities.
 All submodules are pinned to reviewed commits and initialized recursively.
 Project code may adapt public APIs but must not copy library internals.
 
+### 3.1 Licensing
+
+Original source code and documentation in this repository are licensed under
+`GPL-3.0-only`; see the root `LICENSE`. New source files carry
+`SPDX-License-Identifier: GPL-3.0-only` headers. This choice matches `skelarm`,
+which is GPL-3.0-only. Apache-2.0 code from `rclib` and `rtctrl` can be combined
+into a GPLv3 work, but their copyrights, license texts, and notices remain in
+force and are not relicensed by this project. See `THIRD_PARTY_NOTICES.md` and
+the [Apache compatibility guidance](https://www.apache.org/licenses/GPL-compatibility).
+
+Before redistributing a recursive checkout, release, binary, model, or asset
+bundle, audit every direct and transitive dependency at its pinned revision.
+In particular, CRANE-X7 descriptions and mesh assets used transitively by
+`rtctrl` carry noncommercial and other asset-specific terms; GPLv3 does not
+override them. Keep restricted assets out of distributable bundles unless their
+terms have been reviewed and satisfied.
+
+Software licensing does not automatically cover demonstrations, datasets,
+trained models, plots, or media. Each data/artifact record declares its own
+license and access classification; absence of that metadata means the artifact
+is private and not redistributable.
+
 If a generally useful capability is missing, implement a minimal local adapter
 first when possible. If the capability belongs to a library, create a focused
 branch and pull request in that library with tests, then advance this project's
@@ -672,8 +694,8 @@ latest model.
 - Optuna, MLflow, and DVC start with local storage and no required cloud account.
 - The initial task uses a horizontal, gravity-free `skelarm` model and controls
   arm joints only; the CRANE-X7 gripper is excluded until a task requires it.
-- Licensing and publication metadata are owner decisions. Do not guess or add a
-  license before the corresponding task is resolved.
+- Original project code and documentation are GPL-3.0-only. Third-party and
+  data/artifact terms remain separately applicable and must be inventoried.
 - Exact online-learning tasks, weight bounds, rollback policy, and hardware
   admission criteria remain deferred until offline results exist. Before Phase 7
   starts, replace that epic with a separately reviewed, decision-complete plan.

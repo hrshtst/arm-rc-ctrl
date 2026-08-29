@@ -36,6 +36,11 @@ and Ruff. Use `snake_case` for modules/functions, `PascalCase` for types, and
 TOML uses lowercase `snake_case`. Reject invalid data and unknown keys instead of
 silently correcting them.
 
+## Licensing
+
+Original work is `GPL-3.0-only`; add SPDX headers. Preserve dependency notices
+and review `THIRD_PARTY_NOTICES.md` before redistribution.
+
 ## Testing Guidelines
 
 Develop test-first. Name Python tests `test_<behavior>.py` and C++ tests
