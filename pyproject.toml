@@ -10,6 +10,9 @@ authors = [{ name = "Hiroshi Atsuta", email = "atsuta@ieee.org" }]
 requires-python = ">=3.12"
 dependencies = [
   "numpy>=2.0.0",
+  # Domain libraries are built from the pinned submodules (see [tool.uv.sources]).
+  "rclib",
+  "skelarm",
 ]
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
@@ -48,6 +51,14 @@ dev = [
 
 [tool.uv]
 default-groups = ["dev"]
+
+# Non-editable builds of the pinned submodules. uv does not rebuild a path
+# dependency when only its source files change, so after advancing a pin run:
+#   uv sync --reinstall-package rclib --reinstall-package skelarm
+# tests/unit/test_dependency_wiring.py fails if the installed copies are stale.
+[tool.uv.sources]
+rclib = { path = "third_party/rclib" }
+skelarm = { path = "third_party/skelarm" }
 
 # ----------------------------------------------------------------------------
 # Ruff: identical policy to rclib and skelarm (ALL rules, shared ignore list,

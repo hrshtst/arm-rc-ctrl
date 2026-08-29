@@ -22,7 +22,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M0-003` — wire pinned Python builds of `rclib` and `skelarm` into the `uv` environment.
+- **Next task:** `M0-005` — add the CMake skeleton under `cpp/` with Catch2.
 - **Current milestone:** M0 — repository foundation.
 - **Active blockers:** None.
 - **Latest completed planning work:** `DOC-001` and `DOC-002`.
@@ -53,7 +53,7 @@ are complete. Do not mark research software complete merely because it runs once
 | --- | --- | --- | --- | --- |
 | M0-001 | `DONE` | Add `pyproject.toml`, `src/arm_rc_ctrl`, Python 3.12 requirement, and `uv` dependency groups | DOC-002 | `uv sync` installs a clean environment from `pyproject.toml`/`uv.lock` (Python 3.12 via `.python-version`); `tests/unit/test_package.py` imports the package and checks the installed version |
 | M0-002 | `DONE` | Add pinned submodules at `third_party/rclib` (recursive), `third_party/skelarm`, and `third_party/rtctrl` (top-level until M5) | M0-001 | HTTPS submodules pinned at rclib `a015aca`, skelarm `ebb2611`, rtctrl `c601076` (table in `THIRD_PARTY_NOTICES.md`); bootstrap is `git submodule update --init third_party/skelarm third_party/rtctrl && git submodule update --init --recursive third_party/rclib` (rtctrl nested submodules deferred to M5); `tests/unit/test_submodule_pins.py` checks URLs, recorded gitlinks, checked-out HEADs, the notice table, and rclib nested submodules; fresh-clone bootstrap verified (see commit) |
-| M0-003 | `TODO` | Wire local/pinned Python builds of `rclib` and `skelarm` into the `uv` environment | M0-002 | Test imports both projects and records their revisions |
+| M0-003 | `DONE` | Wire local/pinned Python builds of `rclib` and `skelarm` into the `uv` environment | M0-002 | `[tool.uv.sources]` builds non-editable `rclib`/`skelarm` from the submodules (`uv sync`); `src/arm_rc_ctrl/dependencies.py` reports recorded/checked-out submodule revisions, installed versions, and stale installs; `tests/unit/test_dependency_wiring.py` imports both libraries headless, checks versions/sources against the pins, and records revisions |
 | M0-004 | `DONE` | Add Ruff, strict type checking, pytest, coverage, and pre-commit configuration | M0-001 | Ruff (upstream policy), basedpyright `strict`, pytest (`filterwarnings=error`, strict markers/config), branch coverage, pre-commit, and `noxfile.py` (`lint`, `type_check`, `tests`, `pre_commit`) configured; `tests/unit/test_quality_tools.py` proves each tool reports the planted problems in `tests/fixtures/quality/`; `uv run nox` and `uv run nox -s pre_commit` pass on the clean tree |
 | M0-005 | `TODO` | Add CMake skeleton under `cpp/` with Catch2 and an empty library/application vertical slice | M0-002 | Configure, build, and CTest smoke test pass without a robot |
 | M0-006 | `TODO` | Add CI for Python lint/type/test and C++ configure/build/test | M0-003, M0-004, M0-005 | CI starts from recursive checkout and all jobs pass |
