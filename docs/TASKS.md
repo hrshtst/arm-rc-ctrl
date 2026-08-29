@@ -22,7 +22,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M0-010` — add the typed TOML loader.
+- **Next task:** `M0-014` — implement machine-local external storage-root resolution.
 - **Current milestone:** M0 — repository foundation.
 - **Active blockers:** None.
 - **Latest completed planning work:** `DOC-001` and `DOC-002`.
@@ -60,7 +60,7 @@ are complete. Do not mark research software complete merely because it runs once
 | M0-007 | `DONE` | Add `.gitignore` and external data/artifact conventions | M0-001 | `.gitignore` excludes payload formats, external-layout directories, DVC cache/local config, `storage.toml`, builds, and tool caches while `data/records/**/*.toml`, DVC metafiles, `configs/*.example.toml`, and `tests/fixtures/` stay trackable; `data/README.md` states the conventions; `tests/unit/test_gitignore_conventions.py` verifies 43 representative paths with `git check-ignore` |
 | M0-008 | `TODO` | Add README setup, quality, and recursive-checkout commands | M0-003, M0-005 | A clean-room walkthrough uses only documented commands |
 | M0-009 | `DONE` | Add GPL-3.0-only licensing and initial third-party notice inventory | — | Root `LICENSE`, plan policy, SPDX guidance, and `THIRD_PARTY_NOTICES.md` are committed |
-| M0-010 | `TODO` | Add typed TOML loader with strict unknown-key rejection and relative path resolution | M0-001, M0-004 | Unit tests cover valid, missing, unknown, and type-invalid fields plus nested config paths |
+| M0-010 | `DONE` | Add typed TOML loader with strict unknown-key rejection and relative path resolution | M0-001, M0-004 | `arm_rc_ctrl.config` (`load_config`, `from_mapping`, `to_mapping`, `ConfigError`) maps TOML onto frozen dataclasses with unknown-key rejection, exact types (no int/float/bool coercion, finite floats), dotted error locations, and `Path` resolution relative to the config file; `tests/unit/test_config_loader.py` (27 cases) covers valid, missing, unknown, type-invalid, nested/array locations, path resolution, round trip, and schema errors |
 | M0-011 | `TODO` | Define provenance record and collection utilities | M0-002, M0-010 | Tests capture project/submodule commits, dirty flag, lock/config hashes, logical artifact URIs/digests, platform, and seeds |
 | M0-012 | `TODO` | Add headless deterministic smoke experiment independent of GUI/hardware | M0-003, M0-010, M0-011 | Two same-seed executions produce equal canonical outputs within declared tolerance |
 | M0-013 | `TODO` | Add owner-approved citation and publication metadata | M0-001 | Citation file and publication metadata identify authorship, preferred citation, and release policy |
