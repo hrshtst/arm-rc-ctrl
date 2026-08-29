@@ -22,7 +22,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M0-014` — implement machine-local external storage-root resolution.
+- **Next task:** `M0-011` — define provenance record and collection utilities.
 - **Current milestone:** M0 — repository foundation.
 - **Active blockers:** None.
 - **Latest completed planning work:** `DOC-001` and `DOC-002`.
@@ -64,7 +64,7 @@ are complete. Do not mark research software complete merely because it runs once
 | M0-011 | `TODO` | Define provenance record and collection utilities | M0-002, M0-010 | Tests capture project/submodule commits, dirty flag, lock/config hashes, logical artifact URIs/digests, platform, and seeds |
 | M0-012 | `TODO` | Add headless deterministic smoke experiment independent of GUI/hardware | M0-003, M0-010, M0-011 | Two same-seed executions produce equal canonical outputs within declared tolerance |
 | M0-013 | `TODO` | Add owner-approved citation and publication metadata | M0-001 | Citation file and publication metadata identify authorship, preferred citation, and release policy |
-| M0-014 | `TODO` | Implement machine-local external storage-root resolution | M0-010 | Tests enforce environment/XDG/default precedence, `armrc://` resolution, access checks, and no repository fallback |
+| M0-014 | `DONE` | Implement machine-local external storage-root resolution | M0-010 | `arm_rc_ctrl.storage` resolves env → XDG `storage.toml` → `/external/arm-rc-ctrl`, validates an existing readable root outside any known worktree (never created, never the repository), parses/renders `armrc://<bucket>/…` with traversal/absolute/charset rejection, canonicalizes targets and refuses symlink escapes, and distinguishes read (must exist/readable) from write (writable root, parents created); `tests/unit/test_storage.py` (43 cases) covers precedence, XDG fallback, invalid config, access checks, symlinks, and the committed example config |
 | M0-GATE | `TODO` | Review and close the M0 gate | M0-006, M0-007, M0-008, M0-009, M0-012, M0-013, M0-014 | Reviewer reproduces install and all quality commands from a clean recursive checkout |
 
 ## M1 — Demonstration pipeline and frozen baselines
