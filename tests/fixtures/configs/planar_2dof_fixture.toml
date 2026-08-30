@@ -1,0 +1,29 @@
+# Scenario of the committed raw fixture tests/fixtures/raw/demo.sklog.npz:
+# a planar 2-DOF PD reach simulated by skelarm (see
+# arm_rc_ctrl.data.synthetic.synthetic_demonstration_log).
+[robot]
+base_length = 0.0
+
+[[robot.links]]
+length = 0.30
+mass = 1.0
+inertia = 0.0075
+com = [0.15, 0.0]
+q_min = -3.0
+q_max = 3.0
+
+[[robot.links]]
+length = 0.25
+mass = 0.6
+inertia = 0.0031
+com = [0.125, 0.0]
+q_min = -3.0
+q_max = 3.0
+
+[simulation]
+dt = 0.01
+duration = 0.3
+initial_q = [0.3, 0.6]
+target_q = [0.8, 0.4]
+kp = [20.0, 10.0]
+kd = [2.0, 1.0]

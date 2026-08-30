@@ -93,6 +93,19 @@ serialization must stay byte-stable.
   record path, `uri`, `sha256`, `created_at`). It is append-only: entries are
   never changed or removed.
 
+## Loading raw demonstrations
+
+`arm_rc_ctrl.data.raw.load_raw_demonstration(store, record)` resolves the
+record's URI under the storage root, verifies size and SHA-256, parses the
+`.sklog.npz` read-only, and cross-checks it against the record (log schema
+version, required `q`/`dq` channels, declared units versus the channels and
+units in the log, joint count, strictly increasing time from zero, sampling
+period per the declared clock, intervals within the recording). Missing,
+unreadable, mismatched, corrupt, or disagreeing payloads fail before any data
+is returned and are never modified. `tests/fixtures/raw/demo.sklog.npz` with
+`tests/fixtures/records/raw-20260830-287036d83d46.toml` is the committed
+known-good example.
+
 ## Immutability
 
 Payload creation is transactional: write to an external temporary path,

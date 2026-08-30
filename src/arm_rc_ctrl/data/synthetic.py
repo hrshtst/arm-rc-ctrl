@@ -9,10 +9,11 @@ from typing import Any
 
 import numpy as np
 from numpy.typing import NDArray
+from skelarm import StateLog
 
 from arm_rc_ctrl.data.samples import PHASE_DWELL, PHASE_MOVE, PHASE_PRIME, SampleSet
 
-__all__ = ["synthetic_arrays", "synthetic_samples"]
+__all__ = ["synthetic_arrays", "synthetic_demonstration_log", "synthetic_samples"]
 
 
 def synthetic_arrays(
@@ -43,3 +44,25 @@ def synthetic_arrays(
 def synthetic_samples(n: int = 6, dof: int = 2, task_dim: int = 2, code_dim: int = 0) -> SampleSet:
     """A valid :class:`SampleSet` built from :func:`synthetic_arrays`."""
     return SampleSet.from_arrays(synthetic_arrays(n, dof, task_dim, code_dim))
+
+
+def synthetic_demonstration_log(*, dt: float = 0.01, duration: float = 0.3) -> StateLog:
+    """A short, deterministic planar 2-DOF PD reach recorded as a ``skelarm`` log.
+
+    Used to build the committed raw fixture; the log embeds the skeleton and
+    the ``q``, ``dq``, ``tau``, ``q_ref``, and ``error`` channels.
+    """
+    from skelarm import JointPD, LinkProp, SampledJointReference, Skeleton, simulate_controlled
+
+    props = [
+        LinkProp(length=0.30, m=1.0, i=0.0075, rgx=0.15, rgy=0.0, qmin=-3.0, qmax=3.0),
+        LinkProp(length=0.25, m=0.6, i=0.0031, rgx=0.125, rgy=0.0, qmin=-3.0, qmax=3.0),
+    ]
+    skeleton = Skeleton(props)
+    skeleton.q = np.array([0.3, 0.6])
+    skeleton.dq = np.zeros(2)
+    target = np.array([0.8, 0.4])
+    zeros = np.zeros(2)
+    reference = SampledJointReference([0.0, duration], [target, target], [zeros, zeros], [zeros, zeros])
+    controller = JointPD(reference, kp=np.array([20.0, 10.0]), kd=np.array([2.0, 1.0]))
+    return simulate_controlled(skeleton, controller, duration=duration, dt=dt)
