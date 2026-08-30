@@ -50,6 +50,17 @@ uv sync
 uv run python -m arm_rc_ctrl.dependencies rebuild
 ```
 
+rclib's nested Eigen submodule is hosted on gitlab.com, which regularly refuses
+clones under load. If the recursive init fails with "GitLab is currently unable
+to handle this request", point that one submodule at the GitHub mirror and
+re-run the recursive init; git checks out the same recorded commit either way:
+
+```bash
+git -C third_party/rclib config submodule.cpp_core/third_party/eigen.url \
+  https://github.com/eigen-mirror/eigen.git
+git submodule update --init --recursive third_party/rclib
+```
+
 uv does not rebuild a path dependency when only its sources change, and a
 compiled extension carries no revision of its own, so the manifest is the only
 link between the installed binaries and the pins. Run the `rebuild` command

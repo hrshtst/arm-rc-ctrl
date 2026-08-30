@@ -41,15 +41,18 @@ jobs:
           submodules: false
 
       - name: Initialize pinned submodules (rclib recursively; skelarm and rtctrl top-level)
-        # Eigen is hosted on gitlab.com, which occasionally refuses clones under
-        # load; retry the recursive init and then require every nested submodule.
+        # rclib's Eigen submodule is hosted on gitlab.com, which regularly refuses
+        # clones under load. Try the pinned upstream first and fall back to the
+        # GitHub mirror; git checks out the recorded commit SHA either way, so the
+        # host cannot change the content. Finally require every nested submodule.
         run: |
-          git submodule update --init third_party/skelarm third_party/rtctrl
-          for attempt in 1 2 3; do
-            git submodule update --init --recursive third_party/rclib && break
-            echo "rclib submodule fetch failed (attempt $attempt); retrying in 30 s" >&2
-            sleep 30
-          done
+          git submodule update --init third_party/skelarm third_party/rtctrl third_party/rclib
+          if ! git submodule update --init --recursive third_party/rclib; then
+            echo "gitlab.com refused the Eigen clone; retrying from the GitHub mirror" >&2
+            git -C third_party/rclib config submodule.cpp_core/third_party/eigen.url \
+              https://github.com/eigen-mirror/eigen.git
+            git submodule update --init --recursive third_party/rclib
+          fi
           if git submodule status --recursive third_party/rclib | grep -q '^-'; then
             echo "rclib nested submodules are incomplete" >&2
             exit 1
