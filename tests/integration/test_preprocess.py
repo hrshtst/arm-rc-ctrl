@@ -310,6 +310,12 @@ def test_retry_at_a_later_time_keeps_the_finalized_provenance(
     stored = ProvenanceRecord.from_json((store.root / "processed" / orphan / "provenance.json").read_text())
     assert stored.created_at == FIXED_TIME.isoformat()
 
+    assert stored.config["record"] == {
+        "license": "GPL-3.0-only",
+        "access": "public",
+        "command": "python -m arm_rc_ctrl.data.preprocess",
+    }
+
     later = _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1))
     assert later.resumed is True
     assert later.provenance == stored  # the retry's own (07:01) provenance is discarded
@@ -482,3 +488,91 @@ def test_resume_refuses_several_finalized_copies(
     with pytest.raises(FileExistsError, match="several finalized payloads carry digest"):
         _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1))
     assert len(_processed_entries(store)) == 2  # staging cleaned up, both copies left in place
+
+
+@pytest.mark.parametrize(
+    ("field", "original", "edited"),
+    [
+        ("artifact.license", 'license = "GPL-3.0-only"', 'license = "MIT"'),
+        ("artifact.access", 'access = "public"', 'access = "internal"'),
+        (
+            "artifact.origin.command",
+            'command = "python -m arm_rc_ctrl.data.preprocess"',
+            'command = "edited command"',
+        ),
+    ],
+)
+def test_resume_rejects_edited_immutable_metadata_without_overrides(
+    store: StorageRoot, records_root: Path, monkeypatch: pytest.MonkeyPatch, field: str, original: str, edited: str
+) -> None:
+    """License, access, and command are bound to the stored provenance; editing them in record.toml is detected."""
+    monkeypatch.setattr("arm_rc_ctrl.data.preprocess.write_record", _fail)
+    with pytest.raises(RuntimeError):
+        _run_at(store, records_root, FIXED_TIME)
+    monkeypatch.undo()
+    (orphan,) = _processed_entries(store)
+    pending_file = store.root / "processed" / orphan / "record.toml"
+    text = pending_file.read_text()
+    assert text.count(original) == 1, field
+    pending_file.write_text(text.replace(original, edited))
+    with pytest.raises(FileExistsError, match=r"record\.toml does not describe this payload and provenance"):
+        _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1))
+    assert list((records_root / "data" / "records" / "processed").iterdir()) == []
+
+    # Editing the provenance's record section consistently instead is caught the same way: the pending
+    # record no longer matches what the stored metadata rebuilds.
+    pending_file.write_text(text)
+    provenance_file = store.root / "processed" / orphan / "provenance.json"
+    data = json.loads(provenance_file.read_text())
+    config = json.loads(data["config_json"])
+    config["record"][field.rsplit(".", maxsplit=1)[-1]] = edited.split('"')[1]
+    data["config_json"] = canonical_json(config)
+    data["config_sha256"] = hashlib.sha256(data["config_json"].encode("utf-8")).hexdigest()
+    provenance_file.write_text(json.dumps(data))
+    with pytest.raises(FileExistsError, match=r"record\.toml does not describe this payload and provenance"):
+        _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1))
+
+
+def test_resume_requires_record_metadata_in_the_stored_provenance(
+    store: StorageRoot, records_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A stored provenance without the bound record metadata cannot justify a resume."""
+    monkeypatch.setattr("arm_rc_ctrl.data.preprocess.write_record", _fail)
+    with pytest.raises(RuntimeError):
+        _run_at(store, records_root, FIXED_TIME)
+    monkeypatch.undo()
+    (orphan,) = _processed_entries(store)
+    provenance_file = store.root / "processed" / orphan / "provenance.json"
+    data = json.loads(provenance_file.read_text())
+    config = json.loads(data["config_json"])
+    config["record"] = {
+        "license": "GPL-3.0-only",
+        "access": "secret",
+        "command": "python -m arm_rc_ctrl.data.preprocess",
+    }
+    data["config_json"] = canonical_json(config)
+    data["config_sha256"] = hashlib.sha256(data["config_json"].encode("utf-8")).hexdigest()
+    provenance_file.write_text(json.dumps(data))
+    with pytest.raises(FileExistsError, match="lacks valid record metadata"):
+        _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1))
+
+
+def test_payload_lookup_matches_the_full_digest(
+    store: StorageRoot, records_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A directory carrying the digest prefix but another payload is a namespace conflict, never a match."""
+    monkeypatch.setattr("arm_rc_ctrl.data.preprocess.write_record", _fail)
+    with pytest.raises(RuntimeError):
+        _run_at(store, records_root, FIXED_TIME)
+    monkeypatch.undo()
+    (orphan,) = _processed_entries(store)
+    impostor = store.root / "processed" / orphan.replace("20260830", "20260829")
+    shutil.copytree(store.root / "processed" / orphan, impostor)
+    (impostor / "samples.npz").write_bytes(b"not the payload")
+    with pytest.raises(FileExistsError, match=f"{impostor.name} exists under .* but its payload differs"):
+        _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1))
+    (impostor / "samples.npz").unlink()
+    with pytest.raises(FileExistsError, match="payload differs"):
+        _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1))
+    shutil.rmtree(impostor)
+    assert _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1)).resumed is True

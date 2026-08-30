@@ -33,6 +33,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import numpy as np
 
@@ -210,10 +211,14 @@ def preprocess_demonstration(
     _check_scenario_matches(raw, scenario_file, scenario)
 
     demo = load_raw_demonstration(store, raw)
+    license_label = license_override or raw.artifact.license
+    access = access_override or raw.artifact.access
     resolved = {
         "scenario": to_mapping(scenario),
         "preprocessing": to_mapping(config),
         "raw_artifact": raw.artifact.artifact_id,
+        # Immutable record metadata is bound to the provenance so a resumed run rebuilds the record from it.
+        "record": {"license": license_label, "access": access, "command": command},
     }
     source_ref = ArtifactReference(raw.artifact.payload.uri, raw.artifact.payload.sha256, raw.artifact.payload.size)
     provenance = collect_provenance(resolved, seeds={}, artifacts=[source_ref], exploratory=exploratory, now=now)
@@ -255,11 +260,7 @@ def preprocess_demonstration(
             )
 
         record = rebuild(
-            make_artifact_id("processed", provenance.created_at, digest),
-            provenance,
-            command,
-            license_override or raw.artifact.license,
-            access_override or raw.artifact.access,
+            make_artifact_id("processed", provenance.created_at, digest), provenance, command, license_label, access
         )
         (staging / PROVENANCE_FILE).write_text(provenance.to_json() + "\n", encoding="utf-8")
         # The complete pending record travels with the payload, so a retry cannot redefine its metadata.
@@ -341,11 +342,24 @@ type RecordBuilder = Callable[[str, ProvenanceRecord, str, str, AccessClass], Pr
 """Rebuilds the record for (artifact ID, provenance, command, license, access) from the freshly processed samples."""
 
 
-def _finalized_payloads(store: StorageRoot, digest: str) -> list[Path]:
-    """Finalized processed directories whose content-addressed ID carries this payload digest, on any date."""
+def _finalized_payloads(store: StorageRoot, digest: str) -> tuple[list[Path], list[Path]]:
+    """Finalized processed directories holding exactly this payload, on any date, and conflicting ones.
+
+    Directories are pre-selected by the digest prefix in their content-addressed
+    ID and then verified by the full SHA-256 of their payload file; a directory
+    whose ID carries the prefix but whose payload is missing or different is a
+    conflict in the content-addressed namespace and is reported separately.
+    """
     bucket = store.root / "processed"
     suffix = make_artifact_id("processed", "2000-01-01T00:00:00+00:00", digest).rsplit("-", 1)[1]
-    return sorted(path for path in bucket.glob(f"processed-*-{suffix}") if path.is_dir())
+    matches: list[Path] = []
+    conflicts: list[Path] = []
+    for path in sorted(bucket.glob(f"processed-*-{suffix}")):
+        if not path.is_dir():
+            continue
+        payload = path / PROCESSED_PAYLOAD_NAME
+        (matches if payload.is_file() and sha256_file(payload) == digest else conflicts).append(path)
+    return matches, conflicts
 
 
 def _finalize_payload(
@@ -369,52 +383,70 @@ def _finalize_payload(
     inconsistent is left in place for inspection.
     """
     digest = record.artifact.payload.sha256
-    candidates = _finalized_payloads(store, digest)
-    if not candidates:
+    matches, conflicts = _finalized_payloads(store, digest)
+    if conflicts:
+        names = ", ".join(path.name for path in conflicts)
+        msg = f"{names} exists under {store.root / 'processed'} but its payload differs from the freshly processed one"
+        raise FileExistsError(msg + "; inspect and remove it manually")
+    if not matches:
         final_dir = store.path(ArtifactUri("processed", (record.artifact.artifact_id,)), mode="write")
         staging.rename(final_dir)
         return record, provenance, False
-    if len(candidates) > 1:
-        names = ", ".join(path.name for path in candidates)
+    if len(matches) > 1:
+        names = ", ".join(path.name for path in matches)
         msg = f"several finalized payloads carry digest {digest[:12]} ({names}); inspect and remove them manually"
         raise FileExistsError(msg)
-    final_dir = candidates[0]
+    final_dir = matches[0]
     where = f"{final_dir.name} exists under {final_dir.parent} but"
-    existing = final_dir / PROCESSED_PAYLOAD_NAME
-    if not existing.is_file() or sha256_file(existing) != digest:
-        msg = f"{where} its payload differs from the freshly processed one; inspect and remove it manually"
-        raise FileExistsError(msg)
     try:
         stored = ProvenanceRecord.from_json((final_dir / PROVENANCE_FILE).read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError, KeyError) as exc:
         msg = f"{where} its {PROVENANCE_FILE} is missing or invalid ({exc}); inspect and remove it manually"
         raise FileExistsError(msg) from exc
-    if stored.config_sha256 != provenance.config_sha256 or stored.artifacts != provenance.artifacts:
+    stored_config, fresh_config = stored.config, provenance.config
+    if stored.artifacts != provenance.artifacts or any(
+        stored_config.get(section) != fresh_config.get(section) for section in _PIPELINE_SECTIONS
+    ):
         msg = f"{where} its {PROVENANCE_FILE} was produced from different inputs; inspect and remove it manually"
         raise FileExistsError(msg)
+    metadata = _record_metadata(stored_config, where)
     try:
         pending = load_record(final_dir / PENDING_RECORD_FILE, ProcessedDatasetRecord)
     except (OSError, ValueError, TypeError, KeyError) as exc:
         msg = f"{where} its {PENDING_RECORD_FILE} is missing or invalid ({exc}); inspect and remove it manually"
         raise FileExistsError(msg) from exc
-    artifact = pending.artifact
-    expected = rebuild(artifact.artifact_id, stored, artifact.origin.command, artifact.license, artifact.access)
-    if (
-        artifact.artifact_id != final_dir.name
-        or artifact.artifact_id != make_artifact_id("processed", stored.created_at, digest)
-        or pending != expected
-    ):
+    artifact_id = make_artifact_id("processed", stored.created_at, digest)
+    expected = rebuild(
+        artifact_id, stored, metadata["command"], metadata["license"], cast("AccessClass", metadata["access"])
+    )
+    if artifact_id != final_dir.name or pending != expected:
         msg = f"{where} its {PENDING_RECORD_FILE} does not describe this payload and provenance; inspect and remove it"
         raise FileExistsError(msg)
-    for name, wanted, recorded in (
-        ("license", requested[0], artifact.license),
-        ("access", requested[1], artifact.access),
-    ):
-        if wanted is not None and wanted != recorded:
-            msg = f"{where} it was recorded with {name} {recorded!r}, and this retry asks for {wanted!r}"
+    for name, wanted in (("license", requested[0]), ("access", requested[1])):
+        if wanted is not None and wanted != metadata[name]:
+            msg = f"{where} it was recorded with {name} {metadata[name]!r}, and this retry asks for {wanted!r}"
             raise FileExistsError(msg)
     shutil.rmtree(staging, ignore_errors=True)
     return pending, stored, True
+
+
+_PIPELINE_SECTIONS = ("scenario", "preprocessing", "raw_artifact")
+"""Sections of the resolved configuration that define the payload (the ``record`` section defines its metadata)."""
+
+
+def _record_metadata(config: dict[str, object], where: str) -> dict[str, str]:
+    """The immutable record metadata bound into a stored provenance, validated."""
+    section = config.get("record")
+    values = cast("dict[str, object]", section) if isinstance(section, dict) else {}
+    metadata = {name: values.get(name) for name in ("license", "access", "command")}
+    if any(not isinstance(value, str) or not value for value in metadata.values()) or metadata["access"] not in (
+        "private",
+        "internal",
+        "public",
+    ):
+        msg = f"{where} its {PROVENANCE_FILE} lacks valid record metadata (license, access, command); inspect it"
+        raise FileExistsError(msg)
+    return cast("dict[str, str]", metadata)
 
 
 def _differing_fields(existing: ProcessedDatasetRecord, record: ProcessedDatasetRecord) -> list[str]:
