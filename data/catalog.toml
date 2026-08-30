@@ -7,3 +7,11 @@ record = "data/records/raw/raw-20260830-b5adde395f1c.toml"
 uri = "armrc://raw/raw-20260830-b5adde395f1c/demo.sklog.npz"
 sha256 = "b5adde395f1cde0a39bb95183f740b2fbb82fc7774988de65664d2a49953a713"
 created_at = "2026-08-30T14:44:19+00:00"
+
+[[artifacts]]
+artifact_id = "processed-20260830-feaf73e6663c"
+kind = "processed"
+record = "data/records/processed/processed-20260830-feaf73e6663c.toml"
+uri = "armrc://processed/processed-20260830-feaf73e6663c/samples.npz"
+sha256 = "feaf73e6663c865cf9232c5a620bab5729ea02e6bd8c0181ad3dae5733540767"
+created_at = "2026-08-30T14:45:13+00:00"

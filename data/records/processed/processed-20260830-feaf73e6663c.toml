@@ -1,0 +1,216 @@
+n_samples = 501
+dof = 2
+task_dim = 2
+task_code_dim = 0
+
+[artifact]
+artifact_id = "processed-20260830-feaf73e6663c"
+kind = "processed"
+created_at = "2026-08-30T14:45:13+00:00"
+license = "CC0-1.0"
+access = "public"
+notes = "Processed from raw-20260830-b5adde395f1c under scenario task-1a-reach."
+schema_version = 1
+
+[artifact.payload]
+uri = "armrc://processed/processed-20260830-feaf73e6663c/samples.npz"
+sha256 = "feaf73e6663c865cf9232c5a620bab5729ea02e6bd8c0181ad3dae5733540767"
+size = 58288
+format = "samples.npz"
+schema_version = 1
+
+[artifact.origin]
+command = "python -m arm_rc_ctrl.data.preprocess --raw data/records/raw/raw-20260830-b5adde395f1c.toml --scenario configs/tasks/task_1a.toml"
+config_sha256 = "b2a0d544825389f28ff18016fba1d2f2d1a839f553406a18825fe087f7dba67e"
+project_commit = "2410b012139cd2f65e7c3f6269cf1e1b3e1c5152"
+project_dirty = false
+sources = [
+    "raw-20260830-b5adde395f1c",
+]
+
+[artifact.origin.dependency_commits]
+rclib = "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b"
+skelarm = "ebb26118864ad158ef2ad36af68027b1a12ade1a"
+rtctrl = "c601076ee60ec712c1cb4a85756a186882df2e1b"
+
+[scenario]
+config_path = "configs/tasks/task_1a.toml"
+config_sha256 = "23c89a7f8a15fde55101dbefa4fe8e226b83e46e7967d0d2dac248a886607c0d"
+robot = "planar-2dof"
+task = "task-1a-reach"
+dof = 2
+initial_q = [
+    0.2,
+    1.2,
+]
+target = [
+    0.1,
+    0.45,
+]
+
+[units]
+t = "s"
+q = "rad"
+dq = "rad/s"
+ddq = "rad/s^2"
+tip = "m"
+dtip = "m/s"
+ddtip = "m/s^2"
+task_code = "1"
+phase = "code"
+
+[phases]
+prime = 0
+move = 1
+dwell = 2
+
+[preprocessing]
+resample_period_s = 0.01
+smoothing = "butterworth-zero-phase"
+derivative_method = "central-difference"
+interpolation = "linear"
+
+[preprocessing.smoothing_params]
+order = 4.0
+cutoff_hz = 5.0
+
+[arrays.t]
+shape = [
+    501,
+]
+dtype = "float64"
+sha256 = "4887e6357d66ba9572d408aa41635b7c36734af3d1f5c441e229687acafd5118"
+
+[arrays.q]
+shape = [
+    501,
+    2,
+]
+dtype = "float64"
+sha256 = "c67a1f49d1bb2fb56c7e650dd1e018e38704d61ac3b04d5784d729ca8502c277"
+
+[arrays.dq]
+shape = [
+    501,
+    2,
+]
+dtype = "float64"
+sha256 = "ee971664d176dbae90ef957c9b4aa11023d43ef0d37599d336f983216aad2305"
+
+[arrays.ddq]
+shape = [
+    501,
+    2,
+]
+dtype = "float64"
+sha256 = "29a4100dc6cc062766e0c2a014a232d5aecac50d1cee0796075c53d0def1ba35"
+
+[arrays.tip]
+shape = [
+    501,
+    2,
+]
+dtype = "float64"
+sha256 = "d44cf549afb35df5ae48b13e471edaaee04b3feb568b89fdbf16a32943e66724"
+
+[arrays.dtip]
+shape = [
+    501,
+    2,
+]
+dtype = "float64"
+sha256 = "e4c0543e6e0056b8ce4e05f945d7a69ded6c100d73b3297c3054cad2bb4b71c9"
+
+[arrays.ddtip]
+shape = [
+    501,
+    2,
+]
+dtype = "float64"
+sha256 = "28eab22f05ba5804a825ac20a903f2b8a71fd70b97bdcdde5293729b05c7362a"
+
+[arrays.task_code]
+shape = [
+    501,
+    0,
+]
+dtype = "float64"
+sha256 = "026b6e904404c4a12eafece5be32e3ffa52679596d5cb8c13a8dbf7883e28595"
+
+[arrays.phase]
+shape = [
+    501,
+]
+dtype = "int64"
+sha256 = "f8339be7bc17f84012462af74f4e0a3cdddf5a0d92d4611b1d104e3cd9aacda0"
+
+[normalization]
+fitted_on = [
+    "processed-20260830-feaf73e6663c",
+]
+
+[normalization.channels.q]
+mean = [
+    0.5159657475692301,
+    1.1796397403637415,
+]
+scale = [
+    0.27187788644720606,
+    0.017519317837477635,
+]
+replaced_near_zero = []
+
+[normalization.channels.dq]
+mean = [
+    0.1261340309502653,
+    -0.00812784815718683,
+]
+scale = [
+    0.14831015696188585,
+    0.009556837491621931,
+]
+replaced_near_zero = []
+
+[normalization.channels.ddq]
+mean = [
+    2.956351012298801e-10,
+    -1.9048856526303084e-11,
+]
+scale = [
+    0.22450835637121333,
+    0.014466911243995373,
+]
+replaced_near_zero = []
+
+[normalization.channels.tip]
+mean = [
+    0.2212520728444521,
+    0.3826673418225258,
+]
+scale = [
+    0.10198107739037551,
+    0.06239386367627003,
+]
+replaced_near_zero = []
+
+[normalization.channels.dtip]
+mean = [
+    -0.047207935937335355,
+    0.028749853942387306,
+]
+scale = [
+    0.0563624120602133,
+    0.035794114583554096,
+]
+replaced_near_zero = []
+
+[normalization.channels.ddtip]
+mean = [
+    -1.9618177829644136e-10,
+    -7.41134986603997e-11,
+]
+scale = [
+    0.08653738863771687,
+    0.05761281781603842,
+]
+replaced_near_zero = []

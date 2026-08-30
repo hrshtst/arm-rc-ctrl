@@ -9,7 +9,7 @@ import dataclasses
 import json
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
@@ -22,6 +22,7 @@ from arm_rc_ctrl.data.records import (
     Intervals,
     Origin,
     Payload,
+    ProcessedDatasetRecord,
     RawDemonstrationRecord,
     Sampling,
     Scenario,
@@ -37,6 +38,7 @@ from arm_rc_ctrl.data.records import (
     write_catalog,
     write_record,
 )
+from arm_rc_ctrl.experiments.run_record import RunPointerRecord
 from arm_rc_ctrl.provenance import ArtifactMismatchError, collect_provenance, sha256_bytes
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.storage import StorageAccessError, StorageRoot
@@ -439,11 +441,17 @@ def test_catalog_rejects_duplicates_and_bad_entries() -> None:
 def test_committed_catalog_is_valid_and_consistent_with_record_files() -> None:
     """data/catalog.toml loads and every listed record file exists with a matching ID."""
     catalog = load_catalog(catalog_path(REPO_ROOT))
+    schemas: dict[str, type[object]] = {
+        "raw": RawDemonstrationRecord,
+        "processed": ProcessedDatasetRecord,
+        "run": RunPointerRecord,
+        "model": ArtifactRecord,
+    }
     for entry in catalog.artifacts:
         record_file = REPO_ROOT / entry.record
         assert record_file.is_file(), entry
-        loaded = load_record(record_file, ArtifactRecord if entry.kind != "raw" else RawDemonstrationRecord)
-        artifact = loaded if isinstance(loaded, ArtifactRecord) else loaded.artifact
+        loaded = load_record(record_file, schemas[entry.kind])
+        artifact = loaded if isinstance(loaded, ArtifactRecord) else cast("Any", loaded).artifact
         assert artifact.artifact_id == entry.artifact_id
         assert artifact.payload.uri == entry.uri
         assert artifact.payload.sha256 == entry.sha256
