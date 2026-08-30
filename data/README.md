@@ -51,6 +51,36 @@ armrc://<bucket>/<relative/path>
 └── dvc-store/
 ```
 
+## Record files
+
+Records are frozen dataclasses in `arm_rc_ctrl.data.records`, serialized as
+TOML by `to_toml` and loaded through the strict configuration mapper
+(`load_record`), so unknown keys, wrong types, and inconsistent values are
+rejected. `tests/fixtures/records/` holds a committed example whose
+serialization must stay byte-stable.
+
+- **Artifact ID** (immutable, content-addressed):
+  `<kind>-<YYYYMMDD>-<first 12 hex of the payload SHA-256>`, where `<kind>` is
+  `raw`, `processed`, `run`, or `model` and the date is the record's
+  `created_at` (UTC). `make_artifact_id` derives it.
+- **File:** `data/records/<raw|processed|runs|models>/<artifact-id>.toml`.
+- **Common `[artifact]` fields:** `schema_version`, `artifact_id`, `kind`,
+  `created_at` (UTC, seconds), `license` (SPDX or `LicenseRef-...`),
+  `access` (`private` | `internal` | `public`), `notes`, optional
+  `expires_at` and `supersedes`; `[artifact.payload]` (`uri`, `sha256`,
+  `size`, `format`, `schema_version`); `[artifact.origin]` (`command`,
+  `config_sha256`, `project_commit`, `project_dirty`, `dependency_commits`,
+  `sources`, optional `run_id`); optional `[artifact.dvc]` (`target`, `md5`).
+- **Raw demonstration records** add `[scenario]` (repository-relative config
+  path and digest, robot, task, dof, initial posture, target), `[sampling]`
+  (period, clock, per-channel units), `session` (pseudonymous teacher or
+  recording session), `[intervals]` (`prime`, `move`, `dwell` as contiguous
+  `[start, end]` pairs starting at 0), and `duration_s`. Their payload is the
+  unchanged `skelarm` log at `armrc://raw/<artifact-id>/demo.sklog.npz`.
+- **Catalog:** `data/catalog.toml` lists every record (`artifact_id`, `kind`,
+  record path, `uri`, `sha256`, `created_at`). It is append-only: entries are
+  never changed or removed.
+
 ## Immutability
 
 Payload creation is transactional: write to an external temporary path,

@@ -313,3 +313,25 @@ def test_post_init_value_errors_become_located_config_errors() -> None:
     assert from_mapping({"inner": {"value": 1}}, _Outer).inner.value == 1
     with pytest.raises(ConfigError, match=r"inner: value must be positive, got 0"):
         from_mapping({"inner": {"value": 0}}, _Outer)
+
+
+type _Mode = Literal["fast", "slow"]
+type _Gains = tuple[float, ...]
+
+
+@dataclass(frozen=True)
+class _Aliased:
+    """Schema using PEP 695 type aliases."""
+
+    mode: _Mode
+    gains: _Gains
+
+
+def test_pep695_type_aliases_are_unwrapped() -> None:
+    """``type X = ...`` aliases validate against their target type."""
+    cfg = from_mapping({"mode": "fast", "gains": [1.0, 2.0]}, _Aliased)
+    assert cfg == _Aliased("fast", (1.0, 2.0))
+    with pytest.raises(ConfigError, match=r"mode: expected one of 'fast', 'slow', got 'medium'"):
+        from_mapping({"mode": "medium", "gains": []}, _Aliased)
+    with pytest.raises(ConfigError, match=r"gains\[0\]: expected float, got integer"):
+        from_mapping({"mode": "fast", "gains": [1]}, _Aliased)
