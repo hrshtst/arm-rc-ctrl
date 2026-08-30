@@ -171,7 +171,7 @@ class ProvenanceRecord:
         _validate_config_json(self.config_json, self.config_sha256)
         _validate_timestamp(self.created_at)
         _validate_seeds(self.seeds)
-        _validate_uniqueness(self)
+        _validate_consistency(self)
 
     def to_mapping(self) -> dict[str, object]:
         """Plain, serializable form."""
@@ -233,23 +233,46 @@ def _validate_seeds(seeds: Mapping[str, int]) -> None:
             raise ValueError(msg)
 
 
-def _validate_uniqueness(record: ProvenanceRecord) -> None:
-    """Artifacts, submodules, and builds must be unique, and every build must name a submodule."""
+def _validate_consistency(record: ProvenanceRecord) -> None:
+    """Require complete submodule/build sets and agreement between builds, submodules, and packages.
+
+    - artifact URIs are unique;
+    - ``submodules`` names are exactly :data:`dependencies.SUBMODULES`, in order;
+    - ``builds`` names are exactly :data:`dependencies.BUILT_PACKAGES`, in order;
+    - each build's ``source_commit`` equals its submodule's ``checked_out`` and its
+      ``source_dirty`` equals the submodule's ``dirty``;
+    - each build's ``version`` equals ``platform.packages[name]``.
+    """
     uris = [a.uri for a in record.artifacts]
     if len(set(uris)) != len(uris):
         msg = "artifacts must have unique URIs"
         raise ValueError(msg)
-    for label, names in (
-        ("submodules", [s.name for s in record.submodules]),
-        ("builds", [b.name for b in record.builds]),
-    ):
-        if len(set(names)) != len(names):
-            msg = f"{label} must have unique names"
-            raise ValueError(msg)
-    submodule_names = {s.name for s in record.submodules}
+    names = [s.name for s in record.submodules]
+    if names != list(dependencies.SUBMODULES):
+        msg = f"submodules must be exactly {list(dependencies.SUBMODULES)} in order, got {names}"
+        raise ValueError(msg)
+    build_names = [b.name for b in record.builds]
+    if build_names != list(dependencies.BUILT_PACKAGES):
+        msg = f"builds must be exactly {list(dependencies.BUILT_PACKAGES)} in order, got {build_names}"
+        raise ValueError(msg)
+    submodules = {s.name: s for s in record.submodules}
     for build in record.builds:
-        if build.name not in submodule_names:
-            msg = f"build {build.name!r} has no matching submodule entry"
+        submodule = submodules[build.name]
+        if submodule.checked_out is None or submodule.dirty is None:
+            msg = f"build {build.name}: its submodule is not initialized"
+            raise ValueError(msg)
+        if build.source_commit != submodule.checked_out:
+            msg = (
+                f"build {build.name}: source_commit {build.source_commit[:12]} != "
+                f"submodule checked_out {submodule.checked_out[:12]}"
+            )
+            raise ValueError(msg)
+        if build.source_dirty != submodule.dirty:
+            msg = f"build {build.name}: source_dirty {build.source_dirty} != submodule dirty {submodule.dirty}"
+            raise ValueError(msg)
+        installed = record.platform.packages.get(build.name)
+        if installed != build.version:
+            msg = f"build {build.name}: version {build.version!r} != platform.packages[{build.name!r}] {installed!r}"
             raise ValueError(msg)
 
 

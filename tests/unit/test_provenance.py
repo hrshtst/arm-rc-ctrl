@@ -11,12 +11,12 @@ import subprocess
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
+from typing import cast
 
 import pytest
 
 from arm_rc_ctrl import __version__
 from arm_rc_ctrl.config import ConfigError
-from arm_rc_ctrl.dependencies import BuildIdentity, SubmoduleRevision
 from arm_rc_ctrl.provenance import (
     ArtifactMismatchError,
     ArtifactReference,
@@ -293,7 +293,7 @@ def test_tampered_nested_entries_are_rejected_on_load() -> None:
 
     bad = json.loads(json.dumps(mapping))
     bad["submodules"][1] = bad["submodules"][0]
-    with pytest.raises(ConfigError, match="submodules must have unique names"):
+    with pytest.raises(ConfigError, match=r"submodules must be exactly .* got \['rclib', 'rclib', 'rtctrl'\]"):
         ProvenanceRecord.from_mapping(bad)
 
     bad = json.loads(json.dumps(mapping))
@@ -303,7 +303,7 @@ def test_tampered_nested_entries_are_rejected_on_load() -> None:
 
     bad = json.loads(json.dumps(mapping))
     bad["builds"][0]["name"] = "eigen"
-    with pytest.raises(ConfigError, match="build 'eigen' has no matching submodule entry"):
+    with pytest.raises(ConfigError, match=r"builds must be exactly \['rclib', 'skelarm'\] in order"):
         ProvenanceRecord.from_mapping(bad)
 
     ref = {"uri": "armrc://raw/a/x.npz", "sha256": "0" * 64, "size": 1}
@@ -316,6 +316,84 @@ def test_tampered_nested_entries_are_rejected_on_load() -> None:
         ProvenanceRecord.from_mapping(bad)
 
 
+def _child(node: object, key: str) -> object:
+    if isinstance(node, list):
+        return cast("list[object]", node)[int(key)]
+    return cast("dict[str, object]", node)[key]
+
+
+def _assign(node: object, key: str, value: object) -> None:
+    if isinstance(node, list):
+        cast("list[object]", node)[int(key)] = value
+    else:
+        cast("dict[str, object]", node)[key] = value
+
+
+def _remove(node: object, key: str) -> None:
+    if isinstance(node, list):
+        del cast("list[object]", node)[int(key)]
+    else:
+        del cast("dict[str, object]", node)[key]
+
+
+def _edit(mapping: dict[str, object], path: str, operation: str, value: object = None) -> None:
+    """Apply one tampering edit to a plain record mapping (``path`` is dot-separated, indices allowed)."""
+    *parents, last = path.split(".")
+    node: object = mapping
+    for part in parents:
+        node = _child(node, part)
+    if operation == "set":
+        _assign(node, last, value)
+        return
+    if operation == "delete":
+        _remove(node, last)
+        return
+    target = _child(node, last)
+    if operation == "pop":
+        cast("list[object]", target).pop()
+    elif operation == "reverse":
+        cast("list[object]", target).reverse()
+    elif operation == "duplicate_first":
+        items = cast("list[object]", target)
+        items.append(items[0])
+    elif operation == "update":
+        cast("dict[str, object]", target).update(cast("dict[str, object]", value))
+    else:  # pragma: no cover - guards the test table itself
+        msg = f"unknown edit operation {operation!r}"
+        raise ValueError(msg)
+
+
+@pytest.mark.parametrize(
+    ("path", "operation", "value", "message"),
+    [
+        ("submodules", "set", [], r"submodules must be exactly \['rclib', 'skelarm', 'rtctrl'\] in order"),
+        ("builds", "set", [], r"builds must be exactly \['rclib', 'skelarm'\] in order"),
+        ("submodules", "pop", None, r"submodules must be exactly .* got \['rclib', 'skelarm'\]"),
+        ("submodules", "reverse", None, r"submodules must be exactly .* in order"),
+        ("builds", "pop", None, r"builds must be exactly .* got \['rclib'\]"),
+        ("builds", "duplicate_first", None, r"builds must be exactly .* got \['rclib', 'skelarm', 'rclib'\]"),
+        ("builds.0.source_commit", "set", "c" * 40, "build rclib: source_commit cccccccccccc != submodule"),
+        ("builds.0.source_dirty", "set", True, "build rclib: source_dirty True != submodule dirty False"),
+        ("builds.1.version", "set", "9.9.9", r"build skelarm: version '9.9.9' != platform.packages"),
+        ("platform.packages.rclib", "delete", None, r"build rclib: version '.*' != platform.packages\['rclib'\] None"),
+        (
+            "submodules.0",
+            "update",
+            {"checked_out": None, "dirty": None},
+            "build rclib: its submodule is not initialized",
+        ),
+    ],
+)
+def test_incomplete_or_inconsistent_records_are_rejected(
+    path: str, operation: str, value: object, message: str
+) -> None:
+    """Missing, extra, reordered, or disagreeing submodule/build/package entries never load."""
+    mapping = cast("dict[str, object]", json.loads(_base().to_json()))
+    _edit(mapping, path, operation, value)
+    with pytest.raises(ConfigError, match=message):
+        ProvenanceRecord.from_mapping(mapping)
+
+
 def test_direct_construction_is_validated_too() -> None:
     """Validation is in __post_init__, so dataclasses.replace cannot forge an inconsistent record."""
     record = collect_provenance(CONFIG, seeds={}, now=FIXED_TIME, env={})
@@ -326,77 +404,64 @@ def test_direct_construction_is_validated_too() -> None:
 # --- confirmatory policy ------------------------------------------------------
 
 
+def _base() -> ProvenanceRecord:
+    return collect_provenance(CONFIG, seeds={}, now=FIXED_TIME, env={})
+
+
 def _record(
     *,
-    dirty: bool,
-    submodules: tuple[SubmoduleRevision, ...],
+    dirty: bool = False,
     exploratory: bool = False,
-    builds: tuple[BuildIdentity, ...] | None = None,
+    rclib_dirty: bool = False,
+    rclib_checked_out: str | None = None,
+    rclib_editable: bool = False,
 ) -> ProvenanceRecord:
-    base = collect_provenance(CONFIG, seeds={}, now=FIXED_TIME, env={})
-    if builds is None:
-        # Every build must name one of the given submodules.
-        names = {s.name for s in submodules}
-        builds = tuple(b for b in base.builds if b.name in names)
-    return dataclasses.replace(base, project_dirty=dirty, submodules=submodules, exploratory=exploratory, builds=builds)
-
-
-def _build(**changes: object) -> BuildIdentity:
-    base = BuildIdentity(
-        name="rclib",
-        version="0.1.0",
-        source_commit="a" * 40,
-        source_dirty=False,
-        editable=False,
-        python_sources_sha256="1" * 64,
-        extension_sha256="2" * 64,
+    """A complete, internally consistent record with selected deviations applied to rclib."""
+    base = _base()
+    submodules = list(base.submodules)
+    builds = list(base.builds)
+    rclib = submodules[0]
+    assert rclib.name == "rclib"
+    checked_out = rclib.checked_out if rclib_checked_out is None else rclib_checked_out
+    submodules[0] = dataclasses.replace(rclib, checked_out=checked_out, dirty=rclib_dirty)
+    build = builds[0]
+    assert build.name == "rclib"
+    builds[0] = dataclasses.replace(
+        build,
+        source_commit=checked_out,
+        source_dirty=rclib_dirty,
+        editable=rclib_editable,
+        extension_sha256=None if rclib_editable else build.extension_sha256,
     )
-    return dataclasses.replace(base, **changes)
+    return dataclasses.replace(
+        base, project_dirty=dirty, submodules=tuple(submodules), builds=tuple(builds), exploratory=exploratory
+    )
 
 
 def test_clean_record_passes_confirmatory_policy() -> None:
-    """Clean project and pinned, clean submodules are accepted."""
-    sub = SubmoduleRevision("rclib", "third_party/rclib", "a" * 40, "a" * 40, dirty=False)
-    uninitialized = SubmoduleRevision("rtctrl", "third_party/rtctrl", "b" * 40, None, dirty=None)
-    record = _record(dirty=False, submodules=(sub, uninitialized))
+    """A complete record from a clean checkout with pinned submodules and stamped builds is accepted."""
+    record = _record()
     assert record.is_clean
     require_clean_for_confirmatory(record)
 
 
 @pytest.mark.parametrize(
-    ("dirty", "sub", "message"),
+    ("changes", "message"),
     [
-        (True, SubmoduleRevision("rclib", "third_party/rclib", "a" * 40, "a" * 40, dirty=False), "worktree is dirty"),
-        (False, SubmoduleRevision("rclib", "third_party/rclib", "a" * 40, "a" * 40, dirty=True), "rclib is dirty"),
-        (False, SubmoduleRevision("rclib", "third_party/rclib", "a" * 40, "c" * 40, dirty=False), "not its pin"),
+        ({"dirty": True}, "project worktree is dirty"),
+        ({"rclib_dirty": True}, "submodule rclib is dirty"),
+        ({"rclib_checked_out": "c" * 40}, "not its pin"),
+        ({"rclib_editable": True}, "rclib is an editable install"),
+        ({"rclib_dirty": True}, "rclib was built from a dirty submodule"),
     ],
 )
-def test_dirty_or_drifted_record_is_rejected_unless_exploratory(
-    *, dirty: bool, sub: SubmoduleRevision, message: str
-) -> None:
-    """Dirty worktrees and drifted submodules fail confirmatory use; exploratory records pass."""
-    record = _record(dirty=dirty, submodules=(sub,))
+def test_unclean_records_are_rejected_unless_exploratory(changes: dict[str, object], message: str) -> None:
+    """Dirty worktrees, dirty or drifted submodules, and unverifiable builds fail confirmatory use."""
+    record = _record(**changes)  # type: ignore[arg-type]
     assert not record.is_clean
     with pytest.raises(DirtyWorktreeError, match=message):
         require_clean_for_confirmatory(record)
-    require_clean_for_confirmatory(_record(dirty=dirty, submodules=(sub,), exploratory=True))
-
-
-@pytest.mark.parametrize(
-    ("build", "message"),
-    [
-        (_build(editable=True, extension_sha256=None), "rclib is an editable install"),
-        (_build(source_dirty=True), "rclib was built from a dirty submodule"),
-    ],
-)
-def test_unverifiable_builds_are_rejected_unless_exploratory(build: BuildIdentity, message: str) -> None:
-    """Editable or dirty-source builds cannot back a confirmatory result."""
-    clean_sub = SubmoduleRevision("rclib", "third_party/rclib", "a" * 40, "a" * 40, dirty=False)
-    record = _record(dirty=False, submodules=(clean_sub,), builds=(build,))
-    assert not record.is_clean
-    with pytest.raises(DirtyWorktreeError, match=message):
-        require_clean_for_confirmatory(record)
-    require_clean_for_confirmatory(_record(dirty=False, submodules=(clean_sub,), builds=(build,), exploratory=True))
+    require_clean_for_confirmatory(_record(exploratory=True, **changes))  # type: ignore[arg-type]
 
 
 def test_collect_provenance_fails_on_unknown_build_identity(monkeypatch: pytest.MonkeyPatch) -> None:

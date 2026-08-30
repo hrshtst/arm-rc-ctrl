@@ -8,10 +8,12 @@ sessions) or ``uv run --locked nox -s lint``. Sessions execute the tools of that
 environment directly and never start a nested ``uv run``: nox strips
 ``UV_PYTHON`` from session environments, so a nested ``uv`` would silently fall
 back to ``.python-version`` and re-create the environment with another
-interpreter than the one CI's matrix (or ``UV_PYTHON=3.13 uv run nox``) chose.
+interpreter than the one CI's matrix (or ``UV_PYTHON``) chose.
 
 Set ``ARM_RC_CTRL_EXPECTED_PYTHON=3.13`` (CI does, from its matrix) to make
-every session assert the interpreter it actually runs under.
+every session assert the interpreter it actually runs under. Switching
+interpreters replaces ``.venv`` and its build manifest; follow the three-command
+sequence in README.md (sync, ``dependencies rebuild``, nox).
 """
 
 from __future__ import annotations
@@ -41,7 +43,9 @@ def _require_project_interpreter(session: nox.Session) -> None:
     if expected and expected != actual:
         session.error(
             f"{EXPECTED_PYTHON_VAR}={expected} but this environment is Python {actual}; "
-            f"run `UV_PYTHON={expected} uv run --locked nox`"
+            f"re-create it with `UV_PYTHON={expected} uv sync --locked`, run "
+            f"`UV_PYTHON={expected} uv run --locked python -m arm_rc_ctrl.dependencies rebuild`, "
+            f"then `UV_PYTHON={expected} {EXPECTED_PYTHON_VAR}={expected} uv run --locked nox` (see README.md)"
         )
 
 

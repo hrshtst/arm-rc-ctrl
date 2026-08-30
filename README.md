@@ -84,12 +84,22 @@ cmake --build build -j
 ctest --test-dir build --output-on-failure
 ```
 
-Install the Git hooks once with `uv run pre-commit install`. Use
-`UV_PYTHON=3.13 uv run nox` to exercise the other supported interpreter (uv
-re-creates `.venv` for it); add `ARM_RC_CTRL_EXPECTED_PYTHON=3.13` to make
-every session assert the interpreter it runs under, as CI does from its
-matrix. `.github/workflows/ci.yml` runs the same sessions on every pull
-request and on pushes to `main`.
+Install the Git hooks once with `uv run pre-commit install`.
+
+To exercise the other supported interpreter, re-create the environment, rebuild
+the submodule packages (switching interpreters replaces `.venv` and with it the
+environment-local build manifest), and run the gate with the interpreter
+assertion, as CI does from its matrix:
+
+```bash
+UV_PYTHON=3.13 uv sync --locked
+UV_PYTHON=3.13 uv run --locked python -m arm_rc_ctrl.dependencies rebuild
+UV_PYTHON=3.13 ARM_RC_CTRL_EXPECTED_PYTHON=3.13 uv run --locked nox
+```
+
+Repeat the same three commands with `3.12` to switch back.
+`.github/workflows/ci.yml` runs the same sessions on every pull request and on
+pushes to `main`.
 
 ## External storage root
 

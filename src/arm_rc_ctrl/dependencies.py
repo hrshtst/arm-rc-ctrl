@@ -169,6 +169,13 @@ class BuildManifest:
     created_at: str
     builds: tuple[BuildIdentity, ...]
 
+    def __post_init__(self) -> None:
+        """Require exactly one entry per built package, in order (no unknown or duplicate names)."""
+        names = [b.name for b in self.builds]
+        if names != list(BUILT_PACKAGES):
+            msg = f"builds must be exactly {list(BUILT_PACKAGES)} in order, got {names}"
+            raise ValueError(msg)
+
 
 def _is_hex(value: str, length: int) -> bool:
     return len(value) == length and all(c in "0123456789abcdef" for c in value)

@@ -205,3 +205,27 @@ def test_manifest_schema_is_strict() -> None:
     """BuildManifest is validated through the strict mapper."""
     with pytest.raises(ConfigError, match="builds: expected array"):
         dependencies.from_mapping({"schema_version": 1, "created_at": "x", "builds": {}}, BuildManifest)
+
+
+@pytest.mark.parametrize(
+    ("names", "got"),
+    [
+        ((), r"\[\]"),
+        (("rclib",), r"\['rclib'\]"),
+        (("skelarm", "rclib"), r"\['skelarm', 'rclib'\]"),
+        (("rclib", "skelarm", "rclib"), r"\['rclib', 'skelarm', 'rclib'\]"),
+        (("rclib", "eigen"), r"\['rclib', 'eigen'\]"),
+    ],
+)
+def test_manifest_requires_exactly_the_built_packages(tmp_path: Path, names: tuple[str, ...], got: str) -> None:
+    """Missing, duplicate, unknown, or reordered manifest entries are rejected on load and on construction."""
+    entries = [dataclasses.replace(_identity(), name=name) for name in names]
+    with pytest.raises(ValueError, match=rf"builds must be exactly \['rclib', 'skelarm'\] in order, got {got}"):
+        BuildManifest(1, "2026-08-29T12:00:00+00:00", tuple(entries))
+    stamp_builds(REPO_ROOT, tmp_path, now=FIXED_TIME)
+    path = manifest_path(tmp_path)
+    data = json.loads(path.read_text())
+    data["builds"] = [{**data["builds"][0], "name": name} for name in names]
+    path.write_text(json.dumps(data))
+    with pytest.raises(ConfigError, match="builds must be exactly"):
+        read_manifest(tmp_path)
