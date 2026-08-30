@@ -1,0 +1,42 @@
+# Locked confirmatory protocol of task 1-a (docs/PLAN.md sections 9.2 and 10, M1-028).
+# The perturbation levels were selected by the pilot
+# docs/experiments/task_1a/perturbation_pilot.json with the frozen direct-replay
+# baselines; its rules and every case are in that report and summarized in
+# docs/experiments/task_1a/perturbation_pilot.md. Once locked, these values and
+# seeds may not be used for tuning; reusing a confirmatory outcome to alter a
+# recipe creates a new study version. M3 implements the generators
+# (M3-007/M3-008) and runs the suite exactly once per study version (M3-010).
+# tests/regression/test_confirmatory_lock.py keeps this file consistent with the pilot.
+name = "task-1a-confirmatory"
+scenario = "../tasks/task_1a.toml"
+locked = true
+pilot_report = "../../docs/experiments/task_1a/perturbation_pilot.json"
+# Confirmatory seeds, one perturbation realization set each. They are distinct
+# from every development seed (the gain study's sampler seed 20260830 and any
+# ESN study seed), which the lock test enforces.
+seeds = [20260901, 20260902, 20260903, 20260904, 20260905]
+
+[posture]
+# Class 2 (small) and class 3 (larger, held-out) initial-posture perturbations:
+# for each seed and class, `draws_per_seed` joint-space offsets with a uniformly
+# random direction and a Euclidean norm equal to the class magnitude, added to
+# the demonstrated initial posture (the pilot swept exactly such fixed-norm
+# offsets). The pilot found the PD baseline violating the 6 rad/s joint-velocity
+# limit from 0.07 rad on (saturated torque whips the light forearm), which bounds
+# the safe envelope; 0.05 rad is the smallest level that takes either baseline
+# at least 0.1 s to absorb, 0.06 rad the largest level both absorb before the
+# movement starts.
+small_magnitude_rad = 0.05
+large_magnitude_rad = 0.06
+draws_per_seed = 4
+
+[force]
+# Class 4 endpoint force pulses during the movement interval (class 5 combines
+# them with the small posture perturbations): 12 N is the largest level at which
+# both baselines succeed, return to the reference within 1 s, and never saturate
+# an actuator; 14 N saturates the PD baseline and drives computed torque over
+# the joint-velocity limit.
+magnitude_n = 12.0
+start_s = 2.0
+duration_s = 0.2
+directions_deg = [0.0, 90.0, 180.0, 270.0]
