@@ -37,6 +37,7 @@ from numpy.typing import NDArray
 from skelarm import JointPD, LinkProp, SampledJointReference, Skeleton, simulate_controlled
 
 from arm_rc_ctrl.config import load_config
+from arm_rc_ctrl.data.arrays import array_digest
 from arm_rc_ctrl.provenance import (
     ProvenanceRecord,
     canonical_json,
@@ -277,13 +278,6 @@ def _metrics(config: SmokeConfig, arrays: dict[str, NDArray[np.float64]]) -> dic
         "esn_train_rmse": float(np.sqrt(np.mean(residual**2))),
         "esn_max_abs_error": float(np.max(np.abs(residual))),
     }
-
-
-def array_digest(array: NDArray[np.float64]) -> str:
-    """SHA-256 over dtype, shape, and the C-contiguous bytes of an array."""
-    contiguous = np.ascontiguousarray(array)
-    header = f"{contiguous.dtype.str}|{contiguous.shape}|".encode()
-    return sha256_bytes(header + contiguous.tobytes())
 
 
 def _check_finite(arrays: dict[str, NDArray[np.float64]]) -> None:

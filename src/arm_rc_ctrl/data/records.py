@@ -30,6 +30,7 @@ from typing import Literal, cast
 import tomli_w
 
 from arm_rc_ctrl.config import load_config, to_mapping
+from arm_rc_ctrl.data.samples import ARRAY_NAMES, PHASE_CODES, SAMPLES_FILE, SampleSet
 from arm_rc_ctrl.provenance import ArtifactReference, ProvenanceRecord, artifact_reference, verify_artifact
 from arm_rc_ctrl.storage import ArtifactUri, StorageRoot
 from arm_rc_ctrl.validation import (
@@ -42,24 +43,34 @@ from arm_rc_ctrl.validation import (
 )
 
 __all__ = [
+    "CANONICAL_UNITS",
     "CATALOG_SCHEMA_VERSION",
     "KIND_BUCKETS",
     "KIND_DIRECTORIES",
+    "PROCESSED_PAYLOAD_FORMAT",
+    "PROCESSED_PAYLOAD_NAME",
     "RAW_PAYLOAD_FORMAT",
     "RAW_PAYLOAD_NAME",
     "RECORD_SCHEMA_VERSION",
     "AccessClass",
+    "ArrayDtype",
+    "ArraySpec",
     "ArtifactKind",
     "ArtifactRecord",
     "Catalog",
     "CatalogEntry",
+    "ChannelStats",
     "DvcPointer",
     "Intervals",
+    "Normalization",
     "Origin",
     "Payload",
+    "Preprocessing",
+    "ProcessedDatasetRecord",
     "RawDemonstrationRecord",
     "Sampling",
     "Scenario",
+    "array_specs",
     "catalog_path",
     "is_artifact_id",
     "load_catalog",
@@ -87,6 +98,24 @@ KIND_DIRECTORIES: dict[str, str] = {"raw": "raw", "processed": "processed", "run
 
 RAW_PAYLOAD_NAME = "demo.sklog.npz"
 RAW_PAYLOAD_FORMAT = "sklog.npz"
+PROCESSED_PAYLOAD_NAME = SAMPLES_FILE
+PROCESSED_PAYLOAD_FORMAT = "samples.npz"
+
+CANONICAL_UNITS: dict[str, str] = {
+    "t": "s",
+    "q": "rad",
+    "dq": "rad/s",
+    "ddq": "rad/s^2",
+    "tip": "m",
+    "dtip": "m/s",
+    "ddtip": "m/s^2",
+    "task_code": "1",
+    "phase": "code",
+}
+"""Units every processed dataset must declare, exactly (SI, radians, dimensionless codes)."""
+
+_NORMALIZABLE = ("q", "dq", "ddq", "tip", "dtip", "ddtip", "task_code")
+_LABEL_RE = re.compile(r"^[a-z0-9][a-z0-9_.-]*$")
 
 _ARTIFACT_ID_RE = re.compile(r"^(raw|processed|run|model)-(\d{8})-([0-9a-f]{12})$")
 _SESSION_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,31}$")
@@ -427,6 +456,209 @@ class RawDemonstrationRecord:
             raise ValueError(msg)
         if self.duration_s != self.intervals.duration_s:
             msg = f"duration_s {self.duration_s} must equal the dwell end {self.intervals.duration_s}"
+            raise ValueError(msg)
+
+
+# --- processed dataset ------------------------------------------------------------------
+
+type ArrayDtype = Literal["float64", "int64"]
+
+
+@dataclass(frozen=True)
+class ArraySpec:
+    """Shape, dtype, and digest of one array in ``samples.npz``."""
+
+    shape: tuple[int, ...]
+    dtype: ArrayDtype
+    sha256: str
+
+    def __post_init__(self) -> None:
+        """Validate dimensions and digest."""
+        if not self.shape or any(d < 0 for d in self.shape):
+            msg = f"array shape must be non-empty with non-negative dimensions, got {list(self.shape)}"
+            raise ValueError(msg)
+        if not is_hex(self.sha256, SHA256_HEX_LENGTH):
+            msg = "array sha256 must be 64 lowercase hex characters"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
+class Preprocessing:
+    """How the raw demonstration became the canonical dataset."""
+
+    resample_period_s: float
+    smoothing: str
+    """Filter label, e.g. ``butterworth-zero-phase`` or ``none``."""
+    smoothing_params: dict[str, float]
+    derivative_method: str
+    """Label of the offline derivative scheme, e.g. ``central-difference``."""
+
+    def __post_init__(self) -> None:
+        """Validate the period, labels, and parameters."""
+        if not (self.resample_period_s > 0 and self.resample_period_s < float("inf")):
+            msg = f"preprocessing.resample_period_s must be positive and finite, got {self.resample_period_s!r}"
+            raise ValueError(msg)
+        for name, label in (("smoothing", self.smoothing), ("derivative_method", self.derivative_method)):
+            if not _LABEL_RE.match(label):
+                msg = f"preprocessing.{name} must be a lowercase label, got {label!r}"
+                raise ValueError(msg)
+        require_finite(self.smoothing_params.values(), "preprocessing.smoothing_params")
+
+
+@dataclass(frozen=True)
+class ChannelStats:
+    """Per-column normalization statistics of one array."""
+
+    mean: tuple[float, ...]
+    scale: tuple[float, ...]
+    replaced_near_zero: tuple[int, ...] = ()
+    """Column indices whose near-zero scale was replaced by 1.0."""
+
+    def __post_init__(self) -> None:
+        """Validate lengths, finiteness, positive scales, and replacement indices."""
+        if not self.mean or len(self.mean) != len(self.scale):
+            msg = f"mean and scale must have the same non-zero length, got {len(self.mean)} and {len(self.scale)}"
+            raise ValueError(msg)
+        require_finite(self.mean, "mean")
+        require_finite(self.scale, "scale")
+        if any(s <= 0 for s in self.scale):
+            msg = "scale entries must be positive"
+            raise ValueError(msg)
+        if len(set(self.replaced_near_zero)) != len(self.replaced_near_zero) or any(
+            not 0 <= i < len(self.scale) for i in self.replaced_near_zero
+        ):
+            msg = f"replaced_near_zero must be unique column indices below {len(self.scale)}"
+            raise ValueError(msg)
+        if any(self.scale[i] != 1.0 for i in self.replaced_near_zero):
+            msg = "replaced near-zero scales must equal 1.0"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
+class Normalization:
+    """Training-only normalization statistics and the artifacts they were fitted on."""
+
+    fitted_on: tuple[str, ...]
+    channels: dict[str, ChannelStats]
+
+    def __post_init__(self) -> None:
+        """Validate the fitting sources and channel names."""
+        if not self.fitted_on or any(not is_artifact_id(a) for a in self.fitted_on):
+            msg = "normalization.fitted_on must list at least one artifact ID"
+            raise ValueError(msg)
+        unknown = sorted(set(self.channels) - set(_NORMALIZABLE))
+        if unknown:
+            msg = f"normalization.channels has unknown arrays {unknown}; allowed {list(_NORMALIZABLE)}"
+            raise ValueError(msg)
+
+
+def _expected_shapes(n: int, dof: int, task_dim: int, code_dim: int) -> dict[str, tuple[int, ...]]:
+    return {
+        "t": (n,),
+        "q": (n, dof),
+        "dq": (n, dof),
+        "ddq": (n, dof),
+        "tip": (n, task_dim),
+        "dtip": (n, task_dim),
+        "ddtip": (n, task_dim),
+        "task_code": (n, code_dim),
+        "phase": (n,),
+    }
+
+
+def array_specs(samples: SampleSet) -> dict[str, ArraySpec]:
+    """Describe every array of a sample set for a processed record."""
+    shapes, dtypes, digests = samples.shapes(), samples.dtypes(), samples.digests()
+    return {
+        name: ArraySpec(shape=shapes[name], dtype=cast("ArrayDtype", dtypes[name]), sha256=digests[name])
+        for name in ARRAY_NAMES
+    }
+
+
+@dataclass(frozen=True)
+class ProcessedDatasetRecord:
+    """Record of one canonical processed dataset stored as ``samples.npz``."""
+
+    artifact: ArtifactRecord
+    n_samples: int
+    dof: int
+    task_dim: int
+    task_code_dim: int
+    units: dict[str, str]
+    phases: dict[str, int]
+    """Integer encoding of the ``phase`` array; must equal the documented codes."""
+    preprocessing: Preprocessing
+    arrays: dict[str, ArraySpec]
+    normalization: Normalization | None = None
+
+    def __post_init__(self) -> None:
+        """Validate kind, payload placement, sources, dimensions, units, phases, and array specs."""
+        if self.artifact.kind != "processed":
+            msg = f"a processed dataset record must have kind 'processed', got {self.artifact.kind!r}"
+            raise ValueError(msg)
+        if self.artifact.payload.format != PROCESSED_PAYLOAD_FORMAT:
+            msg = f"processed payload format must be {PROCESSED_PAYLOAD_FORMAT!r}, got {self.artifact.payload.format!r}"
+            raise ValueError(msg)
+        expected_uri = f"armrc://processed/{self.artifact.artifact_id}/{PROCESSED_PAYLOAD_NAME}"
+        if self.artifact.payload.uri != expected_uri:
+            msg = f"processed payload must be stored at {expected_uri}, got {self.artifact.payload.uri}"
+            raise ValueError(msg)
+        sources = self.artifact.origin.sources
+        if not sources or any(not source.startswith("raw-") for source in sources):
+            msg = "a processed dataset must name at least one raw source artifact in artifact.origin.sources"
+            raise ValueError(msg)
+        self._validate_dimensions()
+        if self.units != CANONICAL_UNITS:
+            msg = f"units must be exactly {CANONICAL_UNITS}, got {self.units}"
+            raise ValueError(msg)
+        if self.phases != PHASE_CODES:
+            msg = f"phases must be exactly {PHASE_CODES}, got {self.phases}"
+            raise ValueError(msg)
+        self._validate_arrays()
+        self._validate_normalization()
+
+    def _validate_dimensions(self) -> None:
+        if self.n_samples < 2 or self.dof < 1 or self.task_dim < 1 or self.task_code_dim < 0:  # noqa: PLR2004
+            msg = (
+                "n_samples >= 2, dof >= 1, task_dim >= 1, task_code_dim >= 0 required, got "
+                f"{self.n_samples}, {self.dof}, {self.task_dim}, {self.task_code_dim}"
+            )
+            raise ValueError(msg)
+
+    def _validate_arrays(self) -> None:
+        if tuple(self.arrays) != ARRAY_NAMES:
+            msg = f"arrays must be exactly {list(ARRAY_NAMES)} in order, got {list(self.arrays)}"
+            raise ValueError(msg)
+        expected = _expected_shapes(self.n_samples, self.dof, self.task_dim, self.task_code_dim)
+        for name, spec in self.arrays.items():
+            if spec.shape != expected[name]:
+                msg = f"arrays.{name}.shape must be {list(expected[name])}, got {list(spec.shape)}"
+                raise ValueError(msg)
+            wanted: ArrayDtype = "int64" if name == "phase" else "float64"
+            if spec.dtype != wanted:
+                msg = f"arrays.{name}.dtype must be {wanted!r}, got {spec.dtype!r}"
+                raise ValueError(msg)
+
+    def _validate_normalization(self) -> None:
+        if self.normalization is None:
+            return
+        widths = {"q": self.dof, "dq": self.dof, "ddq": self.dof, "tip": self.task_dim, "dtip": self.task_dim}
+        widths["ddtip"] = self.task_dim
+        widths["task_code"] = self.task_code_dim
+        for name, stats in self.normalization.channels.items():
+            if len(stats.mean) != widths[name]:
+                msg = f"normalization.channels.{name} must have {widths[name]} columns, got {len(stats.mean)}"
+                raise ValueError(msg)
+
+    def check_samples(self, samples: SampleSet) -> None:
+        """Fail unless ``samples`` has exactly the recorded shapes, dtypes, and digests."""
+        problems: list[str] = []
+        actual = array_specs(samples)
+        for name, spec in self.arrays.items():
+            if actual[name] != spec:
+                problems.append(f"{name}: recorded {spec} != actual {actual[name]}")
+        if problems:
+            msg = "samples do not match the record:\n" + "\n".join(problems)
             raise ValueError(msg)
 
 

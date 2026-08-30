@@ -1,0 +1,129 @@
+n_samples = 6
+dof = 2
+task_dim = 2
+task_code_dim = 0
+
+[artifact]
+artifact_id = "processed-20260830-555555555555"
+kind = "processed"
+created_at = "2026-08-30T04:00:00+00:00"
+license = "LicenseRef-Private"
+access = "private"
+notes = "Synthetic example record; the payload does not exist."
+schema_version = 1
+
+[artifact.payload]
+uri = "armrc://processed/processed-20260830-555555555555/samples.npz"
+sha256 = "5555555555555555555555555555555555555555555555555555555555555555"
+size = 2048
+format = "samples.npz"
+schema_version = 1
+
+[artifact.origin]
+command = "python -m arm_rc_ctrl.data.preprocess --config configs/tasks/task_1a.toml"
+config_sha256 = "2222222222222222222222222222222222222222222222222222222222222222"
+project_commit = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+project_dirty = false
+sources = [
+    "raw-20260830-2a97516c354b",
+]
+
+[artifact.origin.dependency_commits]
+rclib = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+skelarm = "cccccccccccccccccccccccccccccccccccccccc"
+rtctrl = "dddddddddddddddddddddddddddddddddddddddd"
+
+[units]
+t = "s"
+q = "rad"
+dq = "rad/s"
+ddq = "rad/s^2"
+tip = "m"
+dtip = "m/s"
+ddtip = "m/s^2"
+task_code = "1"
+phase = "code"
+
+[phases]
+prime = 0
+move = 1
+dwell = 2
+
+[preprocessing]
+resample_period_s = 0.01
+smoothing = "butterworth-zero-phase"
+derivative_method = "central-difference"
+
+[preprocessing.smoothing_params]
+order = 4.0
+cutoff_hz = 5.0
+
+[arrays.t]
+shape = [
+    6,
+]
+dtype = "float64"
+sha256 = "da334a7e5697b5c9cee739205b48ffac438d170dd797645fe5628d18270169f7"
+
+[arrays.q]
+shape = [
+    6,
+    2,
+]
+dtype = "float64"
+sha256 = "eae99a4f2b89c9a8d3f48b5da07239221daef52fd66243f0fae1b37b72eb7653"
+
+[arrays.dq]
+shape = [
+    6,
+    2,
+]
+dtype = "float64"
+sha256 = "5328b15557a268930c1ac70e3b795389e34da5209139b4a733cc7fc46c0f2ff2"
+
+[arrays.ddq]
+shape = [
+    6,
+    2,
+]
+dtype = "float64"
+sha256 = "6b02ed706ec02ef1155664fc46cfcce8ab3796b49dadea16d4a12a4260e51f66"
+
+[arrays.tip]
+shape = [
+    6,
+    2,
+]
+dtype = "float64"
+sha256 = "e1e5152ec5c4338bc4405f1349bbe133a7054d1c60e25855ebe5e840fb6001a5"
+
+[arrays.dtip]
+shape = [
+    6,
+    2,
+]
+dtype = "float64"
+sha256 = "d7c8cd500d6dc7e4a591842327aa358ac95e0e2451e888c5396bdb8ada79c926"
+
+[arrays.ddtip]
+shape = [
+    6,
+    2,
+]
+dtype = "float64"
+sha256 = "6b02ed706ec02ef1155664fc46cfcce8ab3796b49dadea16d4a12a4260e51f66"
+
+[arrays.task_code]
+shape = [
+    6,
+    0,
+]
+dtype = "float64"
+sha256 = "01958fcfc25541d5dc104e3e15fa84ce4db563a9adabfe48047bce260f2983b8"
+
+[arrays.phase]
+shape = [
+    6,
+]
+dtype = "int64"
+sha256 = "3a3baaf48651c2114f3bfa8d715f404a8ea5c6f95c4534be371dd20491aa1295"

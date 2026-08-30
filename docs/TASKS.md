@@ -22,7 +22,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M1-002` — define canonical `samples.npz` arrays and processed artifact records.
+- **Next task:** `M1-003` — implement the raw `skelarm` log loader through the storage resolver.
 - **Current milestone:** M1 — demonstration pipeline and frozen baselines.
 - **Active blockers:** None.
 - **Latest completed work:** M0 closed 2026-08-30 (all M0 tasks and `M0-GATE` `DONE`; PR #1); `UP-005` open.
@@ -74,7 +74,7 @@ are complete. Do not mark research software complete merely because it runs once
 | ID | Status | Task | Depends on | Acceptance/evidence |
 | --- | --- | --- | --- | --- |
 | M1-001 | `DONE` | Define versioned raw-demonstration artifact records | M0-010, M0-014 | `arm_rc_ctrl.data.records`: frozen `ArtifactRecord` (content-addressed immutable ID `<kind>-<YYYYMMDD>-<12 hex of payload SHA-256>`, kind, UTC timestamp, license, access class, optional expiry/supersedes, `Payload` URI/SHA-256/size/format/schema, `Origin` command/config digest/project+dependency commits/sources/run, optional `DvcPointer`) and `RawDemonstrationRecord` (scenario config path+digest, robot/task/dof/initial posture/target, sampling period/clock/units, pseudonymous session, contiguous prime/move/dwell intervals, duration); TOML via `tomli-w` with `None` omitted, strict load, immutable atomic writes, `data/records/<kind>/<id>.toml` layout, append-only `data/catalog.toml`, payload digest/verification through the storage root; `tests/unit/test_artifact_records.py` (72 cases) covers round trips incl. the committed fixture `tests/fixtures/records/raw-20260830-2a97516c354b.toml` (byte-stable), every invariant, immutability, catalog semantics; `data/README.md` documents the layout |
-| M1-002 | `TODO` | Define canonical `samples.npz` arrays and processed artifact records | M1-001 | Schema tests enforce source IDs, logical URI, digest, names, shapes, float64 dtype, units, and phases |
+| M1-002 | `DONE` | Define canonical `samples.npz` arrays and processed artifact records | M1-001 | `arm_rc_ctrl.data.samples.SampleSet` fixes the canonical arrays (`t`, `q`/`dq`/`ddq`, `tip`/`dtip`/`ddtip`, `task_code` float64; `phase` int64 with documented codes prime=0/move=1/dwell=2), consistent shapes, ≥2 samples, read-only copies, per-array SHA-256; `data.arrays` gives digest/`.npz` I/O with exact-name loading; `ProcessedDatasetRecord` adds dimensions, exact canonical SI units, exact phase encoding, preprocessing (period/smoothing/derivative), per-array specs (shape/dtype/digest), optional training-only normalization, raw `origin.sources`, payload pinned at `armrc://processed/<id>/samples.npz`, and `check_samples` drift detection; `tests/unit/test_samples.py` + `tests/unit/test_processed_records.py` (54 cases) with committed byte-stable fixture `processed-20260830-555555555555.toml`; `data.synthetic` provides deterministic fixtures |
 | M1-003 | `TODO` | Implement raw `skelarm` log loader through the storage resolver | M0-003, M1-001 | Known fixture loads; missing, inaccessible, mismatched, corrupt, or unexpected data fails without source modification |
 | M1-004 | `TODO` | Implement dataset validation | M1-002 | Tests reject NaN/Inf, time errors, shape errors, missing phases, invalid task codes, and limit violations |
 | M1-005 | `TODO` | Implement configurable smoothing using zero-phase processing for offline demonstrations | M1-003, M1-004 | Analytic noisy-signal tests verify attenuation and absence of measurable phase shift |

@@ -77,6 +77,18 @@ serialization must stay byte-stable.
   recording session), `[intervals]` (`prime`, `move`, `dwell` as contiguous
   `[start, end]` pairs starting at 0), and `duration_s`. Their payload is the
   unchanged `skelarm` log at `armrc://raw/<artifact-id>/demo.sklog.npz`.
+- **Processed dataset records** (`ProcessedDatasetRecord`) add `n_samples`,
+  `dof`, `task_dim`, `task_code_dim`, `[units]` (must equal the canonical SI
+  units), `[phases]` (must equal `prime = 0`, `move = 1`, `dwell = 2`),
+  `[preprocessing]` (resampling period, smoothing label and parameters,
+  derivative method), `[arrays.<name>]` (shape, dtype, SHA-256 of every
+  array), and optional `[normalization]` (training-only statistics with the
+  artifacts they were fitted on). Their payload is `samples.npz` at
+  `armrc://processed/<artifact-id>/samples.npz` with exactly these arrays
+  (`arm_rc_ctrl.data.samples`): `t (N,)`, `q`/`dq`/`ddq (N, dof)`,
+  `tip`/`dtip`/`ddtip (N, task_dim)`, `task_code (N, task_code_dim)` — all
+  float64 — and `phase (N,)` int64. `origin.sources` must name the raw
+  demonstration(s) the dataset was derived from.
 - **Catalog:** `data/catalog.toml` lists every record (`artifact_id`, `kind`,
   record path, `uri`, `sha256`, `created_at`). It is append-only: entries are
   never changed or removed.
