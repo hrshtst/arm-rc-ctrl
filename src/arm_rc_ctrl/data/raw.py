@@ -44,7 +44,8 @@ WALL_PERIOD_TOLERANCE: Final = 0.25
 _META_MEMBER: Final = "__meta__"
 """Archive member holding skelarm's TOML metadata (the ``.sklog.npz`` file format)."""
 
-_REQUIRED_CHANNELS: Final = ("q", "dq")
+_REQUIRED_CHANNELS: Final = ("q",)
+"""Only joint positions are mandatory; derivatives are recomputed offline by the preprocessing pipeline."""
 _MIN_SAMPLES: Final = 2
 
 
@@ -84,9 +85,9 @@ class RawDemonstration:
         return self.channels["q"]
 
     @property
-    def dq(self) -> NDArray[np.float64]:
-        """Joint velocities ``(N, dof)``."""
-        return self.channels["dq"]
+    def dq(self) -> NDArray[np.float64] | None:
+        """Joint velocities ``(N, dof)`` when the recorder logged them (e.g. skelarm's dynamics mode)."""
+        return self.channels.get("dq")
 
 
 def read_log_schema_version(path: Path) -> int:
@@ -166,7 +167,7 @@ def _check_channels(record: RawDemonstrationRecord, log: StateLog) -> list[str]:
 def _check_joints(record: RawDemonstrationRecord, log: StateLog, n: int) -> list[str]:
     problems: list[str] = []
     dof = record.scenario.dof
-    for name in _REQUIRED_CHANNELS:
+    for name in (*_REQUIRED_CHANNELS, *(c for c in ("dq", "tau") if c in log.channel_names)):
         array = log.channel(name)
         if array.ndim != 2 or array.shape[1] != dof:  # noqa: PLR2004
             problems.append(f"channel {name!r} has shape {array.shape}; expected ({n}, {dof})")

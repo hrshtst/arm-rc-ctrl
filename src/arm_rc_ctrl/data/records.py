@@ -379,14 +379,14 @@ class Sampling:
     period_s: float
     clock: Literal["simulated", "wall"]
     units: dict[str, str]
-    """Unit per channel; ``t``, ``q``, and ``dq`` are mandatory."""
+    """Unit per channel; ``t`` and ``q`` are mandatory, every other logged channel must be declared too."""
 
     def __post_init__(self) -> None:
         """Validate the period and mandatory units."""
         if not (self.period_s > 0 and self.period_s < float("inf")):
             msg = f"sampling.period_s must be positive and finite, got {self.period_s!r}"
             raise ValueError(msg)
-        missing = sorted({"t", "q", "dq"} - set(self.units))
+        missing = sorted({"t", "q"} - set(self.units))
         if missing:
             msg = f"sampling.units is missing {missing}"
             raise ValueError(msg)

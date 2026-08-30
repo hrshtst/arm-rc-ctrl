@@ -94,6 +94,7 @@ def test_known_fixture_loads(store: StorageRoot, record: RawDemonstrationRecord)
     assert demo.path == store.path(record.artifact.payload.uri, mode="read")
     assert demo.n_samples == 31
     assert demo.dof == 2
+    assert demo.dq is not None
     assert demo.q.shape == demo.dq.shape == (31, 2)
     assert set(demo.channels) == {"q", "dq", "tau", "q_ref", "error"}
     assert demo.times[0] == 0.0
@@ -240,18 +241,37 @@ def test_wall_clock_tolerates_jitter_within_bounds(store: StorageRoot, record: R
 
 def _minimal_record(record: RawDemonstrationRecord, data: bytes, **changes: object) -> RawDemonstrationRecord:
     """Record for a hand-built log with only q and dq channels (no channel metadata)."""
-    sampling = Sampling(period_s=0.01, clock="simulated", units={"t": "s", "q": "rad", "dq": "rad/s"})
-    intervals = Intervals((0.0, 0.01), (0.01, 0.02), (0.02, 0.03))
-    return _record_for(record, data, sampling=sampling, intervals=intervals, duration_s=0.03, **changes)
+    fields: dict[str, object] = {
+        "sampling": Sampling(period_s=0.01, clock="simulated", units={"t": "s", "q": "rad", "dq": "rad/s"}),
+        "intervals": Intervals((0.0, 0.01), (0.01, 0.02), (0.02, 0.03)),
+        "duration_s": 0.03,
+    }
+    fields.update(changes)
+    return _record_for(record, data, **fields)
 
 
-def test_log_without_required_channel_fails(store: StorageRoot, record: RawDemonstrationRecord, tmp_path: Path) -> None:
-    """A log lacking dq is rejected."""
-    data = _save_log(tmp_path / "q_only.npz", [0.0, 0.01, 0.02, 0.03], q=np.zeros((4, 2)))
+def test_log_without_joint_positions_fails(store: StorageRoot, record: RawDemonstrationRecord, tmp_path: Path) -> None:
+    """A log lacking q is rejected; dq is optional because preprocessing derives it."""
+    data = _save_log(tmp_path / "dq_only.npz", [0.0, 0.01, 0.02, 0.03], dq=np.zeros((4, 2)))
     minimal = _minimal_record(record, data)
     _place(store, minimal, data)
-    with pytest.raises(RawLogError, match="log has no 'dq' channel"):
+    with pytest.raises(RawLogError, match="log has no 'q' channel"):
         load_raw_demonstration(store, minimal)
+
+
+def test_human_recorder_layout_without_dq_loads(
+    store: StorageRoot, record: RawDemonstrationRecord, tmp_path: Path
+) -> None:
+    """The skelarm trajectory recorder (IK mode) logs q and tip but no dq; that layout is accepted."""
+    n = 4
+    data = _save_log(tmp_path / "ik_mode.npz", [0.0, 0.01, 0.02, 0.03], q=np.zeros((n, 2)), tip=np.zeros((n, 2)))
+    sampling = Sampling(0.01, "wall", {"t": "s", "q": "rad", "tip": "m"})
+    intervals = Intervals((0.0, 0.01), (0.01, 0.02), (0.02, 0.03))
+    minimal = _record_for(record, data, sampling=sampling, intervals=intervals, duration_s=0.03)
+    _place(store, minimal, data)
+    demo = load_raw_demonstration(store, minimal)
+    assert demo.dq is None
+    assert set(demo.channels) == {"q", "tip"}
 
 
 @pytest.mark.parametrize(

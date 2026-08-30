@@ -308,7 +308,7 @@ def test_payload_origin_and_dvc_invariants(build: object, message: str) -> None:
             lambda: Sampling(0.0, "simulated", {"t": "s", "q": "rad", "dq": "rad/s"}),
             "sampling.period_s must be positive",
         ),
-        (lambda: Sampling(0.01, "wall", {"t": "s", "q": "rad"}), r"sampling.units is missing \['dq'\]"),
+        (lambda: Sampling(0.01, "wall", {"t": "s", "dq": "rad/s"}), r"sampling.units is missing \['q'\]"),
         (lambda: Intervals((0.0, 1.0), (1.0, 3.0), (3.0, 2.0)), "intervals.dwell must satisfy start < end"),
         (lambda: Intervals((0.5, 1.0), (1.0, 3.0), (3.0, 5.0)), "intervals.prime must start at 0.0"),
         (lambda: Intervals((0.0, 1.0), (1.5, 3.0), (3.0, 5.0)), "intervals must be contiguous"),
