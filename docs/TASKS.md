@@ -22,7 +22,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M2-001` — define the `RobotState`, `DesiredJointState`, and `TargetGenerator` contracts.
+- **Next task:** `M2-002` — teacher-forcing input/target pairs.
 - **Current milestone:** M2 — task 1-a RC vertical slice.
 - **Active blockers:** None.
 - **Latest completed work:** M1 closed 2026-08-31 (all M1 tasks and `M1-GATE` `DONE`; PR #2 approved after three review rounds); M0 closed 2026-08-30 (PR #1); `UP-005` open; `M3-015` scheduled before confirmatory execution.
@@ -33,7 +33,7 @@ are complete. Do not mark research software complete merely because it runs once
 | --- | --- | --- |
 | M0 | Clean recursive checkout installs and passes documented Python/C++ quality commands | `DONE` |
 | M1 | Demonstration preprocessing and both direct-replay baselines are reproducible | `DONE` |
-| M2 | Task 1-a ESN completes a provenance-complete nominal closed-loop run | `TODO` |
+| M2 | Task 1-a ESN completes a provenance-complete nominal closed-loop run | `IN PROGRESS` |
 | M3 | Frozen task 1-a model and confirmatory robustness report reproduce with one command | `TODO` |
 | M4 | Planar tasks 1-b through 3 and 4-DOF scaling have frozen protocols and reports | `TODO` |
 | M5 | Python/C++ parity and `rtctrl` 7-DOF simulation timing/safety acceptance pass | `TODO` |
@@ -119,7 +119,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 | ID | Status | Task | Depends on | Acceptance/evidence |
 | --- | --- | --- | --- | --- |
-| M2-001 | `TODO` | Define `RobotState`, `DesiredJointState`, and `TargetGenerator` contracts | M0-010 | Type/unit/shape/finiteness invariants and reset-before-step behavior have tests |
+| M2-001 | `DONE` | Define `RobotState`, `DesiredJointState`, and `TargetGenerator` contracts | M0-010 | `arm_rc_ctrl.controllers.contracts`: `RobotState(t, q, dq)` and `DesiredJointState(q, dq, ddq)` are frozen dataclasses whose vectors are validated as finite one-dimensional `float64` joint vectors of one length (SI units documented: s, rad, rad/s, rad/s²), copied and made read-only; `DesiredJointState.hold(q)` is the stationary target; `TargetGenerator` is the runtime-checkable `reset(initial_state)`/`step(state, task_code=None)` protocol of docs/PLAN.md section 8; `TargetGeneratorBase` enforces it around `_reset`/`_step` hooks (step before reset, joint-count change, time not advancing or going backwards, malformed task code, and wrong-type/wrong-dof outputs raise `GeneratorError`; a reset starts a fresh episode); `tests/unit/test_contracts.py` (7 cases) |
 | M2-002 | `TODO` | Build teacher-forcing input/target pairs `[q_k,dq_k] -> q_(k+1)` | M1-009, M2-001 | Tiny fixture proves exact one-step alignment and excludes washout rows from loss |
 | M2-003 | `TODO` | Implement per-episode reservoir reset and priming | M2-002 | Tests prove episodes do not leak state and runtime priming matches training semantics |
 | M2-004 | `TODO` | Implement ESN factory from typed config using `rclib` | M0-003, M2-002 | Fixed hyperparameters/seeds construct a model with expected input/output dimensions |
