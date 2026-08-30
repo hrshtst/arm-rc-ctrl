@@ -116,11 +116,12 @@ def test_rerun_is_deterministic_and_refuses_to_overwrite(
     assert second.record.arrays == first.record.arrays
     assert second.record.artifact.payload.sha256 == first.record.artifact.payload.sha256
 
-    payload_before = first.payload_file.read_bytes()
+    payload_before = (first.payload_file.read_bytes(), first.payload_file.stat().st_mtime_ns)
     record_before = first.record_file.read_text()
-    with pytest.raises(FileExistsError, match="datasets are immutable"):
-        _run(store, records_root)
-    assert first.payload_file.read_bytes() == payload_before
+    again = _run(store, records_root)  # identical inputs: verified no-op, nothing rewritten
+    assert again.resumed is True
+    assert again.record == first.record
+    assert (first.payload_file.read_bytes(), first.payload_file.stat().st_mtime_ns) == payload_before
     assert first.record_file.read_text() == record_before
     assert not any(p.name.startswith("staging-") for p in (store.root / "processed").iterdir())
 
@@ -208,3 +209,70 @@ def test_command_line_entry_point(
     written = load_record(fake_repo / printed["record"], ProcessedDatasetRecord)
     assert written.artifact.access == "internal"
     assert written.artifact.origin.command.startswith("python -m arm_rc_ctrl.data.preprocess --raw")
+
+
+def _fail(*_args: object, **_kwargs: object) -> None:
+    msg = "injected failure"
+    raise RuntimeError(msg)
+
+
+def test_retry_completes_after_record_write_failure(
+    store: StorageRoot, records_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failure after the payload rename leaves a verified payload; the retry writes record and catalog."""
+    monkeypatch.setattr("arm_rc_ctrl.data.preprocess.write_record", _fail)
+    with pytest.raises(RuntimeError, match="injected failure"):
+        _run(store, records_root)
+    orphan = [p for p in _processed_entries(store) if p.startswith("processed-")]
+    assert len(orphan) == 1
+    assert list((records_root / "data" / "records" / "processed").iterdir()) == []
+    assert not (records_root / "data" / "catalog.toml").exists()
+    monkeypatch.undo()
+
+    payload = store.root / "processed" / orphan[0] / "samples.npz"
+    before = (payload.read_bytes(), payload.stat().st_mtime_ns)
+    result = _run(store, records_root)
+    assert result.resumed is True
+    assert result.record.artifact.artifact_id == orphan[0]
+    assert (payload.read_bytes(), payload.stat().st_mtime_ns) == before  # payload reused, not rewritten
+    assert result.record_file.is_file()
+    assert load_catalog(records_root / "data" / "catalog.toml").find(orphan[0]) is not None
+    assert _processed_entries(store) == orphan  # no second copy, no staging left
+
+
+def test_retry_completes_after_catalog_failure_without_rewriting_the_record(
+    store: StorageRoot, records_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A failure while appending the catalog is completed by the retry; the record bytes stay identical."""
+    monkeypatch.setattr("arm_rc_ctrl.data.preprocess.write_catalog", _fail)
+    with pytest.raises(RuntimeError, match="injected failure"):
+        _run(store, records_root)
+    monkeypatch.undo()
+    (record_file,) = (records_root / "data" / "records" / "processed").iterdir()
+    before = record_file.read_bytes()
+    assert not (records_root / "data" / "catalog.toml").exists()
+
+    result = _run(store, records_root)
+    assert result.resumed is True
+    assert record_file.read_bytes() == before
+    assert load_catalog(records_root / "data" / "catalog.toml").find(result.record.artifact.artifact_id) is not None
+    # A third invocation is a clean no-op resume as well.
+    again = _run(store, records_root)
+    assert again.resumed is True
+    assert record_file.read_bytes() == before
+
+
+def test_resume_refuses_a_corrupted_or_foreign_partial_result(
+    store: StorageRoot, records_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Only a byte-identical payload (and a record describing it) can be resumed."""
+    monkeypatch.setattr("arm_rc_ctrl.data.preprocess.write_record", _fail)
+    with pytest.raises(RuntimeError):
+        _run(store, records_root)
+    monkeypatch.undo()
+    (orphan,) = _processed_entries(store)
+    payload = store.root / "processed" / orphan / "samples.npz"
+    payload.write_bytes(payload.read_bytes() + b"\0")
+    with pytest.raises(FileExistsError, match="payload differs"):
+        _run(store, records_root)
+    assert _processed_entries(store) == [orphan]  # staging cleaned up, orphan left for inspection

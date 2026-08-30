@@ -10,7 +10,10 @@ validation → normalization statistics. The payload is written to a staging
 directory under the ``processed`` bucket, digested, and moved atomically to its
 immutable content-addressed location; only then is the Git-tracked record
 written and the catalog appended. Nothing is ever overwritten, and the storage
-root never falls back to the repository.
+root never falls back to the repository. If an earlier invocation was
+interrupted after the payload was finalized, a same-day retry verifies the
+identical payload (its digest is its identity), reuses an identical record,
+and completes the missing record/catalog steps.
 
 Command line::
 
@@ -131,6 +134,8 @@ class PreprocessResult:
     record_file: Path
     payload_file: Path
     provenance: ProvenanceRecord
+    resumed: bool = False
+    """``True`` when an interrupted earlier invocation had already finalized the identical payload."""
 
 
 def _check_scenario_matches(raw: RawDemonstrationRecord, scenario_path: Path, scenario: ScenarioConfig) -> None:
@@ -144,16 +149,6 @@ def _check_scenario_matches(raw: RawDemonstrationRecord, scenario_path: Path, sc
     if raw.scenario.dof != scenario.dof:
         msg = f"raw record dof {raw.scenario.dof} != scenario dof {scenario.dof}"
         raise PreprocessError(msg)
-
-
-def _require_unused(final_dir: Path, record_file: Path, artifact_id: str) -> None:
-    """Datasets and records are immutable: an existing payload directory or record file is an error."""
-    if final_dir.exists():
-        msg = f"{artifact_id} already exists under {final_dir.parent}; datasets are immutable (identical content?)"
-        raise FileExistsError(msg)
-    if record_file.exists():
-        msg = f"{record_file} already exists; records are immutable"
-        raise FileExistsError(msg)
 
 
 def _build_samples(demo: RawDemonstration, scenario: ScenarioConfig, config: PreprocessConfig) -> SampleSet:
@@ -238,7 +233,6 @@ def preprocess_demonstration(
         artifact_id = make_artifact_id("processed", created_at, digest)
         final_dir = store.path(ArtifactUri("processed", (artifact_id,)), mode="write")
         record_file = records_root / "data" / "records" / "processed" / f"{artifact_id}.toml"
-        _require_unused(final_dir, record_file, artifact_id)
         normalization = fit_normalization(
             samples.arrays(),
             config.normalization.channels,
@@ -281,17 +275,63 @@ def preprocess_demonstration(
             normalization=normalization,
         )
         (staging / PROVENANCE_FILE).write_text(provenance.to_json() + "\n", encoding="utf-8")
-        staging.rename(final_dir)
+        resumed = _finalize_payload(staging, final_dir, record)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
 
+    record = _finalize_record(record_file, record, resumed=resumed)
+    _finalize_catalog(records_root, record, record_file)
+    return PreprocessResult(record, samples, record_file, final_dir / PROCESSED_PAYLOAD_NAME, provenance, resumed)
+
+
+def _finalize_payload(staging: Path, final_dir: Path, record: ProcessedDatasetRecord) -> bool:
+    """Move the staged payload into place, or verify that an identical payload is already there.
+
+    Returns ``True`` when an earlier, interrupted invocation had already
+    finalized the identical payload (content-addressed, so the digest proves
+    identity); any existing payload with different bytes is an error.
+    """
+    if not final_dir.exists():
+        staging.rename(final_dir)
+        return False
+    existing = final_dir / PROCESSED_PAYLOAD_NAME
+    if not existing.is_file() or sha256_file(existing) != record.artifact.payload.sha256:
+        msg = (
+            f"{record.artifact.artifact_id} exists under {final_dir.parent} but its payload differs from "
+            "the freshly processed one; inspect and remove it manually"
+        )
+        raise FileExistsError(msg)
+    shutil.rmtree(staging, ignore_errors=True)
+    return True
+
+
+def _finalize_record(record_file: Path, record: ProcessedDatasetRecord, *, resumed: bool) -> ProcessedDatasetRecord:
+    """Write the record, or on resume accept an existing record that describes the same payload."""
+    if record_file.exists():
+        existing = load_record(record_file, ProcessedDatasetRecord)
+        same_payload = existing.artifact.payload == record.artifact.payload and existing.arrays == record.arrays
+        if not resumed or not same_payload:
+            msg = f"{record_file} already exists and does not describe this payload; records are immutable"
+            raise FileExistsError(msg)
+        return existing
     record_file.parent.mkdir(parents=True, exist_ok=True)
     write_record(record_file, record)
+    return record
+
+
+def _finalize_catalog(records_root: Path, record: ProcessedDatasetRecord, record_file: Path) -> None:
+    """Append the catalog entry unless an identical one is already present."""
     catalog_file = catalog_path(records_root)
-    catalog = load_catalog(catalog_file).with_record(record.artifact, record_file.relative_to(records_root).as_posix())
-    write_catalog(catalog_file, catalog)
-    return PreprocessResult(record, samples, record_file, final_dir / PROCESSED_PAYLOAD_NAME, provenance)
+    catalog = load_catalog(catalog_file)
+    relative = record_file.relative_to(records_root).as_posix()
+    entry = catalog.find(record.artifact.artifact_id)
+    if entry is not None:
+        if entry.uri != record.artifact.payload.uri or entry.sha256 != record.artifact.payload.sha256:
+            msg = f"catalog entry {record.artifact.artifact_id} disagrees with the record"
+            raise ValueError(msg)
+        return
+    write_catalog(catalog_file, catalog.with_record(record.artifact, relative))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
