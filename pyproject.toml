@@ -10,10 +10,13 @@ authors = [{ name = "Hiroshi Atsuta", email = "atsuta@ieee.org" }]
 # rclib's CI and wheels stop at 3.13.
 requires-python = ">=3.12"
 dependencies = [
+  "dvc>=3.60",
   "numpy>=2.0.0",
   # Domain libraries are built from the pinned submodules (see [tool.uv.sources]).
   "rclib",
+  "scipy>=1.18.1",
   "skelarm",
+  "tomli-w>=1.2.0",
 ]
 classifiers = [
   "Development Status :: 2 - Pre-Alpha",
@@ -51,6 +54,7 @@ dev = [
   "nox>=2025.11.12",
   "pre-commit>=4.5.0",
   "ruff>=0.14.8",
+  "scipy-stubs>=1.18.1.0",
 ]
 
 [tool.uv]
@@ -171,6 +175,7 @@ branch = true
 [tool.coverage.report]
 show_missing = true
 skip_covered = false
+# The gate (noxfile.py) enforces --cov-fail-under=90 on the combined line+branch total.
 exclude_also = [
   "if TYPE_CHECKING:",
   "@overload",

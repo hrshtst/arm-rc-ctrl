@@ -42,6 +42,7 @@ from typing import cast
 
 from arm_rc_ctrl.config import ConfigError, from_mapping, to_mapping
 from arm_rc_ctrl.repo import git_output, repository_root
+from arm_rc_ctrl.validation import COMMIT_HEX_LENGTH, SHA256_HEX_LENGTH, is_hex
 
 __all__ = [
     "BUILT_PACKAGES",
@@ -89,7 +90,6 @@ _PYTHON_SOURCE_DIRS: dict[str, str] = {
     "skelarm": "src/skelarm",
 }
 _EXTENSION_SUFFIXES = (".so", ".pyd", ".dylib")
-_SHA256_HEX_LENGTH = 64
 _ROOT = ""
 _SCHEMA_KEY = "schema_version"
 
@@ -116,13 +116,13 @@ class SubmoduleRevision:
         if self.path != f"third_party/{self.name}":
             msg = f"submodule {self.name}: path must be third_party/{self.name}, got {self.path!r}"
             raise ValueError(msg)
-        if not _is_hex(self.recorded, 40):
+        if not is_hex(self.recorded, COMMIT_HEX_LENGTH):
             msg = f"submodule {self.name}: recorded must be a 40-hex commit, got {self.recorded!r}"
             raise ValueError(msg)
         if (self.checked_out is None) != (self.dirty is None):
             msg = f"submodule {self.name}: checked_out and dirty must both be null (uninitialized) or both set"
             raise ValueError(msg)
-        if self.checked_out is not None and not _is_hex(self.checked_out, 40):
+        if self.checked_out is not None and not is_hex(self.checked_out, COMMIT_HEX_LENGTH):
             msg = f"submodule {self.name}: checked_out must be a 40-hex commit, got {self.checked_out!r}"
             raise ValueError(msg)
 
@@ -150,13 +150,13 @@ class BuildIdentity:
 
     def __post_init__(self) -> None:
         """Validate identifier formats."""
-        if not _is_hex(self.source_commit, 40):
+        if not is_hex(self.source_commit, COMMIT_HEX_LENGTH):
             msg = f"{self.name}: source_commit must be a 40-hex commit, got {self.source_commit!r}"
             raise ValueError(msg)
-        if not _is_hex(self.python_sources_sha256, _SHA256_HEX_LENGTH):
+        if not is_hex(self.python_sources_sha256, SHA256_HEX_LENGTH):
             msg = f"{self.name}: python_sources_sha256 must be 64 hex characters"
             raise ValueError(msg)
-        if self.extension_sha256 is not None and not _is_hex(self.extension_sha256, _SHA256_HEX_LENGTH):
+        if self.extension_sha256 is not None and not is_hex(self.extension_sha256, SHA256_HEX_LENGTH):
             msg = f"{self.name}: extension_sha256 must be 64 hex characters or null"
             raise ValueError(msg)
 
@@ -175,10 +175,6 @@ class BuildManifest:
         if names != list(BUILT_PACKAGES):
             msg = f"builds must be exactly {list(BUILT_PACKAGES)} in order, got {names}"
             raise ValueError(msg)
-
-
-def _is_hex(value: str, length: int) -> bool:
-    return len(value) == length and all(c in "0123456789abcdef" for c in value)
 
 
 # --- submodules ---------------------------------------------------------------

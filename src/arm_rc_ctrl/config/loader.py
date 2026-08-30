@@ -14,7 +14,8 @@ Rules
   the configuration file that declared them.
 - Supported annotations: ``str``, ``int``, ``float``, ``bool``, ``Path``,
   ``Literal[...]`` of strings/ints, nested dataclasses, ``list[T]``,
-  ``tuple[T, ...]``, ``dict[str, T]``, and ``T | None``.
+  ``tuple[T, ...]``, ``dict[str, T]``, ``T | None``, and PEP 695 ``type``
+  aliases of any of these.
 
 Errors in the *document* raise :class:`ConfigError` with a dotted location such
 as ``robot.links[1].mass``; a ``ValueError`` raised by a schema's
@@ -33,7 +34,7 @@ import types
 import typing
 from collections.abc import Callable, Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, cast
+from typing import TYPE_CHECKING, Literal, TypeAliasType, cast
 
 if TYPE_CHECKING:
     from _typeshed import DataclassInstance
@@ -147,6 +148,9 @@ def _describe(value: object) -> str:
 
 def _convert(value: object, annotation: object, location: str, base_dir: Path | None) -> typing.Any:  # noqa: ANN401
     """Validate ``value`` against ``annotation`` and return the typed result."""
+    if isinstance(annotation, TypeAliasType):
+        # PEP 695 `type X = ...` aliases wrap their target; validate against it.
+        return _convert(value, annotation.__value__, location, base_dir)
     origin = typing.get_origin(annotation)
     args = typing.get_args(annotation)
 

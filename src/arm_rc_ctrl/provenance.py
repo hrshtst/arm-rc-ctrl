@@ -18,9 +18,9 @@ import hashlib
 import json
 import os
 import platform
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import cast
 
@@ -29,6 +29,7 @@ from arm_rc_ctrl.config import from_mapping, to_mapping
 from arm_rc_ctrl.dependencies import BuildIdentity, SubmoduleRevision
 from arm_rc_ctrl.repo import git_output, repository_root
 from arm_rc_ctrl.storage import ArtifactUri, StorageRoot
+from arm_rc_ctrl.validation import COMMIT_HEX_LENGTH, SHA256_HEX_LENGTH, is_hex, validate_utc_timestamp
 
 __all__ = [
     "SCHEMA_VERSION",
@@ -41,6 +42,7 @@ __all__ = [
     "artifact_reference",
     "canonical_json",
     "collect_provenance",
+    "command_line",
     "config_digest",
     "require_clean_for_confirmatory",
     "sha256_bytes",
@@ -52,13 +54,7 @@ __all__ = [
 THREAD_ENVIRONMENT_VARIABLES: tuple[str, ...] = ("OMP_NUM_THREADS", "OPENBLAS_NUM_THREADS", "MKL_NUM_THREADS")
 """Environment variables that influence numerical determinism and are therefore recorded."""
 
-_SHA256_HEX_LENGTH = 64
-_COMMIT_HEX_LENGTH = 40
 SCHEMA_VERSION = 1
-
-
-def _is_hex(value: str, length: int) -> bool:
-    return len(value) == length and all(c in "0123456789abcdef" for c in value)
 
 
 class ArtifactMismatchError(RuntimeError):
@@ -67,6 +63,15 @@ class ArtifactMismatchError(RuntimeError):
 
 class DirtyWorktreeError(RuntimeError):
     """A confirmatory result was requested from a modified or drifted checkout."""
+
+
+def command_line(module: str, argv: Sequence[str]) -> str:
+    """Render a ``python -m module ...`` command for records, replacing absolute paths by their basenames.
+
+    Records must never carry machine-specific paths; relative arguments are kept verbatim.
+    """
+    rendered = [arg if not Path(arg).is_absolute() else Path(arg).name for arg in argv]
+    return " ".join(["python", "-m", module, *rendered])
 
 
 def sha256_bytes(data: bytes) -> str:
@@ -106,7 +111,7 @@ class ArtifactReference:
     def __post_init__(self) -> None:
         """Validate the URI form, digest format, and size."""
         ArtifactUri.parse(self.uri)
-        if not _is_hex(self.sha256, _SHA256_HEX_LENGTH):
+        if not is_hex(self.sha256, SHA256_HEX_LENGTH):
             msg = f"sha256 must be 64 lowercase hex characters, got {self.sha256!r}"
             raise ValueError(msg)
         if self.size < 0:
@@ -161,15 +166,15 @@ class ProvenanceRecord:
         if self.schema_version != SCHEMA_VERSION:
             msg = f"unsupported schema_version {self.schema_version}; expected {SCHEMA_VERSION}"
             raise ValueError(msg)
-        if not _is_hex(self.project_commit, _COMMIT_HEX_LENGTH):
+        if not is_hex(self.project_commit, COMMIT_HEX_LENGTH):
             msg = f"project_commit must be a 40-hex commit, got {self.project_commit!r}"
             raise ValueError(msg)
         for name in ("lock_sha256", "config_sha256"):
-            if not _is_hex(getattr(self, name), _SHA256_HEX_LENGTH):
+            if not is_hex(getattr(self, name), SHA256_HEX_LENGTH):
                 msg = f"{name} must be 64 lowercase hex characters, got {getattr(self, name)!r}"
                 raise ValueError(msg)
         _validate_config_json(self.config_json, self.config_sha256)
-        _validate_timestamp(self.created_at)
+        validate_utc_timestamp(self.created_at)
         _validate_seeds(self.seeds)
         _validate_consistency(self)
 
@@ -274,21 +279,6 @@ def _validate_consistency(record: ProvenanceRecord) -> None:
         if installed != build.version:
             msg = f"build {build.name}: version {build.version!r} != platform.packages[{build.name!r}] {installed!r}"
             raise ValueError(msg)
-
-
-def _validate_timestamp(value: str) -> None:
-    """Require an ISO 8601 timestamp that is timezone-aware, in UTC, at second precision."""
-    try:
-        parsed = datetime.fromisoformat(value)
-    except ValueError as exc:
-        msg = f"created_at is not an ISO 8601 timestamp: {value!r}"
-        raise ValueError(msg) from exc
-    if parsed.tzinfo is None or parsed.utcoffset() != timedelta(0):
-        msg = f"created_at must be timezone-aware in UTC, got {value!r}"
-        raise ValueError(msg)
-    if parsed.isoformat(timespec="seconds") != value:
-        msg = f"created_at must have second precision with a +00:00 offset, got {value!r}"
-        raise ValueError(msg)
 
 
 def worktree_state(root: Path) -> tuple[str, bool]:

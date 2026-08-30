@@ -1,0 +1,30 @@
+# Equal-budget tuning protocol for the task 1-a direct-replay baselines
+# (docs/PLAN.md section 6). Both trackers receive the same sampler seed, the
+# same number of trials, the same development scenarios, and the same
+# objective; the selected gains are then frozen (M1-025/M1-026) before any
+# ESN tuning. Development scenarios are distinct from the confirmatory set
+# locked in M1-028.
+name = "baseline-gains-1a"
+scenario = "../tasks/task_1a.toml"
+budget = 64
+sampler_seed = 20260830
+
+[objective]
+# Median over development scenarios of the movement-window joint RMSE (rad).
+kind = "median_move_joint_rmse"
+# Objective assigned to a trial that terminates early, violates limits, or
+# misses the final-endpoint tolerance in any development scenario.
+infeasible_penalty = 10.0
+
+[search.pd]
+kp = { low = 1.0, high = 300.0, log = true }
+kd = { low = 0.05, high = 60.0, log = true }
+
+[search.computed_torque]
+kp = { low = 10.0, high = 900.0, log = true }
+kd = { low = 2.0, high = 120.0, log = true }
+
+[development]
+# Initial-posture offsets (rad) added to the scenario's initial posture, one
+# development scenario each; the first is the nominal posture.
+initial_posture_offsets = [[0.0, 0.0], [0.05, -0.05], [-0.05, 0.05], [0.08, 0.0]]

@@ -1,0 +1,5162 @@
+{
+  "dataset": "processed-20260830-feaf73e6663c",
+  "provenance": {
+    "artifacts": [
+      {
+        "sha256": "feaf73e6663c865cf9232c5a620bab5729ea02e6bd8c0181ad3dae5733540767",
+        "size": 58288,
+        "uri": "armrc://processed/processed-20260830-feaf73e6663c/samples.npz"
+      }
+    ],
+    "builds": [
+      {
+        "editable": false,
+        "extension_sha256": "f91828d8243700f1a283de80f5ef6cd3c756a3af1ba46a60103b5ad33cdebd5b",
+        "name": "rclib",
+        "python_sources_sha256": "458cc468c0af3dcee87c2c710024b487c8cb86075bad7702ac7984259734cfa3",
+        "source_commit": "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b",
+        "source_dirty": false,
+        "version": "0.1.0"
+      },
+      {
+        "editable": false,
+        "extension_sha256": null,
+        "name": "skelarm",
+        "python_sources_sha256": "4257de5cc8dfcedade31d75a8142ec1e4f337723d5191d8a51f52fe5aef3484a",
+        "source_commit": "ebb26118864ad158ef2ad36af68027b1a12ade1a",
+        "source_dirty": false,
+        "version": "0.3.0"
+      }
+    ],
+    "config_json": "{\"dataset\":\"processed-20260830-feaf73e6663c\",\"protocol\":{\"budget\":64,\"development\":{\"initial_posture_offsets\":[[0.0,0.0],[0.05,-0.05],[-0.05,0.05],[0.08,0.0]]},\"name\":\"baseline-gains-1a\",\"objective\":{\"infeasible_penalty\":10.0,\"kind\":\"median_move_joint_rmse\"},\"sampler_seed\":20260830,\"scenario\":\"configs/tasks/task_1a.toml\",\"search\":{\"computed_torque\":{\"kd\":{\"high\":120.0,\"log\":true,\"low\":2.0},\"kp\":{\"high\":900.0,\"log\":true,\"low\":10.0}},\"pd\":{\"kd\":{\"high\":60.0,\"log\":true,\"low\":0.05},\"kp\":{\"high\":300.0,\"log\":true,\"low\":1.0}}}},\"tracker\":\"pd\"}",
+    "config_sha256": "b23a66357778b326d88591b7f18922b925e19954ce75e541a2862fd66a6fbc34",
+    "created_at": "2026-08-30T14:55:39+00:00",
+    "exploratory": false,
+    "lock_sha256": "a2a796249e346bdc2947baecf2925bdc851906a8480eb453973c1c73560a2f6b",
+    "platform": {
+      "implementation": "CPython",
+      "machine": "x86_64",
+      "packages": {
+        "arm-rc-ctrl": "0.1.0.dev0",
+        "numpy": "2.5.2",
+        "rclib": "0.1.0",
+        "skelarm": "0.3.0"
+      },
+      "python": "3.12.11",
+      "release": "7.0.0-30-generic",
+      "system": "Linux",
+      "thread_environment": {}
+    },
+    "project_commit": "6263d2e01df37bcf59df47d1ec9a7e8d11219c30",
+    "project_dirty": false,
+    "schema_version": 1,
+    "seeds": {
+      "sampler": 20260830
+    },
+    "submodules": [
+      {
+        "checked_out": "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b",
+        "dirty": false,
+        "name": "rclib",
+        "path": "third_party/rclib",
+        "recorded": "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b"
+      },
+      {
+        "checked_out": "ebb26118864ad158ef2ad36af68027b1a12ade1a",
+        "dirty": false,
+        "name": "skelarm",
+        "path": "third_party/skelarm",
+        "recorded": "ebb26118864ad158ef2ad36af68027b1a12ade1a"
+      },
+      {
+        "checked_out": "c601076ee60ec712c1cb4a85756a186882df2e1b",
+        "dirty": false,
+        "name": "rtctrl",
+        "path": "third_party/rtctrl",
+        "recorded": "c601076ee60ec712c1cb4a85756a186882df2e1b"
+      }
+    ]
+  },
+  "result": {
+    "best": {
+      "feasible": true,
+      "gains": {
+        "kd": [
+          7.85669277955735,
+          0.1557202290436201
+        ],
+        "kp": [
+          95.28850531503508,
+          71.35814704646654
+        ],
+        "type": "pd"
+      },
+      "number": 59,
+      "objective": 0.00016692714545586955,
+      "scenarios": [
+        {
+          "criteria": {
+            "completed": true,
+            "dwell_in_tolerance": true,
+            "dwell_stationary": true
+          },
+          "feasible": true,
+          "index": 0,
+          "initial_q": [
+            0.2,
+            1.2
+          ],
+          "move_joint_rmse": 0.0001669272017152326,
+          "termination": "completed"
+        },
+        {
+          "criteria": {
+            "completed": true,
+            "dwell_in_tolerance": true,
+            "dwell_stationary": true
+          },
+          "feasible": true,
+          "index": 1,
+          "initial_q": [
+            0.25,
+            1.15
+          ],
+          "move_joint_rmse": 0.00016692708919650647,
+          "termination": "completed"
+        },
+        {
+          "criteria": {
+            "completed": true,
+            "dwell_in_tolerance": true,
+            "dwell_stationary": true
+          },
+          "feasible": true,
+          "index": 2,
+          "initial_q": [
+            0.15000000000000002,
+            1.25
+          ],
+          "move_joint_rmse": 0.00016692731400400624,
+          "termination": "completed"
+        },
+        {
+          "criteria": {
+            "completed": true,
+            "dwell_in_tolerance": true,
+            "dwell_stationary": true
+          },
+          "feasible": true,
+          "index": 3,
+          "initial_q": [
+            0.28,
+            1.2
+          ],
+          "move_joint_rmse": 0.0001669270291668116,
+          "termination": "completed"
+        }
+      ]
+    },
+    "budget": 64,
+    "feasible_trials": 18,
+    "objective": "median_move_joint_rmse",
+    "protocol": "baseline-gains-1a",
+    "sampler_seed": 20260830,
+    "tracker_type": "pd",
+    "trials": [
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.5885441969189964,
+            10.276428176768833
+          ],
+          "kp": [
+            2.529795096618594,
+            14.804989649963478
+          ],
+          "type": "pd"
+        },
+        "number": 0,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.6659823162162949,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.6179124268073114,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.6683237566146255,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.6667064624635584,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            8.461056029174848,
+            1.147848922476594
+          ],
+          "kp": [
+            2.4905001723959495,
+            7.614650970540975
+          ],
+          "type": "pd"
+        },
+        "number": 1,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0012793695771306868,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.017276924919133286,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.018930845739075775,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": true
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.028090813104413293,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            28.44719575095834,
+            0.25428664928247335
+          ],
+          "kp": [
+            9.037326331251847,
+            15.131256572678142
+          ],
+          "type": "pd"
+        },
+        "number": 2,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.21930003190344596,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.14271188848775587,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.21223997083839913,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.12669945066135796,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            1.7486982886565372,
+            1.0633526240844364
+          ],
+          "kp": [
+            4.167854054607331,
+            3.5997943981744673
+          ],
+          "type": "pd"
+        },
+        "number": 3,
+        "objective": 0.00425015366316665,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.004274452157534961,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.004225855168798338,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.004442621696813215,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.004214607492095199,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.1645767788426589,
+            0.16657053532915628
+          ],
+          "kp": [
+            28.21858540578943,
+            122.60761831197645
+          ],
+          "type": "pd"
+        },
+        "number": 4,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0008300746611471166,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.004838567798438776,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.009213132316137969,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            1.192968027405713,
+            1.2688828458627077
+          ],
+          "kp": [
+            68.64679530404885,
+            3.092834700009688
+          ],
+          "type": "pd"
+        },
+        "number": 5,
+        "objective": 0.0012365897427044931,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0011870073196972141,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0016184914000681244,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0012552981839664746,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0012178813014425117,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.07260686850274854,
+            4.685638500145914
+          ],
+          "kp": [
+            5.139041774819082,
+            240.83383489961184
+          ],
+          "type": "pd"
+        },
+        "number": 6,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            16.21355208639595,
+            18.239612943894095
+          ],
+          "kp": [
+            106.23501504633951,
+            88.11430040907554
+          ],
+          "type": "pd"
+        },
+        "number": 7,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.09751888939008037,
+            19.84451358094978
+          ],
+          "kp": [
+            2.4588653288031797,
+            50.865138949122056
+          ],
+          "type": "pd"
+        },
+        "number": 8,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.40838934460450643,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.4753013158190725,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.45627616288769085,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.3703733455651027,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            20.971656287859147,
+            0.24215052341158666
+          ],
+          "kp": [
+            19.558422125013,
+            8.977459300685313
+          ],
+          "type": "pd"
+        },
+        "number": 9,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.08242111734485605,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0709506880000231,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.11748595921437921,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0666113085659493,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            1.0459096955793625,
+            6.087443593056629
+          ],
+          "kp": [
+            8.569068328251552,
+            10.984186513685168
+          ],
+          "type": "pd"
+        },
+        "number": 10,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.4419896768892454,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.4613710513951039,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.4836781509514599,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.48651428200465885,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            0.2211472652130276,
+            0.66988098550531
+          ],
+          "kp": [
+            27.678815455844074,
+            36.58963507848909
+          ],
+          "type": "pd"
+        },
+        "number": 11,
+        "objective": 0.0032009546428475024,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0008514258638146248,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0031554980221761278,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.003246411263518877,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.006085667133003967,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            49.123764168639546,
+            0.1571382312342605
+          ],
+          "kp": [
+            26.199568423211055,
+            1.8572793485077883
+          ],
+          "type": "pd"
+        },
+        "number": 12,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.36787135292972123,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.11399074925646958,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.32256079889667466,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.29023563286881443,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            0.5278865198148982,
+            0.7896929879527472
+          ],
+          "kp": [
+            65.04434393754093,
+            5.93359225579233
+          ],
+          "type": "pd"
+        },
+        "number": 13,
+        "objective": 0.0008157509581415521,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0008013165410956327,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.000817526833864643,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0008139750824184613,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0008411070794074651,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.3961547141113706,
+            4.913946164964831
+          ],
+          "kp": [
+            6.725662425042608,
+            33.64412576712838
+          ],
+          "type": "pd"
+        },
+        "number": 14,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.1546229777717907,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.1589558397784801,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.15960675136815708,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.15951829200954043,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            6.45105313593717,
+            9.642363029532326
+          ],
+          "kp": [
+            1.9307291019040558,
+            2.0664909695633833
+          ],
+          "type": "pd"
+        },
+        "number": 15,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.7429534663617064,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.7514667074072479,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.781980615818061,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.7631455205958989,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            0.6950857901917179,
+            0.5757796535705538
+          ],
+          "kp": [
+            142.6830593438104,
+            4.972291458889771
+          ],
+          "type": "pd"
+        },
+        "number": 16,
+        "objective": 0.0008772670488956452,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0008772643533794292,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0008772722628435673,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0008772630097525429,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0008772697444118611,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            39.1467639536826,
+            11.105921623936895
+          ],
+          "kp": [
+            32.999170017850076,
+            1.430586223252757
+          ],
+          "type": "pd"
+        },
+        "number": 17,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.8007950891278486,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.948939496105271,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            3.0632314572739374,
+            47.660215312807814
+          ],
+          "kp": [
+            24.218175016520515,
+            6.645216715244262
+          ],
+          "type": "pd"
+        },
+        "number": 18,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.7717850553023542,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.8779259507118302,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.7785741000396393,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.6483289798803641,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            28.953466129155462,
+            0.1547632844228521
+          ],
+          "kp": [
+            5.779406544225987,
+            27.187956445209146
+          ],
+          "type": "pd"
+        },
+        "number": 19,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0882989799382536,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.31845626976648905,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.19901790993030033,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.18320616466702672,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            23.933729535431034,
+            0.5387553215598758
+          ],
+          "kp": [
+            38.98391115835252,
+            47.41415717388464
+          ],
+          "type": "pd"
+        },
+        "number": 20,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.13027947102336754,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.10879984027967371,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.14245356915946394,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.12333692860283058,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            0.10329769353949832,
+            0.0990575481593934
+          ],
+          "kp": [
+            22.903878297786946,
+            2.565128759526181
+          ],
+          "type": "pd"
+        },
+        "number": 21,
+        "objective": 0.003749656306359315,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0020491305135185117,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.003931344399976496,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0035679682127421346,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0072585941116901104,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            14.812550729430653,
+            4.485767607454905
+          ],
+          "kp": [
+            5.099271876759762,
+            7.06019770299101
+          ],
+          "type": "pd"
+        },
+        "number": 22,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.5263902095646174,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.5257515084295855,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.5243438288085224,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.5188865708011052,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            1.2044873511492897,
+            1.1775094514897002
+          ],
+          "kp": [
+            1.4493574702459688,
+            78.01931661811574
+          ],
+          "type": "pd"
+        },
+        "number": 23,
+        "objective": 0.008496189634705255,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.008620867621193308,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.007988672611670824,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.01061717065040462,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.008371511648217202,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.26673529607882995,
+            2.083467292892577
+          ],
+          "kp": [
+            6.057178275980417,
+            1.252362965086904
+          ],
+          "type": "pd"
+        },
+        "number": 24,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.14548789817660684,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.149220111962927,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.1543015711761745,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.14842245632955406,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.7580176821403138,
+            7.4587334184671805
+          ],
+          "kp": [
+            261.9248295134105,
+            67.63665330239547
+          ],
+          "type": "pd"
+        },
+        "number": 25,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.11767020922775212,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.14056806571388253,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            3.4552063228350245,
+            0.07404110421077438
+          ],
+          "kp": [
+            20.191999656607265,
+            111.42156001094926
+          ],
+          "type": "pd"
+        },
+        "number": 26,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0009260027941196999,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0009263178881606858,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0009255743810807828,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            1.0325315686029777,
+            2.194188459947463
+          ],
+          "kp": [
+            25.302821218857133,
+            44.509216664178965
+          ],
+          "type": "pd"
+        },
+        "number": 27,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.032789110057988576,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.03278873649428769,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.032657038691741684,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.03270033760150477,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.08484211110051626,
+            0.053258901179021455
+          ],
+          "kp": [
+            4.138199740436027,
+            1.219963653897161
+          ],
+          "type": "pd"
+        },
+        "number": 28,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.008012790183200082,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.013807017005593149,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.010331575651618035,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.02278823382884353,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.18426944250194874,
+            34.797075721624935
+          ],
+          "kp": [
+            34.443678443828595,
+            32.30048938374172
+          ],
+          "type": "pd"
+        },
+        "number": 29,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.5940007617096497,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.9914953400220334,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.76474057101275,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.7118970729683972,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            7.587224306544119,
+            4.895822956056133
+          ],
+          "kp": [
+            1.1397399989860968,
+            1.560081618832756
+          ],
+          "type": "pd"
+        },
+        "number": 30,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.6846001517412685,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.6902860565648735,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.6817342938018536,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.6863773393241351,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            0.13551808396706153,
+            0.11278548371035708
+          ],
+          "kp": [
+            32.13784180356125,
+            2.8990486968963496
+          ],
+          "type": "pd"
+        },
+        "number": 31,
+        "objective": 0.002148021389519003,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.001709921413643748,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.002121090013868262,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.002174952765169744,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.003323171852186269,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            0.05564363641911452,
+            0.3149913006599258
+          ],
+          "kp": [
+            18.954869875909722,
+            2.6388239816254417
+          ],
+          "type": "pd"
+        },
+        "number": 32,
+        "objective": 0.004611847001277392,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0020934561111536215,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.004646359126597064,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.00457733487595772,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.00720535052251246,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            0.5267616061322599,
+            0.6379114101135974
+          ],
+          "kp": [
+            116.02328830845602,
+            15.852527491546178
+          ],
+          "type": "pd"
+        },
+        "number": 33,
+        "objective": 0.0003464852789428328,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0003382879557187636,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.00034742994080840824,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0003455406170772574,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0003635253672085304,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            2.9268367630972296,
+            0.5162789787149793
+          ],
+          "kp": [
+            22.72990047227393,
+            44.4129987805695
+          ],
+          "type": "pd"
+        },
+        "number": 34,
+        "objective": 0.0008709114909116267,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.000870911531595643,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0008709114502276105,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0008709116121410171,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0008709114296845004,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            0.2855750413658995,
+            0.0812278829250847
+          ],
+          "kp": [
+            19.408404085273464,
+            90.01377098633318
+          ],
+          "type": "pd"
+        },
+        "number": 35,
+        "objective": 0.002358658415273449,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0012075584074924743,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0023305384175741524,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.002386778412972746,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.004141940796500499,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            0.621612982974318,
+            0.0919064923355957
+          ],
+          "kp": [
+            34.53510099385056,
+            11.028709746258153
+          ],
+          "type": "pd"
+        },
+        "number": 36,
+        "objective": 0.000934622608840305,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0007717619790113225,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0009333386649572544,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0009359065527233554,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0013424728958201044,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.1166851718830611,
+            25.188644879314133
+          ],
+          "kp": [
+            90.81964265555918,
+            4.336717482531533
+          ],
+          "type": "pd"
+        },
+        "number": 37,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.6575015864807165,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.6724097983400356,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.9648354160728368,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            10.39038788133477,
+            0.4132195704305306
+          ],
+          "kp": [
+            196.87678760621876,
+            90.64174038805547
+          ],
+          "type": "pd"
+        },
+        "number": 38,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 7.89316414574724e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 7.893164214553891e-05,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.46861396626357366,
+            0.23383777492197846
+          ],
+          "kp": [
+            5.098655355563519,
+            169.2173457164511
+          ],
+          "type": "pd"
+        },
+        "number": 39,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.004739779306521292,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0047258627458124595,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.005138150533481466,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            44.06871430554629,
+            0.30302490044645436
+          ],
+          "kp": [
+            9.265969012381808,
+            38.93217883166862
+          ],
+          "type": "pd"
+        },
+        "number": 40,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.08546314324057605,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.1395420148178871,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.4142777998605058,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.45406626344961687,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.18238803588008476,
+            18.513627729931173
+          ],
+          "kp": [
+            182.12585986957953,
+            1.6450569347347612
+          ],
+          "type": "pd"
+        },
+        "number": 41,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.6917885289817695,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            7.755845876313734,
+            1.765256620798149
+          ],
+          "kp": [
+            16.69486207708436,
+            2.4682551275431095
+          ],
+          "type": "pd"
+        },
+        "number": 42,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.13515466598938355,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.13614821890889167,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.13622223059929509,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.13619634244828774,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.8885120004256276,
+            35.903748499638695
+          ],
+          "kp": [
+            29.648467236728415,
+            19.78784325907636
+          ],
+          "type": "pd"
+        },
+        "number": 43,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.6873269188078732,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.7074970298403804,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.9530261291847234,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.42202320634818213,
+            14.100742280664521
+          ],
+          "kp": [
+            1.0513545445579848,
+            27.846473564288107
+          ],
+          "type": "pd"
+        },
+        "number": 44,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.5174569467487098,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.5430273251064628,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.5772679218925393,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.5799947246656542,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            0.608699198444253,
+            0.44550743643515983
+          ],
+          "kp": [
+            3.3396966456981803,
+            198.29988797982674
+          ],
+          "type": "pd"
+        },
+        "number": 45,
+        "objective": 0.00695582622612094,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.006973142982173267,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.006938509470068612,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0070193974620808485,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.006930033512190481,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            18.873975471919408,
+            0.543707226646639
+          ],
+          "kp": [
+            13.958486662914448,
+            30.7100169010593
+          ],
+          "type": "pd"
+        },
+        "number": 46,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.13384998760145897,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.09770436612506543,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.17001176121474568,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.13135395170838346,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            14.810437806269146,
+            13.44919172895265
+          ],
+          "kp": [
+            23.816631440744747,
+            98.98550399304361
+          ],
+          "type": "pd"
+        },
+        "number": 47,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            9.576371868798223,
+            48.552998542758615
+          ],
+          "kp": [
+            11.570526331006961,
+            31.426274792621705
+          ],
+          "type": "pd"
+        },
+        "number": 48,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.6366070456628289,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.5864261468013838,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.678685429505798,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.6086570144860641,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.1174870126800932,
+            2.487366135250526
+          ],
+          "kp": [
+            120.52000525739554,
+            40.27738818332717
+          ],
+          "type": "pd"
+        },
+        "number": 49,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.04517725129794057,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.043646292888971316,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.04324107847863296,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.041462202794892995,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            2.6487404108624424,
+            13.052940138051605
+          ],
+          "kp": [
+            5.521185082554549,
+            11.44506781824459
+          ],
+          "type": "pd"
+        },
+        "number": 50,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.8078131508341959,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.8207439564338549,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.899625372544205,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.8894147191382505,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.41359317325813066,
+            1.039746614627729
+          ],
+          "kp": [
+            9.324805623838447,
+            114.15200307700401
+          ],
+          "type": "pd"
+        },
+        "number": 51,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0025499605801963805,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.002859480059405283,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0031460871631776104,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            0.26734405935766753,
+            0.32159189674915256
+          ],
+          "kp": [
+            3.357873673321948,
+            40.837439196077966
+          ],
+          "type": "pd"
+        },
+        "number": 52,
+        "objective": 0.008103387664020644,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.007714330637016869,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.008449414984622716,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0077573603434185736,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.009764408474767306,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.07423454790328472,
+            1.8813384630392744
+          ],
+          "kp": [
+            88.41733691222645,
+            10.849624070797702
+          ],
+          "type": "pd"
+        },
+        "number": 53,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.03359645734939993,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.034489751545501046,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.03433717929308187,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.03291987469625444,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            6.239837922891908,
+            5.815890405562635
+          ],
+          "kp": [
+            298.8107564846922,
+            137.8165786891819
+          ],
+          "type": "pd"
+        },
+        "number": 54,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.06742315248372907,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": false,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": null,
+            "termination": "limit_violation"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0595568395698449,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            7.738212517768926,
+            0.35379271710779925
+          ],
+          "kp": [
+            8.535569356964281,
+            3.098984520827141
+          ],
+          "type": "pd"
+        },
+        "number": 55,
+        "objective": 0.004828000015182938,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0016791221885010298,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.004428245312491421,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0052277547178744554,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.007011833894229521,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.17322174080283378,
+            14.241051617636579
+          ],
+          "kp": [
+            5.959684066263857,
+            1.0383832267002093
+          ],
+          "type": "pd"
+        },
+        "number": 56,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.8959757042215865,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.9753507830344397,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 1.034654723649746,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.8836739104846136,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            38.8136741558533,
+            2.910467922892272
+          ],
+          "kp": [
+            4.541619562055586,
+            1.356531480716855
+          ],
+          "type": "pd"
+        },
+        "number": 57,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.9082391966036824,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.856899546911704,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.6024947444477892,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.7592647037629243,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            44.53830980654916,
+            0.39920906194678274
+          ],
+          "kp": [
+            275.8393504030122,
+            8.098542611859951
+          ],
+          "type": "pd"
+        },
+        "number": 58,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.05059873249374954,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.050726005852959735,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.044043366754208134,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.05065540849606251,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            7.85669277955735,
+            0.1557202290436201
+          ],
+          "kp": [
+            95.28850531503508,
+            71.35814704646654
+          ],
+          "type": "pd"
+        },
+        "number": 59,
+        "objective": 0.00016692714545586955,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0001669272017152326,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.00016692708919650647,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.00016692731400400624,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0001669270291668116,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            0.9323627565188174,
+            0.3812188389309823
+          ],
+          "kp": [
+            18.007532976850097,
+            2.2415862409273344
+          ],
+          "type": "pd"
+        },
+        "number": 60,
+        "objective": 0.0022896742318679,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0022888482691222904,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.002290192960937037,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0022891555027987633,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0022913392753067057,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            1.9683615143219213,
+            25.237673164473236
+          ],
+          "kp": [
+            7.499114622494311,
+            4.083610926090523
+          ],
+          "type": "pd"
+        },
+        "number": 61,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.652218451200301,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.6732341940111862,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.7582142499463776,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.6683916729771533,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            17.398371264919934,
+            35.07245862326556
+          ],
+          "kp": [
+            6.266719680798591,
+            27.42714242954017
+          ],
+          "type": "pd"
+        },
+        "number": 62,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.8767187959814126,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.7806095484779592,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.703294283828506,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.8650341437113387,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            0.8179815702049041,
+            49.45799548888472
+          ],
+          "kp": [
+            76.20942439867058,
+            14.071373996315986
+          ],
+          "type": "pd"
+        },
+        "number": 63,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.6325616851767674,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.6739640580590798,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.8452753539003035,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": false
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.6859814843804588,
+            "termination": "completed"
+          }
+        ]
+      }
+    ]
+  },
+  "scenario_file": "configs/tasks/task_1a.toml",
+  "schema_version": 1
+}

@@ -25,6 +25,7 @@ from arm_rc_ctrl.provenance import (
     artifact_reference,
     canonical_json,
     collect_provenance,
+    command_line,
     config_digest,
     require_clean_for_confirmatory,
     sha256_bytes,
@@ -474,3 +475,20 @@ def test_collect_provenance_fails_on_unknown_build_identity(monkeypatch: pytest.
     monkeypatch.setattr(dependencies, "read_manifest", absent)
     with pytest.raises(dependencies.BuildIdentityError, match="unknown build identity"):
         collect_provenance(CONFIG, seeds={}, now=FIXED_TIME, env={}, exploratory=True)
+
+
+def test_command_line_strips_machine_paths() -> None:
+    """Absolute path arguments are reduced to basenames; relative ones are kept verbatim."""
+    argv = [
+        "--log",
+        "/mnt/machine/x/demo.sklog.npz",
+        "--scenario",
+        "configs/tasks/task_1a.toml",
+        "--plot",
+        "/home/u/r.png",
+    ]
+    rendered = command_line("arm_rc_ctrl.data.import_demo", argv)
+    assert rendered == (
+        "python -m arm_rc_ctrl.data.import_demo --log demo.sklog.npz --scenario configs/tasks/task_1a.toml --plot r.png"
+    )
+    assert "/mnt" not in rendered

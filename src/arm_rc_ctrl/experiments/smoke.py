@@ -37,6 +37,7 @@ from numpy.typing import NDArray
 from skelarm import JointPD, LinkProp, SampledJointReference, Skeleton, simulate_controlled
 
 from arm_rc_ctrl.config import load_config
+from arm_rc_ctrl.data.arrays import array_digest
 from arm_rc_ctrl.provenance import (
     ProvenanceRecord,
     canonical_json,
@@ -45,13 +46,12 @@ from arm_rc_ctrl.provenance import (
     sha256_bytes,
 )
 from arm_rc_ctrl.repo import repository_root
+from arm_rc_ctrl.scenario import LinkConfig, RobotConfig
 from arm_rc_ctrl.storage import ArtifactUri, StorageRoot, open_storage
 
 __all__ = [
     "DEFAULT_CONFIG",
     "EsnConfig",
-    "LinkConfig",
-    "RobotConfig",
     "SimulationConfig",
     "SmokeConfig",
     "SmokeResult",
@@ -65,26 +65,6 @@ DEFAULT_CONFIG = Path("configs") / "evaluations" / "smoke.toml"
 ARRAYS_FILE = "arrays.npz"
 SUMMARY_FILE = "summary.json"
 SUMMARY_SCHEMA_VERSION = 1
-
-
-@dataclass(frozen=True)
-class LinkConfig:
-    """One movable planar link."""
-
-    length: float
-    mass: float
-    inertia: float
-    com: tuple[float, ...]
-    q_min: float
-    q_max: float
-
-
-@dataclass(frozen=True)
-class RobotConfig:
-    """Planar arm description."""
-
-    links: tuple[LinkConfig, ...]
-    base_length: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -133,22 +113,6 @@ class SmokeResult:
     provenance: ProvenanceRecord
 
 
-def _validate_links(links: tuple[LinkConfig, ...]) -> None:
-    if not links:
-        msg = "robot.links must contain at least one link"
-        raise ValueError(msg)
-    for i, link in enumerate(links):
-        if len(link.com) != 2:  # noqa: PLR2004
-            msg = f"robot.links[{i}].com must be an [x, y] pair"
-            raise ValueError(msg)
-        if link.length <= 0 or link.mass <= 0 or link.inertia <= 0:
-            msg = f"robot.links[{i}]: length, mass, and inertia must be positive"
-            raise ValueError(msg)
-        if link.q_min >= link.q_max:
-            msg = f"robot.links[{i}]: q_min must be below q_max"
-            raise ValueError(msg)
-
-
 def _validate_simulation(sim: SimulationConfig, links: tuple[LinkConfig, ...]) -> None:
     dof = len(links)
     for name, values in {"initial_q": sim.initial_q, "target_q": sim.target_q, "kp": sim.kp, "kd": sim.kd}.items():
@@ -187,7 +151,6 @@ def _validate_esn(esn: EsnConfig) -> None:
 
 def validate_config(config: SmokeConfig) -> None:
     """Check cross-field consistency that the type-level loader cannot express."""
-    _validate_links(config.robot.links)
     _validate_simulation(config.simulation, config.robot.links)
     _validate_esn(config.esn)
     steps = round(config.simulation.duration / config.simulation.dt)
@@ -277,13 +240,6 @@ def _metrics(config: SmokeConfig, arrays: dict[str, NDArray[np.float64]]) -> dic
         "esn_train_rmse": float(np.sqrt(np.mean(residual**2))),
         "esn_max_abs_error": float(np.max(np.abs(residual))),
     }
-
-
-def array_digest(array: NDArray[np.float64]) -> str:
-    """SHA-256 over dtype, shape, and the C-contiguous bytes of an array."""
-    contiguous = np.ascontiguousarray(array)
-    header = f"{contiguous.dtype.str}|{contiguous.shape}|".encode()
-    return sha256_bytes(header + contiguous.tobytes())
 
 
 def _check_finite(arrays: dict[str, NDArray[np.float64]]) -> None:

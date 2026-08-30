@@ -1,0 +1,96 @@
+# Replay snapshots of the frozen task 1-a baselines (M1-027). Regenerate only when the
+# simulation, metrics, or frozen gains change intentionally: `uv run pytest tests/regression
+# --update-baselines`, then review the diff. Comparisons use the declared [tolerances].
+scenario = "pd-reach-fixture"
+dataset = "processed-20260831-57512e840318"
+schema_version = 1
+
+[gains]
+computed_torque = "0ac3dff977cdbbd673ff760b105c96f84bc4aeddb86cae50e931f60007a21ea1"
+pd = "3b058ed7ca1e831dfa8c3cc984e02db959b07678a66135ba5483d8edd47698b2"
+
+[tolerances]
+metric_rel = 1e-09
+state_abs = 1e-09
+
+[runs.computed_torque]
+method = "replay+computed_torque"
+termination = "completed"
+success = true
+n_samples = 31
+joint_rmse = 0.014154333404451578
+joint_rmse_per_joint = [
+    0.013945722236917677,
+    0.014359914329113788,
+]
+final_q = [
+    0.9212865085224704,
+    0.5946111558824377,
+]
+final_dq = [
+    -0.787894046129895,
+    -0.6458652842349829,
+]
+final_tip = [
+    0.19515660478640898,
+    0.4885374679817016,
+]
+
+[runs.computed_torque.criteria]
+completed = true
+dwell_in_tolerance = true
+dwell_stationary = true
+
+[runs.computed_torque.dwell]
+in_tolerance_fraction = 0.0
+longest_in_tolerance_s = 0.0
+endpoint_rms = 0.12830955465908808
+endpoint_max = 0.14470691458730078
+velocity_max = 1.9827122107588886
+
+[runs.computed_torque.effort]
+torque_rms = 4.473745059608593
+torque_peak = 10.0
+saturation_fraction = 0.03225806451612903
+effort = 12.394293151545702
+
+[runs.pd]
+method = "replay+pd"
+termination = "completed"
+success = true
+n_samples = 31
+joint_rmse = 0.025703996993615877
+joint_rmse_per_joint = [
+    0.02864563516072891,
+    0.022378974711412498,
+]
+final_q = [
+    0.9571354846123264,
+    0.5930243844835915,
+]
+final_dq = [
+    -1.5042775935851525,
+    -1.179113951309074,
+]
+final_tip = [
+    0.17791801326992218,
+    0.4952103748081531,
+]
+
+[runs.pd.criteria]
+completed = true
+dwell_in_tolerance = true
+dwell_stationary = true
+
+[runs.pd.dwell]
+in_tolerance_fraction = 0.0
+longest_in_tolerance_s = 0.0
+endpoint_rms = 0.15668061638015437
+endpoint_max = 0.178461034540375
+velocity_max = 2.471628849261145
+
+[runs.pd.effort]
+torque_rms = 4.932549868888583
+torque_peak = 10.0
+saturation_fraction = 0.06451612903225806
+effort = 14.594980414288678

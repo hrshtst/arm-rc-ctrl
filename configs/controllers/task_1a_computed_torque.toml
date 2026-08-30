@@ -1,0 +1,11 @@
+# Frozen by study 'baseline-gains-1a' on dataset processed-20260830-feaf73e6663c (objective 3.19336e-05 rad).
+# Do not edit: baseline gains are fixed before any ESN tuning (docs/PLAN.md section 6).
+type = "computed_torque"
+kp = [
+    808.611917423121,
+    277.88260825351,
+]
+kd = [
+    9.613035006148348,
+    35.99857512413955,
+]

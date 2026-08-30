@@ -1,0 +1,6 @@
+# Joint-space PD tracker (docs/PLAN.md section 5.4): tau = Kp (q_r - q) + Kd (dq_r - dq).
+# Development gains for the fixture scenario and integration tests only. The task 1-a
+# baseline gains are frozen in task_1a_pd.toml (M1-025); use those for every result.
+type = "pd"
+kp = [20.0, 10.0]
+kd = [2.0, 1.0]

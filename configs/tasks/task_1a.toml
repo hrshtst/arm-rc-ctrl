@@ -1,0 +1,59 @@
+# Canonical task 1-a scenario (docs/PLAN.md sections 1 and 5): a horizontal,
+# gravity-free planar 2-DOF arm reaching one fixed endpoint target from one
+# fixed initial posture. Every demonstration, baseline, and RC evaluation of
+# task 1-a refers to this file by path and digest.
+name = "task-1a-reach"
+
+[robot]
+name = "planar-2dof"
+base_length = 0.0
+gravity = [0.0, 0.0]
+
+[[robot.links]]
+length = 0.30
+mass = 1.0
+inertia = 0.0075
+com = [0.15, 0.0]
+q_min = -3.0
+q_max = 3.0
+
+[[robot.links]]
+length = 0.25
+mass = 0.6
+inertia = 0.0031
+com = [0.125, 0.0]
+q_min = -3.0
+q_max = 3.0
+
+[limits]
+# Joint velocity (rad/s) and torque (N*m) bounds applied to validation, metrics,
+# and controllers; joint position bounds live with each link above.
+velocity = [6.0, 6.0]
+torque = [10.0, 5.0]
+# Endpoint must stay within this radius of the base (m); the arm's reach is 0.55 m.
+endpoint_radius = 0.55
+
+[task]
+# Initial joint posture (rad) held during the prime interval; endpoint ~ (0.34, 0.31) m.
+initial_q = [0.2, 1.2]
+# Endpoint target (m), 0.46 m from the base (84 % of the 0.55 m reach, so the
+# elbow stays well away from full extension), and the radius (m) of the target
+# region used by dwell metrics. The elbow-up joint solution is ~ (0.83, 1.16) rad,
+# i.e. a ~0.28 m reach dominated by shoulder rotation.
+target = [0.10, 0.45]
+tolerance = 0.01
+# Success criteria evaluated over the dwell interval with the dwell metrics:
+# at least this fraction of dwell samples inside the tolerance, and no joint
+# faster than this (rad/s) at any dwell sample.
+dwell_min_fraction = 0.9
+dwell_max_velocity = 0.05
+
+[timing]
+# Control/integration period (s) of the canonical dataset and of every controller.
+dt = 0.01
+
+[timing.intervals]
+# Nominal recording layout (s): initial hold, movement, final dwell (contiguous).
+prime = [0.0, 1.0]
+move = [1.0, 4.0]
+dwell = [4.0, 5.0]
