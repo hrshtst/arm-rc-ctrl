@@ -19,8 +19,9 @@ from arm_rc_ctrl.controllers.tracking import TrackerConfig
 from arm_rc_ctrl.data.preprocess import preprocess_demonstration
 from arm_rc_ctrl.data.records import ProcessedDatasetRecord, RawDemonstrationRecord, load_record
 from arm_rc_ctrl.data.samples import SampleSet
+from arm_rc_ctrl.experiments.disturbances import ForcePulse
 from arm_rc_ctrl.experiments.replay import main, run_replay
-from arm_rc_ctrl.experiments.run_record import OPTIONAL_ARRAYS, REQUIRED_ARRAYS
+from arm_rc_ctrl.experiments.run_record import REQUIRED_ARRAYS
 from arm_rc_ctrl.metrics.report import report_from_json
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import ScenarioConfig, load_scenario
@@ -79,7 +80,7 @@ def test_replay_terminates_normally_logs_channels_and_respects_limits(
     assert summary.termination.kind == "completed"
     assert summary.outcome.criteria["completed"] is True
     assert set(summary.outcome.criteria) == {"completed", "dwell_in_tolerance", "dwell_stationary"}
-    assert set(arrays) == {*REQUIRED_ARRAYS, *OPTIONAL_ARRAYS}
+    assert set(arrays) == {*REQUIRED_ARRAYS, "tau_applied"}  # ext_force only exists under a disturbance
     assert arrays["t"].shape[0] == samples.n_samples
     assert np.allclose(arrays["t"], samples.t)
     assert np.array_equal(arrays["q_desired"], samples.q)  # the reference is the demonstration itself
@@ -248,3 +249,46 @@ def test_command_line_entry_point(
     report = report_from_json(report_file.read_text())
     assert report.run_id == printed["run_id"]
     assert report.method == "replay+pd"
+
+
+def test_endpoint_force_pulse_deflects_the_tip_and_is_recorded(
+    dataset: tuple[StorageRoot, SampleSet, ProcessedDatasetRecord, ScenarioConfig],
+) -> None:
+    """A pulse acts only inside its window, is logged as ``ext_force``, and appears in the run summary."""
+    store, samples, record, scenario = dataset
+    tracker = load_config(PD, TrackerConfig)
+    pulse = ForcePulse(start_s=0.12, duration_s=0.05, force=(0.0, -3.0))
+    quiet = run_replay(scenario, SCENARIO, record, samples, tracker, store=store, exploratory=True, now=_now())
+    pushed = run_replay(
+        scenario, SCENARIO, record, samples, tracker, store=store, exploratory=True, now=_now(), force=pulse
+    )
+    zero = run_replay(
+        scenario,
+        SCENARIO,
+        record,
+        samples,
+        tracker,
+        store=store,
+        exploratory=True,
+        now=_now(),
+        force=ForcePulse(start_s=0.12, duration_s=0.05, force=(0.0, 0.0)),
+    )
+    arrays, t = pushed.run.arrays.arrays, pushed.run.arrays.arrays["t"]
+    assert "ext_force" not in quiet.run.arrays.arrays
+    active = (t >= 0.12) & (t < 0.17)
+    assert active.sum() == 5
+    assert np.array_equal(arrays["ext_force"][active], np.tile([0.0, -3.0], (5, 1)))
+    assert not arrays["ext_force"][~active].any()
+    before = t < 0.13  # the first pushed step is integrated after the state was logged
+    assert np.array_equal(arrays["q"][before], quiet.run.arrays.arrays["q"][before])
+    assert not np.array_equal(arrays["q"][~before], quiet.run.arrays.arrays["q"][~before])
+    assert np.abs(arrays["tip"] - quiet.run.arrays.arrays["tip"]).max() > 1e-4
+    assert np.array_equal(zero.run.arrays.arrays["q"], quiet.run.arrays.arrays["q"])
+    assert pushed.summary.termination.kind == "completed"
+    (disturbance,) = pushed.summary.disturbances
+    assert disturbance.kind == "endpoint_force_pulse"
+    assert (disturbance.start_s, disturbance.end_s) == (0.12, pytest.approx(0.17))
+    assert disturbance.parameters == pytest.approx({"fx": 0.0, "fy": -3.0, "magnitude_n": 3.0})
+    assert pushed.summary.provenance.config["force"] == {"start_s": 0.12, "duration_s": 0.05, "force": [0.0, -3.0]}
+    assert quiet.summary.provenance.config["force"] is None
+    assert pushed.summary.arrays["ext_force"].shape == (samples.n_samples, 2)

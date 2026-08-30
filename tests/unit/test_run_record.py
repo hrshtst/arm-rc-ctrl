@@ -53,7 +53,17 @@ def _arrays(*, applied: bool = True) -> RunArrays:
     }
     if applied:
         arrays["tau_applied"] = arrays["tau_requested"] * 0.9
+        arrays["ext_force"] = np.column_stack([np.zeros(N), np.where(t < 0.05, -2.0, 0.0)])
     return RunArrays(arrays)
+
+
+def test_external_force_must_be_planar() -> None:
+    """The optional ``ext_force`` array is (N, 2) like ``tip``."""
+    arrays = _arrays().arrays
+    with pytest.raises(ValueError, match=r"ext_force must have shape \(\d+, 2\)"):
+        RunArrays({**arrays, "ext_force": np.zeros((N, DOF + 1))})
+    without = {name: array for name, array in arrays.items() if name != "ext_force"}
+    assert "ext_force" not in RunArrays(without).specs()
 
 
 @pytest.fixture

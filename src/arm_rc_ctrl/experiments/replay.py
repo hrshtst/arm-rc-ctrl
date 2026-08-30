@@ -29,7 +29,7 @@ from typing import Any, Final, cast
 
 import numpy as np
 from numpy.typing import NDArray
-from skelarm import Skeleton, compute_forward_kinematics, integrate_with_limits
+from skelarm import Skeleton, compute_forward_kinematics, compute_jacobian, integrate_with_limits
 
 from arm_rc_ctrl.config import load_config, to_mapping
 from arm_rc_ctrl.controllers.reference import DemonstrationReference
@@ -37,6 +37,7 @@ from arm_rc_ctrl.controllers.tracking import LimitedTracker, TrackerConfig
 from arm_rc_ctrl.data.phases import intervals_from_phases
 from arm_rc_ctrl.data.records import ProcessedDatasetRecord, load_record, verify_payload
 from arm_rc_ctrl.data.samples import SampleSet, load_samples
+from arm_rc_ctrl.experiments.disturbances import ForcePulse
 from arm_rc_ctrl.experiments.run_record import LoadedRun, RunArrays, RunPointerRecord, RunSummary, load_run, write_run
 from arm_rc_ctrl.experiments.termination import (
     Outcome,
@@ -97,8 +98,13 @@ def simulate_tracking(
     *,
     duration_s: float,
     initial_q: tuple[float, ...] | None = None,
+    force: ForcePulse | None = None,
 ) -> tuple[RunArrays, Termination]:
-    """Run the tracker against ``reference`` in ``skelarm`` and return the telemetry and termination."""
+    """Run the tracker against ``reference`` in ``skelarm`` and return the telemetry and termination.
+
+    A ``force`` pulse acts on the endpoint through the Jacobian transpose in addition
+    to the tracker's (limited) torque and is logged in the ``ext_force`` array.
+    """
     dt = scenario.timing.dt
     steps = round(duration_s / dt)
     if steps < 1:
@@ -126,6 +132,7 @@ def simulate_tracking(
             "tau_requested",
             "tau_applied",
             "saturation",
+            *(("ext_force",) if force is not None else ()),
         )
     }
     termination: Termination | None = None
@@ -150,6 +157,10 @@ def simulate_tracking(
         rows["tau_requested"].append(last["tau_requested"])
         rows["tau_applied"].append(last["tau_applied"])
         rows["saturation"].append(np.array([float(np.any(last["saturation"] > 0))]))
+        if force is not None:
+            external = force.at(t)
+            rows["ext_force"].append(external)
+            tau = tau + compute_jacobian(skeleton).T @ external
         if step == steps:
             termination = completed(t, step)
             break
@@ -219,6 +230,7 @@ def run_replay(
     now: datetime | None = None,
     command: str = "python -m arm_rc_ctrl.experiments.replay",
     initial_q: tuple[float, ...] | None = None,
+    force: ForcePulse | None = None,
     license_label: str = "LicenseRef-Private",
     access: str = "private",
 ) -> ReplayResult:
@@ -236,6 +248,7 @@ def run_replay(
         "interpolation": dataset.preprocessing.interpolation,
         "initial_q": list(scenario.task.initial_q if initial_q is None else initial_q),
         "duration_s": float(reference.t[-1]),
+        "force": None if force is None else to_mapping(force),
     }
     provenance = collect_provenance(
         resolved,
@@ -247,7 +260,9 @@ def run_replay(
     require_clean_for_confirmatory(provenance)
     demo = DemonstrationReference.from_samples(reference, cast("Any", dataset.preprocessing.interpolation))
     duration = float(reference.t[-1])
-    arrays, termination = simulate_tracking(scenario, demo, tracker, duration_s=duration, initial_q=initial_q)
+    arrays, termination = simulate_tracking(
+        scenario, demo, tracker, duration_s=duration, initial_q=initial_q, force=force
+    )
     outcome = Outcome(termination, dwell_outcome(scenario, reference, arrays, termination))
     pointer, summary, directory = write_run(
         store,
@@ -259,7 +274,7 @@ def run_replay(
         duration_s=duration,
         target=scenario.task.target,
         task_code=(),
-        disturbances=(),
+        disturbances=() if force is None else (force.to_disturbance(),),
         termination=termination,
         outcome=outcome,
         provenance=provenance,

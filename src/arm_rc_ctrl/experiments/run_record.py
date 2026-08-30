@@ -80,7 +80,8 @@ REQUIRED_ARRAYS: Final[tuple[str, ...]] = (
     "task_code",
     "saturation",
 )
-OPTIONAL_ARRAYS: Final[tuple[str, ...]] = ("tau_applied",)
+OPTIONAL_ARRAYS: Final[tuple[str, ...]] = ("tau_applied", "ext_force")
+"""Applied (post-limit) torque and the external endpoint force (N) when a disturbance acted."""
 _JOINT_ARRAYS: Final = (
     "q",
     "dq",
@@ -134,7 +135,7 @@ class RunArrays:
         n, dof = t.shape[0], q.shape[1]
         code_dim = frozen["task_code"].shape[1] if frozen["task_code"].ndim == 2 else -1  # noqa: PLR2004
         expected: dict[str, tuple[int, ...]] = dict.fromkeys(_JOINT_ARRAYS, (n, dof))
-        expected.update({"tip": (n, _PLANE), "task_code": (n, code_dim), "saturation": (n,)})
+        expected.update({"tip": (n, _PLANE), "ext_force": (n, _PLANE), "task_code": (n, code_dim), "saturation": (n,)})
         for name, array in frozen.items():
             if name != "t" and array.shape != expected[name]:
                 msg = f"{name} must have shape {expected[name]}, got {array.shape}"
