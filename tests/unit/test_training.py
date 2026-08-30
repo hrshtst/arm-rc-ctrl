@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Hiroshi Atsuta
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""M2-003: per-episode reservoir reset and priming."""
+"""M2-003/M2-005: per-episode reservoir reset and priming; offline ridge training and validation prediction."""
 
 from __future__ import annotations
 
@@ -10,7 +10,16 @@ import pytest
 
 from arm_rc_ctrl.rc.esn import EsnConfig, EsnModel, ReadoutConfig, ReservoirConfig
 from arm_rc_ctrl.rc.teacher_forcing import Episode
-from arm_rc_ctrl.rc.training import harvest_episode, harvest_states, prime, training_rows
+from arm_rc_ctrl.rc.training import (
+    FitReport,
+    harvest_episode,
+    harvest_states,
+    one_step_rmse,
+    predict_episode,
+    prime,
+    train_readout,
+    training_rows,
+)
 
 CONFIG = EsnConfig(
     reservoir=ReservoirConfig(
@@ -93,3 +102,79 @@ def test_harvested_episode_keeps_alignment_and_rejects_mismatched_models() -> No
         harvest_episode(wrong, episode)
     with pytest.raises(ValueError, match=r"inputs must have shape \(M >= 1, input_dim\)"):
         harvest_states(model, np.zeros((0, 3)))
+
+
+def _sinusoid_episode(source: str, phase: float, rows: int = 300, washout: int = 30) -> Episode:
+    """A learnable one-step problem: q_(k+1) is a linear function of [q_k, dq_k] for a sinusoidal joint motion."""
+    t = np.arange(rows + 1, dtype=np.float64) * 0.01
+    omega = np.array([2.0, 3.0])
+    q = np.sin(omega[None, :] * t[:, None] + phase) * np.array([0.5, 0.3])
+    dq = omega[None, :] * np.cos(omega[None, :] * t[:, None] + phase) * np.array([0.5, 0.3])
+    inputs = np.hstack([q[:-1], dq[:-1]])
+    return Episode(source, t[:-1], inputs, q[1:], np.arange(rows) >= washout)
+
+
+def _sin_model() -> EsnModel:
+    config = EsnConfig(
+        reservoir=ReservoirConfig(
+            n_neurons=100, spectral_radius=0.8, sparsity=0.9, leak_rate=0.3, input_scaling=0.3, seed=5
+        ),
+        readout=ReadoutConfig(alpha=1e-6),
+    )
+    return EsnModel(config, input_dim=4, output_dim=2)
+
+
+def test_training_beats_a_constant_predictor_on_a_learnable_sequence() -> None:
+    """The fitted readout predicts the next position far better than the mean target."""
+    episode = _sinusoid_episode("sin", 0.0)
+    report = train_readout(_sin_model(), [episode])
+    assert report.episodes == ("sin",)
+    assert (report.loss_rows, report.washout_rows) == (270, 30)
+    assert len(report.rmse_per_joint) == 2
+    assert report.rmse < 0.05 * report.constant_rmse
+    assert report.max_abs_error < 0.05
+    assert report.rmse == pytest.approx(np.sqrt(np.mean(np.square(report.rmse_per_joint))))
+
+
+def test_training_is_deterministic() -> None:
+    """Two trainings from the same configuration and episodes give identical reports and predictions."""
+    episodes = [_sinusoid_episode("a", 0.0), _sinusoid_episode("b", 1.0)]
+    first_model, second_model = _sin_model(), _sin_model()
+    first = train_readout(first_model, episodes)
+    second = train_readout(second_model, episodes)
+    assert first == second
+    assert first.episodes == ("a", "b")
+    assert first.loss_rows == 540
+    assert np.array_equal(predict_episode(first_model, episodes[1]), predict_episode(second_model, episodes[1]))
+
+
+def test_validation_prediction_starts_from_a_reset_and_is_teacher_forced() -> None:
+    """predict_episode resets first (repeatable) and feeds demonstrated inputs, never its own output."""
+    episode = _sinusoid_episode("sin", 0.5)
+    model = _sin_model()
+    train_readout(model, [episode])
+    once = predict_episode(model, episode)
+    twice = predict_episode(model, episode)
+    assert np.array_equal(once, twice)
+    assert once.shape == (300, 2)
+    # a partial replay gives the same leading rows: outputs depend only on the demonstrated inputs so far
+    model.reset()
+    partial = np.vstack([model.step(row) for row in episode.inputs[:50]])
+    assert np.array_equal(partial, once[:50])
+    with pytest.raises(ValueError, match="input_dim 4 and dof 2; the model expects 3 and 2"):
+        predict_episode(EsnModel(CONFIG, input_dim=3, output_dim=2), episode)
+
+
+def test_one_step_rmse_and_report_validation() -> None:
+    """RMSE is computed over selected rows only; reports reject inconsistent values."""
+    prediction = np.array([[1.0, 2.0], [3.0, 4.0], [5.0, 6.0]])
+    targets = np.array([[1.0, 2.0], [3.0, 5.0], [7.0, 6.0]])
+    per_joint, aggregate = one_step_rmse(prediction, targets, np.array([False, True, True]))
+    assert per_joint == pytest.approx((np.sqrt(2.0), np.sqrt(0.5)))
+    assert aggregate == pytest.approx(np.sqrt((0 + 1 + 4 + 0) / 4))
+    with pytest.raises(ValueError, match="need at least one selected"):
+        one_step_rmse(prediction, targets, np.zeros(3, dtype=np.bool_))
+    with pytest.raises(ValueError, match="a fit report needs at least one episode"):
+        FitReport((), 1, 0, (0.1,), 0.1, 0.2, 0.3)
+    with pytest.raises(ValueError, match="finite and non-negative"):
+        FitReport(("a",), 1, 0, (0.1,), float("nan"), 0.2, 0.3)
