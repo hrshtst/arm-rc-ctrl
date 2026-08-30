@@ -10,6 +10,7 @@ authors = [{ name = "Hiroshi Atsuta", email = "atsuta@ieee.org" }]
 # rclib's CI and wheels stop at 3.13.
 requires-python = ">=3.12"
 dependencies = [
+  "dvc>=3.60",
   "numpy>=2.0.0",
   # Domain libraries are built from the pinned submodules (see [tool.uv.sources]).
   "rclib",

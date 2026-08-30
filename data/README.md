@@ -25,6 +25,7 @@ never fall back to this repository.
 | `*.dvc`, `dvc.yaml`, `dvc.lock` | Portable DVC metafiles | yes |
 | `tests/fixtures/` | Tiny synthetic or sanitized fixtures for automated tests | yes |
 | Any payload (`*.npz`, `*.sklog.npz`, `*.parquet`, `*.db`, ...) | External storage only | no |
+| `.dvc/config`, `.dvc/.gitignore`, `.dvcignore` | Portable DVC metadata (analytics off, no paths) | yes |
 | `.dvc/config.local`, `.dvc/cache/` | Machine-specific DVC cache/remote configuration | no |
 | `storage.toml` | Machine-local storage configuration | no |
 
@@ -161,6 +162,15 @@ dimension mismatches, missing or out-of-order prime/move/dwell phases,
 task-code rows that are not one-hot, and joint-limit violations. All problems
 are reported together in `DatasetValidationError.problems`; nothing is
 repaired.
+
+## DVC
+
+After configuring the storage root, run `uv run python -m arm_rc_ctrl.data.dvc
+setup` once per machine. It writes the Git-ignored `.dvc/config.local` so the
+DVC cache is `<storage-root>/dvc-cache` and the default local remote `store`
+is `<storage-root>/dvc-store`; `... dvc verify` checks the mapping and that
+the tracked `.dvc/config` carries no machine paths. Use `dvc add --to-remote`
+for large inputs to avoid a repository-local copy.
 
 ## Loading raw demonstrations
 
