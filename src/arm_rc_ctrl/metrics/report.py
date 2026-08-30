@@ -71,15 +71,15 @@ class RunReport:
     dwell_coverage: float
     joint_rmse: JointRmse | None
     dwell: DwellMetrics | None
-    effort: EffortMetrics
+    effort: EffortMetrics | None
+    """``None`` when the run holds fewer than two samples."""
     schema_version: int = REPORT_SCHEMA_VERSION
 
 
-def _same_grid(run_t: NDArray[np.float64], ref_t: NDArray[np.float64]) -> None:
-    if run_t.shape[0] < 2 or ref_t.shape[0] < 2:  # noqa: PLR2004
-        msg = "run and reference need at least two samples"
+def _same_grid(run_t: NDArray[np.float64], run_dt: float, ref_t: NDArray[np.float64]) -> None:
+    if run_t.shape[0] < 1 or ref_t.shape[0] < 2:  # noqa: PLR2004
+        msg = "the run needs at least one sample and the reference at least two"
         raise ValueError(msg)
-    run_dt = float(run_t[1] - run_t[0])
     ref_dt = float(ref_t[1] - ref_t[0])
     if abs(run_dt - ref_dt) > _GRID_TOLERANCE or abs(float(run_t[0])) > _GRID_TOLERANCE:
         msg = f"run grid (start {float(run_t[0])!r}, period {run_dt!r}) does not match the reference period {ref_dt!r}"
@@ -102,7 +102,7 @@ def build_report(
     """Evaluate ``run`` against ``reference`` with the pure metric functions."""
     arrays = run.arrays.arrays
     run_t = cast("NDArray[np.float64]", arrays["t"])
-    _same_grid(run_t, reference.t)
+    _same_grid(run_t, run.summary.control_period_s, reference.t)
     intervals = intervals_from_phases(reference.t, reference.phase)
     windows = ReportWindows(move=intervals.move, dwell=intervals.dwell)
 
@@ -127,7 +127,9 @@ def build_report(
             tolerance,
             window=(intervals.dwell[0], intervals.dwell[1]),
         )
-    effort = effort_metrics(run_t, cast("NDArray[np.float64]", arrays["tau_requested"]), torque_limits)
+    effort: EffortMetrics | None = None
+    if run_t.shape[0] >= 2:  # noqa: PLR2004
+        effort = effort_metrics(run_t, cast("NDArray[np.float64]", arrays["tau_requested"]), torque_limits)
     return RunReport(
         run_id=run.pointer.artifact.artifact_id,
         method=run.summary.method,

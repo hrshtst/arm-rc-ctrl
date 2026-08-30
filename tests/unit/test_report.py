@@ -124,6 +124,7 @@ def test_report_fields_equal_the_pure_metric_functions(store: StorageRoot) -> No
         window=(intervals.dwell[0], intervals.dwell[1]),
     )
     assert report.effort == effort_metrics(run.arrays.arrays["t"], run.arrays.arrays["tau_requested"], LIMITS)
+    assert report.effort is not None
     assert report.effort.saturation_fraction > 0  # 6 cos t reaches the 5 N*m bound
     assert report.termination_kind == "completed"
     assert report.success is True
@@ -146,6 +147,7 @@ def test_early_terminated_run_stays_reportable(store: StorageRoot) -> None:
     assert report.dwell is None
     assert report.joint_rmse is not None
     assert report.joint_rmse.samples == 10
+    assert report.effort is not None
     assert report.effort.samples == 20
 
 
@@ -167,6 +169,7 @@ def test_json_and_csv_carry_the_same_values(store: StorageRoot) -> None:
     assert len(rows) == 2
     assert rows[0]["run_id"] == reports[0].run_id
     assert float(rows[0]["joint_rmse.aggregate"]) == reports[0].joint_rmse.aggregate  # type: ignore[union-attr]
+    assert reports[0].effort is not None
     assert float(rows[0]["effort.effort"]) == reports[0].effort.effort
     assert float(rows[0]["dwell.endpoint.p95"]) == reports[0].dwell.endpoint.p95  # type: ignore[union-attr]
     assert rows[0]["windows.move"] == ";".join(str(v) for v in reports[0].windows.move)

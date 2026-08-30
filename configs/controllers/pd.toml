@@ -1,0 +1,5 @@
+# Joint-space PD tracker (docs/PLAN.md section 5.4): tau = Kp (q_r - q) + Kd (dq_r - dq).
+# Placeholder gains; M1-025 tunes and freezes them before any ESN tuning.
+type = "pd"
+kp = [20.0, 10.0]
+kd = [2.0, 1.0]
