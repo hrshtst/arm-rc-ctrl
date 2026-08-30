@@ -1,0 +1,43 @@
+# Headless deterministic smoke experiment (M0-012).
+#
+# Exercises the complete vertical slice without GUI or hardware: a planar
+# 2-DOF skelarm arm tracks a constant joint target under joint-space PD, and an
+# rclib echo state network is teacher-forced on the resulting log to predict
+# the next joint position from [q, dq]. All randomness comes from `seed`.
+seed = 7
+
+[robot]
+base_length = 0.0
+
+[[robot.links]]
+length = 0.30
+mass = 1.0
+inertia = 0.0075
+com = [0.15, 0.0]
+q_min = -3.0
+q_max = 3.0
+
+[[robot.links]]
+length = 0.25
+mass = 0.6
+inertia = 0.0031
+com = [0.125, 0.0]
+q_min = -3.0
+q_max = 3.0
+
+[simulation]
+dt = 0.005
+duration = 0.5
+initial_q = [0.3, 0.6]
+target_q = [0.8, 0.4]
+kp = [20.0, 10.0]
+kd = [2.0, 1.0]
+
+[esn]
+n_neurons = 50
+spectral_radius = 0.9
+sparsity = 0.1
+leak_rate = 0.5
+input_scaling = 0.5
+ridge_alpha = 1e-4
+washout = 20

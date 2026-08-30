@@ -2,7 +2,7 @@
 
 **Status:** Initial implementation plan
 
-**Last updated:** 2026-08-28
+**Last updated:** 2026-08-29
 
 **Companion task ledger:** [TASKS.md](TASKS.md)
 
@@ -76,6 +76,28 @@ domain libraries. It must not duplicate their core responsibilities.
 
 All submodules are pinned to reviewed commits and initialized recursively.
 Project code may adapt public APIs but must not copy library internals.
+
+### 3.1 Licensing
+
+Original source code and documentation in this repository are licensed under
+`GPL-3.0-only`; see the root `LICENSE`. New source files carry
+`SPDX-License-Identifier: GPL-3.0-only` headers. This choice matches `skelarm`,
+which is GPL-3.0-only. Apache-2.0 code from `rclib` and `rtctrl` can be combined
+into a GPLv3 work, but their copyrights, license texts, and notices remain in
+force and are not relicensed by this project. See `THIRD_PARTY_NOTICES.md` and
+the [Apache compatibility guidance](https://www.apache.org/licenses/GPL-compatibility).
+
+Before redistributing a recursive checkout, release, binary, model, or asset
+bundle, audit every direct and transitive dependency at its pinned revision.
+In particular, CRANE-X7 descriptions and mesh assets used transitively by
+`rtctrl` carry noncommercial and other asset-specific terms; GPLv3 does not
+override them. Keep restricted assets out of distributable bundles unless their
+terms have been reviewed and satisfied.
+
+Software licensing does not automatically cover demonstrations, datasets,
+trained models, plots, or media. Each data/artifact record declares its own
+license and access classification; absence of that metadata means the artifact
+is private and not redistributable.
 
 If a generally useful capability is missing, implement a minimal local adapter
 first when possible. If the capability belongs to a library, create a focused
@@ -231,27 +253,71 @@ the target generator from differences caused by the tracker.
 
 ## 7. Data contracts
 
-### 7.1 Raw demonstrations
+### 7.1 Storage location and portability
 
-The native `*.sklog.npz` produced by `skelarm` is retained unchanged as raw data.
-A sidecar TOML manifest records:
+Experimental payloads do not live in Git and are not stored in the repository
+working tree. This includes raw demonstrations, processed datasets, full run
+logs, trained models, MLflow state, and Optuna databases. The only exception is
+small synthetic or sanitized data under `tests/fixtures/` required for automated
+tests.
 
-- schema version and immutable demonstration ID;
-- source log path and checksum;
-- robot/scenario configuration;
-- sampling clock and units;
-- teacher, task, target, initial posture, and recording notes;
-- start/movement/dwell interval boundaries;
-- code revision and all dependency revisions;
-- creation timestamp and provenance.
+All tools resolve a machine-local storage root in this order:
 
-Raw recordings are never overwritten. A correction creates a new demonstration
-ID and records the superseded ID.
+1. `ARM_RC_CTRL_STORAGE_ROOT` environment variable;
+2. `[storage].root` in
+   `${XDG_CONFIG_HOME:-$HOME/.config}/arm-rc-ctrl/storage.toml`;
+3. `/external/arm-rc-ctrl`.
 
-### 7.2 Canonical processed dataset
+The committed `configs/storage.example.toml` documents the machine-local format.
+If the resolved root is absent, inaccessible, or not writable for an operation
+that produces data, the command fails before running. It never falls back to the
+repository. Versioned metadata contains logical `armrc://` URIs, never absolute
+machine paths.
 
-Each processed dataset is a DVC-tracked directory containing `manifest.toml` and
-`samples.npz`. Arrays use `float64` and have a common leading sample dimension:
+The external root uses this layout:
+
+```text
+<storage-root>/
+├── raw/
+├── processed/
+├── runs/
+├── models/
+├── mlflow/
+├── optuna/
+├── dvc-cache/
+└── dvc-store/
+```
+
+### 7.2 Artifact records and raw demonstrations
+
+Git stores only `data/catalog.toml`, one small TOML record per artifact under
+`data/records/{raw,processed,runs,models}/`, and DVC metafiles when applicable.
+Every artifact record contains at least:
+
+- schema version, immutable artifact ID, kind, and logical `armrc://` URI;
+- SHA-256 digest, byte size, media format, and payload schema version;
+- creation timestamp, license, access classification, and optional expiry;
+- producing run/command, resolved-config digest, project/dependency revisions,
+  and source artifact IDs;
+- DVC target/hash when DVC manages the payload.
+
+The native `*.sklog.npz` produced by `skelarm` is retained unchanged at
+`armrc://raw/<artifact-id>/demo.sklog.npz`. Its record additionally contains the
+robot/scenario configuration, sampling clock and units, pseudonymous teacher or
+recording-session ID, task/target/initial posture, notes, and prime/move/dwell
+interval boundaries.
+
+Payload creation is transactional: write to an external temporary path,
+validate it, compute its digest, atomically move it to the immutable final URI,
+then write the repository record. Raw recordings are never overwritten. A
+correction creates a new artifact ID and records the superseded ID. Readers
+verify size and digest and fail on missing or mismatched data.
+
+### 7.3 Canonical processed dataset
+
+Each processed dataset payload is an external `samples.npz` referenced by a
+Git-tracked artifact record. Arrays use `float64` and have a common leading
+sample dimension:
 
 | Array | Shape | Meaning |
 | --- | --- | --- |
@@ -261,17 +327,19 @@ Each processed dataset is a DVC-tracked directory containing `manifest.toml` and
 | `task_code` | `(N, task_code_dim)` | Empty for task 1-a; one-hot later |
 | `phase` | `(N,)` | `prime`, `move`, or `dwell` encoded by documented integers |
 
-The manifest records source IDs, filters, resampling period, derivative method,
-normalization statistics, array shapes/dtypes, and checksums. Validation rejects
-NaN/Inf, non-monotonic time, unexpected shapes, joint-limit violations, missing
-phase intervals, or inconsistent units.
+The artifact record also contains source IDs, filters, resampling period,
+derivative method, normalization statistics, array shapes/dtypes, and checksums.
+Validation rejects NaN/Inf, non-monotonic time, unexpected shapes, joint-limit
+violations, missing phase intervals, or inconsistent units.
 
 Normalization statistics are fitted on training data only and persisted in the
 model recipe. Near-zero scales are replaced by `1.0` and reported.
 
-### 7.3 Run record
+### 7.4 Run record
 
-Every simulation/evaluation run records at least:
+Full run records are written under `armrc://runs/<run-id>/`; Git retains only
+their artifact records and deliberately curated small reports/plots. Every
+simulation/evaluation run records at least:
 
 - measured `t`, `q`, `dq`, and endpoint position;
 - desired `q`, raw/filtered desired derivatives, and low-level tracking error;
@@ -416,20 +484,24 @@ Alternative candidates considered:
 
 ## 11. Experiment and data management
 
-- **MLflow:** local file-backed tracking at first. Log resolved parameters,
-  scalar metrics, plots, reports, model recipes, provenance, and Optuna study
-  summaries. A remote tracking server is a later operational choice.
-- **DVC:** version raw/processed demonstrations and selected large artifacts.
-  Git stores `.dvc` metadata and small manifests. No remote is assumed; add one
-  only after storage and credential policy are chosen.
-- **Optuna:** use SQLite locally for study state. Export the selected trials and
-  study summary to MLflow so the database is not the sole scientific record.
+- **MLflow:** use a file-backed store under `armrc://mlflow/`. Log resolved
+  parameters, scalar metrics, plots, reports, model recipes, provenance, and
+  Optuna study summaries. A tracking server remains optional.
+- **DVC:** Git stores only `.dvc` metafiles plus the domain artifact records.
+  Configure the cache and default local remote per machine in ignored
+  `.dvc/config.local`, resolving them to `<storage-root>/dvc-cache` and
+  `<storage-root>/dvc-store`. Use `dvc add --to-remote` for large inputs when it
+  avoids a repository-local copy. Never commit a machine-specific absolute path.
+- **Optuna:** place local SQLite studies under `armrc://optuna/`. Export selected
+  trials and study summaries to MLflow so the database is not the sole record.
 - **Git/uv:** Git pins project/submodule revisions; `uv.lock` pins Python
   dependencies. CMake/submodules pin the C++ build inputs.
 
-Generated run directories and local MLflow/Optuna databases are ignored by Git.
-Only curated reports, small plots/tables, recipes, DVC metadata, and documentation
-are committed.
+Generated payloads, temporary captures, materialized DVC data, and local storage
+configuration are ignored by Git. Only artifact records, the catalog, DVC
+metafiles, curated small reports/plots/tables, recipes, and documentation are
+committed. Removing a Git pointer never deletes an external payload; garbage
+collection is a separate, explicit, audited operation.
 
 ## 12. Proposed repository layout
 
@@ -445,11 +517,16 @@ arm-rc-ctrl/
 │   ├── controllers/
 │   ├── evaluations/
 │   ├── robots/
+│   ├── storage.example.toml
 │   ├── studies/
 │   └── tasks/
 ├── data/
-│   ├── raw/
-│   └── processed/
+│   ├── catalog.toml
+│   └── records/
+│       ├── models/
+│       ├── processed/
+│       ├── raw/
+│       └── runs/
 ├── docs/
 │   ├── PLAN.md
 │   ├── TASKS.md
@@ -485,14 +562,16 @@ arm-rc-ctrl/
 
 `scripts/` contains thin entry points, not business logic. Experiment code lives
 under `src/arm_rc_ctrl`. C++ is introduced only when the Python 2-DOF milestone
-passes its reproducibility gate.
+passes its reproducibility gate. The external payload tree described in Section
+7.1 is intentionally outside this repository.
 
 ## 13. Phased implementation and gates
 
 ### Phase 0 — foundation
 
 Create project metadata, recursive submodules, development tooling, CI, typed
-configuration, and a headless deterministic smoke test.
+configuration, machine-local storage resolution, and a headless deterministic
+smoke test.
 
 **Gate:** A clean recursive checkout can install, lint, type-check, and test both
 the Python vertical slice and a minimal CMake target using documented commands.
@@ -503,9 +582,10 @@ Implement demonstration validation/preprocessing and qualify PD and
 computed-torque replay in `skelarm`. Freeze their configs and lock metric
 definitions before training an ESN.
 
-**Gate:** A raw demonstration can be converted reproducibly into a canonical
-dataset, replayed by both baselines, and regenerated with identical shapes,
-checksums, and metrics within declared numerical tolerances.
+**Gate:** An externally stored raw demonstration can be resolved from its
+Git-tracked record, converted reproducibly into a canonical external dataset,
+replayed by both baselines, and regenerated with identical shapes, checksums,
+and metrics within declared numerical tolerances.
 
 ### Phase 2 — task 1-a RC vertical slice
 
@@ -522,8 +602,9 @@ complete provenance. RC performance need not beat the baseline.
 Add Optuna studies, frozen model selection, perturbation/force suites, MLflow
 reporting, and the one-command task 1-a reproduction workflow.
 
-**Gate:** A fresh checkout plus DVC data can reproduce the selected model and
-confirmatory report without consulting an untracked notebook or manual step.
+**Gate:** A fresh checkout plus a configured external store can resolve all DVC
+and artifact records and reproduce the selected model and confirmatory report
+without consulting an untracked notebook or manual step.
 
 ### Phase 4 — broader planar tasks
 
@@ -637,14 +718,16 @@ A key result is reproducible only when another human can obtain it from:
 - exact `rclib`, `skelarm`, and `rtctrl` commits;
 - `uv.lock`, compiler/CMake information, and platform metadata;
 - resolved experiment config;
-- DVC dataset/artifact versions and checksums;
+- logical artifact URIs, artifact-record revisions, payload SHA-256 digests, and
+  DVC hashes where applicable;
 - all random seeds and study/trial identifiers;
 - one documented command or reproduction script;
 - raw metrics in machine-readable form, not only a plot.
 
-The reproduction script must fail clearly when required data, submodules, or
-versions are missing. It must not silently download mutable data or select the
-latest model.
+The reproduction script must fail clearly when storage configuration, required
+payloads, data records, submodules, or versions are missing or mismatched. It
+must not fall back to the repository, silently download mutable data, accept a
+checksum mismatch, or select the latest model.
 
 ## 17. Safety principles
 
@@ -669,11 +752,13 @@ latest model.
 - Python 3.12+, `uv`, NumPy `float64`, TOML, pytest, Ruff, and a strict type
   checker form the initial Python stack.
 - C++17, CMake, and Catch2 align with the current C++ dependencies.
-- Optuna, MLflow, and DVC start with local storage and no required cloud account.
+- Large data and experiment state live below a per-machine external storage root,
+  defaulting to `/external/arm-rc-ctrl`; Git stores portable records and DVC
+  metafiles only. No cloud account is required.
 - The initial task uses a horizontal, gravity-free `skelarm` model and controls
   arm joints only; the CRANE-X7 gripper is excluded until a task requires it.
-- Licensing and publication metadata are owner decisions. Do not guess or add a
-  license before the corresponding task is resolved.
+- Original project code and documentation are GPL-3.0-only. Third-party and
+  data/artifact terms remain separately applicable and must be inventoried.
 - Exact online-learning tasks, weight bounds, rollback policy, and hardware
   admission criteria remain deferred until offline results exist. Before Phase 7
   starts, replace that epic with a separately reviewed, decision-complete plan.

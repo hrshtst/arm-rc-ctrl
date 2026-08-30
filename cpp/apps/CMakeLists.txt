@@ -1,0 +1,2 @@
+add_executable(arm_rc_ctrl_version arm_rc_ctrl_version.cpp)
+target_link_libraries(arm_rc_ctrl_version PRIVATE arm_rc_ctrl::arm_rc_ctrl arm_rc_ctrl_warnings)

@@ -1,0 +1,4 @@
+# Copy this table to ~/.config/arm-rc-ctrl/storage.toml and adjust it for the
+# machine. ARM_RC_CTRL_STORAGE_ROOT overrides this value when set.
+[storage]
+root = "/external/arm-rc-ctrl"

@@ -1,6 +1,6 @@
 # Implementation Task Ledger
 
-**Last updated:** 2026-08-28
+**Last updated:** 2026-08-29
 
 **Plan:** [PLAN.md](PLAN.md)
 
@@ -22,16 +22,16 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M0-001` — establish project metadata and the Python package.
-- **Current milestone:** M0 — repository foundation.
+- **Next task:** `M1-001` — define versioned raw-demonstration artifact records.
+- **Current milestone:** M1 — demonstration pipeline and frozen baselines.
 - **Active blockers:** None.
-- **Latest completed planning work:** `DOC-001` and `DOC-002`.
+- **Latest completed work:** M0 closed 2026-08-30 (all M0 tasks and `M0-GATE` `DONE`; PR #1); `UP-005` open.
 
 ## Milestone gates
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
-| M0 | Clean recursive checkout installs and passes documented Python/C++ quality commands | `TODO` |
+| M0 | Clean recursive checkout installs and passes documented Python/C++ quality commands | `DONE` |
 | M1 | Demonstration preprocessing and both direct-replay baselines are reproducible | `TODO` |
 | M2 | Task 1-a ESN completes a provenance-complete nominal closed-loop run | `TODO` |
 | M3 | Frozen task 1-a model and confirmatory robustness report reproduce with one command | `TODO` |
@@ -51,19 +51,21 @@ are complete. Do not mark research software complete merely because it runs once
 
 | ID | Status | Task | Depends on | Acceptance/evidence |
 | --- | --- | --- | --- | --- |
-| M0-001 | `TODO` | Add `pyproject.toml`, `src/arm_rc_ctrl`, Python 3.12 requirement, and `uv` dependency groups | DOC-002 | `uv sync` installs a clean environment; package imports in a test |
-| M0-002 | `TODO` | Add recursive submodules at `third_party/rclib`, `third_party/skelarm`, and `third_party/rtctrl` | M0-001 | Fresh clone plus `git submodule update --init --recursive` checks out recorded commits |
-| M0-003 | `TODO` | Wire local/pinned Python builds of `rclib` and `skelarm` into the `uv` environment | M0-002 | Test imports both projects and records their revisions |
-| M0-004 | `TODO` | Add Ruff, strict type checking, pytest, coverage, and pre-commit configuration | M0-001 | Deliberately invalid fixture proves each check runs; clean tree passes all checks |
-| M0-005 | `TODO` | Add CMake skeleton under `cpp/` with Catch2 and an empty library/application vertical slice | M0-002 | Configure, build, and CTest smoke test pass without a robot |
-| M0-006 | `TODO` | Add CI for Python lint/type/test and C++ configure/build/test | M0-003, M0-004, M0-005 | CI starts from recursive checkout and all jobs pass |
-| M0-007 | `TODO` | Add `.gitignore`, data/artifact conventions, and local state directories | M0-001 | Generated environments, MLflow, Optuna, build, and run outputs stay untracked; curated files remain trackable |
-| M0-008 | `TODO` | Add README setup, quality, and recursive-checkout commands | M0-003, M0-005 | A clean-room walkthrough uses only documented commands |
-| M0-009 | `TODO` | Record owner decisions for project license, citation, and publication metadata | M0-001 | Owner-approved files/decision are committed; no license is guessed |
-| M0-010 | `TODO` | Add typed TOML loader with strict unknown-key rejection and relative path resolution | M0-001, M0-004 | Unit tests cover valid, missing, unknown, and type-invalid fields plus nested config paths |
-| M0-011 | `TODO` | Define provenance record and collection utilities | M0-002, M0-010 | Tests capture project/submodule commits, dirty flag, lock hash, config hash, platform, and seeds |
-| M0-012 | `TODO` | Add headless deterministic smoke experiment independent of GUI/hardware | M0-003, M0-010, M0-011 | Two same-seed executions produce equal canonical outputs within declared tolerance |
-| M0-GATE | `TODO` | Review and close the M0 gate | M0-006, M0-007, M0-008, M0-009, M0-012 | Reviewer reproduces install and all quality commands from a clean recursive checkout |
+| M0-001 | `DONE` | Add `pyproject.toml`, `src/arm_rc_ctrl`, Python 3.12 requirement, and `uv` dependency groups | DOC-002 | `uv sync` installs a clean environment from `pyproject.toml`/`uv.lock` (Python 3.12 via `.python-version`); `tests/unit/test_package.py` imports the package and checks the installed version |
+| M0-002 | `DONE` | Add pinned submodules at `third_party/rclib` (recursive), `third_party/skelarm`, and `third_party/rtctrl` (top-level until M5) | M0-001 | HTTPS submodules pinned at rclib `a015aca`, skelarm `ebb2611`, rtctrl `c601076` (table in `THIRD_PARTY_NOTICES.md`); bootstrap is `git submodule update --init third_party/skelarm third_party/rtctrl && git submodule update --init --recursive third_party/rclib` (rtctrl nested submodules deferred to M5); `tests/unit/test_submodule_pins.py` checks URLs, recorded gitlinks, checked-out HEADs, the notice table, and rclib nested submodules; fresh-clone bootstrap verified (see commit) |
+| M0-003 | `DONE` | Wire local/pinned Python builds of `rclib` and `skelarm` into the `uv` environment | M0-002 | `[tool.uv.sources]` builds non-editable `rclib`/`skelarm` from the submodules (`uv sync`); `src/arm_rc_ctrl/dependencies.py` reports recorded/checked-out submodule revisions, installed versions, and stale installs; `tests/unit/test_dependency_wiring.py` imports both libraries headless, checks versions/sources against the pins, and records revisions; review round 1: `python -m arm_rc_ctrl.dependencies rebuild` reinstalls both packages and stamps a build manifest (submodule commit, version, Python-source and compiled-extension digests, editable flag) in site-packages; `verify_builds()`/`nox -s deps` reject a missing manifest, a moved pin, a dirty submodule, or a changed installed file (C++-only rclib changes included); `tests/unit/test_build_identity.py`; review round 2: the build manifest must list exactly the built packages (missing, duplicate, unknown, or reordered entries are rejected on construction and on load) |
+| M0-004 | `DONE` | Add Ruff, strict type checking, pytest, coverage, and pre-commit configuration | M0-001 | Ruff (upstream policy), basedpyright `strict`, pytest (`filterwarnings=error`, strict markers/config), branch coverage, pre-commit, and `noxfile.py` (`lint`, `type_check`, `tests`, `pre_commit`) configured; `tests/unit/test_quality_tools.py` proves each tool reports the planted problems in `tests/fixtures/quality/`; `uv run nox` and `uv run nox -s pre_commit` pass on the clean tree; review round 1: nox sessions run the environment tools directly (no nested `uv run`, which lost `UV_PYTHON`) and assert the interpreter when `ARM_RC_CTRL_EXPECTED_PYTHON` is set |
+| M0-005 | `DONE` | Add CMake skeleton under `cpp/` with Catch2 and an empty library/application vertical slice | M0-002 | `cpp/` builds library `arm_rc_ctrl` (`version()`), app `arm_rc_ctrl_version`, and a Catch2 test; Catch2 v3.7.1 is fetched by commit `fa43b77`; `uv run nox -s cpp` configures with `-Werror`, builds, and passes 2 CTest cases headless; `tests/unit/test_cpp_skeleton.py` keeps the C++/Python versions and the Catch2 pin consistent |
+| M0-006 | `DONE` | Add CI for Python lint/type/test and C++ configure/build/test | M0-003, M0-004, M0-005 | `.github/workflows/ci.yml`: jobs `python` (3.12/3.13 matrix: selective submodule init, headless Qt libs, `uv sync --locked`, `dependencies rebuild`, `nox -s deps lint type_check tests` with `ARM_RC_CTRL_EXPECTED_PYTHON` from the matrix, coverage artifact), `cpp` (configure with `-Werror`, build, ctest), `pre-commit` (dev group only, rclib/skelarm top-level for metadata); uv pinned to 0.12.5, no secrets, `permissions: contents: read`. Hosted evidence: PR #1 run 33244708306 (3 of 4 jobs passed; pre-commit job fixed in `e401faa`) and run 33285899541 (head `53f6b41`, review round 2 + Eigen mirror fallback) — all four jobs passed (Python 3.12, Python 3.13 under CPython 3.13.15 with 239 tests + 1 strict xfail, C++ configure/build/ctest, pre-commit); run 33285103191 on `86e4c13` failed only because gitlab.com refused the Eigen clone under load; the submodule step now retries and verifies completeness; runs 33285332530 (+ re-run) failed only on gitlab.com refusing the Eigen clone from every runner region despite retries; the submodule step now falls back to the GitHub Eigen mirror (`eigen-mirror/eigen`, verified to serve pinned commit `6d035ce6`), still checking out the recorded SHA |
+| M0-007 | `DONE` | Add `.gitignore` and external data/artifact conventions | M0-001 | `.gitignore` excludes payload formats, external-layout directories, DVC cache/local config, `storage.toml`, builds, and tool caches while `data/records/**/*.toml`, DVC metafiles, `configs/*.example.toml`, and fixture data formats under `tests/fixtures/` stay trackable (caches/bytecode there remain ignored); `data/README.md` states the conventions; `tests/unit/test_gitignore_conventions.py` verifies 48 representative paths with `git check-ignore` |
+| M0-008 | `DONE` | Add README setup, quality, and recursive-checkout commands | M0-003, M0-005 | `README.md` documents requirements, clean-checkout setup (selective submodule bootstrap, `uv sync`), the nox quality gate and raw commands, pin-advance reinstall, the external storage root, the smoke experiment, layout, licensing/citation; `AGENTS.md` commands aligned; `pyproject.toml` references the README. Clean-room walkthrough (2026-08-29, fresh clone of `m0-foundation` @ `9808640` (same tree; history was later rewritten only to strip commit trailers)) used only documented commands: bootstrap 15 s, `uv sync` 11 s, `uv run nox` 14 s, smoke run, `nox -s pre_commit` — all passed; review round 2: README documents the three-command interpreter switch (`uv sync`, `dependencies rebuild`, `nox` under `UV_PYTHON`/`ARM_RC_CTRL_EXPECTED_PYTHON`), validated 3.12→3.13→3.12; README documents the same Eigen mirror workaround for the recursive rclib init |
+| M0-009 | `DONE` | Add GPL-3.0-only licensing and initial third-party notice inventory | — | Root `LICENSE`, plan policy, SPDX guidance, and `THIRD_PARTY_NOTICES.md` are committed |
+| M0-010 | `DONE` | Add typed TOML loader with strict unknown-key rejection and relative path resolution | M0-001, M0-004 | `arm_rc_ctrl.config` (`load_config`, `from_mapping`, `to_mapping`, `ConfigError`) maps TOML onto frozen dataclasses with unknown-key rejection, exact types (no int/float/bool coercion, finite floats), dotted error locations, and `Path` resolution relative to the config file; `tests/unit/test_config_loader.py` (27 cases) covers valid, missing, unknown, type-invalid, nested/array locations, path resolution, round trip, and schema errors; review round 1: `Literal` matches type and value (`1.0`/`True` are not `Literal[1]`); a `ValueError` from a schema `__post_init__` is reported as a located `ConfigError` |
+| M0-011 | `DONE` | Define provenance record and collection utilities | M0-002, M0-010 | `arm_rc_ctrl.provenance` defines `ProvenanceRecord` (commit, dirty flag, submodule revisions, `uv.lock` SHA-256, canonical-JSON resolved config + digest, `armrc://` artifact references with SHA-256/size, seeds, platform/package/thread-env) with strict mapping/JSON round trip, `collect_provenance`, payload `artifact_reference`/`verify_artifact`, `worktree_state`, and `require_clean_for_confirmatory`; `tests/unit/test_provenance.py` (15 cases) covers digests, artifacts, a throwaway git repo for dirty detection, the real checkout, round trips, strict validation, and the clean/dirty policy; review round 1: records carry verified `builds` identities; `collect_provenance` fails on unknown/mismatched build identity and the confirmatory policy rejects editable or dirty-source builds; records are integrity-validated on construction and load (exact schema version, 40-hex commit, 64-hex digests, canonical `config_json` matching `config_sha256`, aware-UTC second-precision timestamp, exact non-negative integer seeds, unique artifacts/submodules/builds, consistent submodule fields); `collect_provenance` rejects fractional/bool seeds; tampering tests cover each case; review round 2: a record must list exactly `SUBMODULES` and `BUILT_PACKAGES` in order, each build's `source_commit`/`source_dirty` must equal its submodule's `checked_out`/`dirty`, and its `version` must equal `platform.packages[name]` — empty or inconsistent records no longer load (tampering tests for each case) |
+| M0-012 | `DONE` | Add headless deterministic smoke experiment independent of GUI/hardware | M0-003, M0-010, M0-011 | `arm_rc_ctrl.experiments.smoke` + `configs/evaluations/smoke.toml`: headless 2-DOF `skelarm` PD reach and teacher-forced `rclib` ESN (`[q,dq]→q_next`), single-OpenMP-thread guard, finite/float64 checks, transactional immutable output under `armrc://runs/<id>/` (`arrays.npz`, `summary.json` with per-array SHA-256, canonical digest, full provenance), clean-worktree policy, `python -m` entry point; `tests/integration/test_smoke_experiment.py`: two fresh-process executions are bitwise identical (tolerance 0); in-process repeat is a strict xfail pending UP-005; review round 1: config validation also covers ESN ranges (mirroring rclib), non-negative gains, and initial/target postures within joint limits |
+| M0-013 | `DONE` | Add owner-approved citation and publication metadata | M0-001 | `CITATION.cff` (CFF 1.2.0; author Hiroshi Atsuta <atsuta@ieee.org>, GPL-3.0-only, repository URL, dev version, no DOI/date yet; affiliation/ORCID pending) and `docs/PUBLICATION.md` (public development, archival release + Zenodo DOI only after a reproducible milestone, external/private data); `tests/unit/test_citation_metadata.py` checks required CFF fields and consistency with `pyproject.toml` |
+| M0-014 | `DONE` | Implement machine-local external storage-root resolution | M0-010 | `arm_rc_ctrl.storage` resolves env → XDG `storage.toml` → `/external/arm-rc-ctrl`, validates an existing readable root outside any known worktree (never created, never the repository), parses/renders `armrc://<bucket>/…` with traversal/absolute/charset rejection, canonicalizes targets and refuses symlink escapes, and distinguishes read (must exist/readable) from write (writable root, parents created); `tests/unit/test_storage.py` (43 cases) covers precedence, XDG fallback, invalid config, access checks, symlinks, and the committed example config; review round 1: unknown access modes raise `ValueError` without creating directories |
+| M0-GATE | `DONE` | Review and close the M0 gate | M0-006, M0-007, M0-008, M0-009, M0-012, M0-013, M0-014 | Reviewer sign-off 2026-08-30 on PR #1 head `c48f3bd`: full gate 239 passed + 1 strict xfail (UP-005), coverage 92%, CTest 2/2 with `-Werror`, Ruff/format/basedpyright strict/pre-commit clean, all four hosted CI jobs passed (run 33286023074, Python 3.12 and 3.13), Eigen mirror serves the pinned commit, worktree and submodules clean. Review rounds 1–2 findings resolved in `c6ade00`…`86e4c13`; residual item UP-005 is documented and non-blocking |
 
 ## M1 — Demonstration pipeline and frozen baselines
 
@@ -71,20 +73,20 @@ are complete. Do not mark research software complete merely because it runs once
 
 | ID | Status | Task | Depends on | Acceptance/evidence |
 | --- | --- | --- | --- | --- |
-| M1-001 | `TODO` | Define versioned raw-demonstration manifest types | M0-010 | Round-trip tests cover ID, source checksum, scenario, intervals, units, revisions, and notes |
-| M1-002 | `TODO` | Define canonical `samples.npz` arrays and processed manifest types | M1-001 | Schema tests enforce names, shapes, float64 dtype, units, phases, and checksums |
-| M1-003 | `TODO` | Implement raw `skelarm` log loader without modifying source logs | M0-003, M1-001 | Known fixture loads; missing/corrupt/unexpected channels fail with actionable errors |
+| M1-001 | `TODO` | Define versioned raw-demonstration artifact records | M0-010, M0-014 | Round-trip tests cover immutable ID, logical URI, SHA-256/size, format/schema, license/access, scenario, intervals, revisions, and notes |
+| M1-002 | `TODO` | Define canonical `samples.npz` arrays and processed artifact records | M1-001 | Schema tests enforce source IDs, logical URI, digest, names, shapes, float64 dtype, units, and phases |
+| M1-003 | `TODO` | Implement raw `skelarm` log loader through the storage resolver | M0-003, M1-001 | Known fixture loads; missing, inaccessible, mismatched, corrupt, or unexpected data fails without source modification |
 | M1-004 | `TODO` | Implement dataset validation | M1-002 | Tests reject NaN/Inf, time errors, shape errors, missing phases, invalid task codes, and limit violations |
 | M1-005 | `TODO` | Implement configurable smoothing using zero-phase processing for offline demonstrations | M1-003, M1-004 | Analytic noisy-signal tests verify attenuation and absence of measurable phase shift |
 | M1-006 | `TODO` | Implement resampling to the configured control period | M1-005 | Constant/linear analytic signals and endpoint inclusion pass within numerical tolerance |
 | M1-007 | `TODO` | Implement offline derivative generation for `dq`, `ddq`, `dtip`, and `ddtip` | M1-006 | Polynomial/sinusoidal fixtures meet declared interior/boundary error tolerances |
 | M1-008 | `TODO` | Implement or validate explicit prime/move/dwell interval annotation | M1-003 | Missing/overlapping/reversed intervals fail; all samples receive exactly one phase |
 | M1-009 | `TODO` | Implement training-only normalization statistics | M1-004 | Tests prevent evaluation leakage and define near-zero scale handling |
-| M1-010 | `TODO` | Add preprocessing CLI as a thin wrapper around tested functions | M1-006, M1-007, M1-008, M1-009 | Command creates validated manifest/data pair and refuses overwrite without explicit new output ID |
-| M1-011 | `TODO` | Initialize DVC and track raw/processed dataset directories | M0-007, M1-010 | DVC metadata reproduces the fixture dataset from declared inputs |
+| M1-010 | `TODO` | Add transactional preprocessing CLI as a thin wrapper around tested functions | M1-006, M1-007, M1-008, M1-009 | Command writes/validates external payload atomically, then creates its record; overwrite and repository fallback are rejected |
+| M1-011 | `TODO` | Initialize DVC with external per-machine cache and remote | M0-007, M0-014, M1-010 | Ignored local config maps cache/remote below storage root; Git contains only portable DVC metadata and artifact records |
 | M1-012 | `TODO` | Create or select the canonical 2-DOF robot/task 1-a scenario | M0-003 | Versioned TOML fixes robot parameters, target, `dt`, limits, duration, prime, and dwell intervals |
-| M1-013 | `TODO` | Record/import one task 1-a demonstration and its immutable manifest | M1-010, M1-012 | Dataset passes validation; visual/manual review confirms intended reach and dwell |
-| M1-014 | `TODO` | Add preprocessing integration/regression fixture | M1-013 | Clean reproduction yields the expected manifest and arrays/checksums within documented policy |
+| M1-013 | `TODO` | Record/import one external task 1-a demonstration and commit its immutable record | M1-010, M1-012 | Payload is absent from Git, record resolves and validates, and visual/manual review confirms intended reach/dwell |
+| M1-014 | `TODO` | Add preprocessing integration/regression fixture | M1-013 | Clean reproduction through a configured external store yields expected records, arrays, and digests |
 
 ### M1.2 Metrics and run records
 
@@ -94,7 +96,7 @@ are complete. Do not mark research software complete merely because it runs once
 | M1-016 | `TODO` | Implement joint RMSE with per-joint continuous-angle policy | M1-002 | Hand-calculated fixtures test aggregate, per-joint, wrapping, and shape rejection |
 | M1-017 | `TODO` | Implement final-dwell endpoint and stationarity metrics | M1-002 | Fixtures verify mean/RMS/max/p95 error, in-region fraction, dwell duration, and velocity metrics |
 | M1-018 | `TODO` | Implement effort, peak torque, and saturation metrics | M1-002 | Irregular-time analytic fixtures verify integration and saturation fraction |
-| M1-019 | `TODO` | Define provenance-complete run-record schema and serialization | M0-011, M1-015 | Round-trip retains state, references, torque, disturbances, termination, config, and provenance |
+| M1-019 | `TODO` | Define provenance-complete external run-record schema and Git pointer record | M0-011, M0-014, M1-015 | Round-trip retains state, references, torque, disturbances, termination, config, provenance, logical URI, and digest |
 | M1-020 | `TODO` | Add metric report generation from run records | M1-016, M1-017, M1-018, M1-019 | JSON/CSV summaries match pure metric functions and contain no hidden recomputation |
 
 ### M1.3 Direct-replay baselines
@@ -109,7 +111,7 @@ are complete. Do not mark research software complete merely because it runs once
 | M1-026 | `TODO` | Tune, review, and freeze computed-torque gains | M1-024 | Selected config, study summary, metrics, and provenance are committed/logged |
 | M1-027 | `TODO` | Add baseline determinism and paired-run regression tests | M1-025, M1-026 | Fixed fixtures reproduce state/metric results within declared tolerances |
 | M1-028 | `TODO` | Calibrate safe/nontrivial posture and force perturbation levels using frozen baselines | M1-025, M1-026 | Pilot report justifies levels; confirmatory config and seed list are then locked |
-| M1-GATE | `TODO` | Review and close the M1 gate | M1-011, M1-014, M1-020, M1-027, M1-028 | Reviewer reproduces preprocessing and both frozen baselines from raw data |
+| M1-GATE | `TODO` | Review and close the M1 gate | M1-011, M1-014, M1-020, M1-027, M1-028 | Reviewer resolves external records and reproduces preprocessing and both frozen baselines without payloads in Git |
 
 ## M2 — Offline ESN task 1-a vertical slice
 
@@ -145,8 +147,8 @@ are complete. Do not mark research software complete merely because it runs once
 
 | ID | Status | Task | Depends on | Acceptance/evidence |
 | --- | --- | --- | --- | --- |
-| M3-001 | `TODO` | Integrate a local MLflow backend and mandatory run logger | M0-011, M1-019 | Integration test verifies config, revisions, hashes, seeds, metrics, recipe, and plots are logged |
-| M3-002 | `TODO` | Integrate local Optuna SQLite studies with seeded sampler/pruner | M2-012 | Small study creates, resumes, prunes, and selects a trial deterministically where supported |
+| M3-001 | `TODO` | Integrate an external-root MLflow backend and mandatory run logger | M0-011, M0-014, M1-019 | Integration test verifies external storage plus config, revisions, hashes, seeds, metrics, recipe, and plots |
+| M3-002 | `TODO` | Integrate external-root Optuna SQLite studies with seeded sampler/pruner | M0-014, M2-012 | Small study creates, resumes, prunes, and selects a trial deterministically where supported |
 | M3-003 | `TODO` | Define versioned ESN search space and development-only scenarios | M1-028, M3-002 | Config includes all planned parameters, bounds, study seed, budget, and no confirmatory seeds |
 | M3-004 | `TODO` | Implement feasibility checks and documented trial penalty | M2-013, M3-003 | Tests cover divergence, state/torque limits, early termination, dwell failure, and feasible objective |
 | M3-005 | `TODO` | Implement parent study and child trial MLflow logging | M3-001, M3-002, M3-004 | Every trial is traceable and objective components are stored individually |
@@ -156,7 +158,7 @@ are complete. Do not mark research software complete merely because it runs once
 | M3-009 | `TODO` | Implement paired robustness suite across methods | M3-006, M3-007, M3-008 | Each method receives identical scenario IDs and disturbances; failures remain in aggregation |
 | M3-010 | `TODO` | Run locked confirmatory suite exactly once for the study version | M3-009 | Report identifies frozen recipe/config/seeds and is labeled confirmatory; reruns are separately labeled |
 | M3-011 | `TODO` | Generate task 1-a tables, plots, and limitations report | M3-010 | Report includes all primary/secondary metrics, distributions, failures, and paired comparisons |
-| M3-012 | `TODO` | Implement `scripts/reproduce_1a.py` orchestration | M1-011, M3-011 | One documented command rebuilds data, model, evaluation, and report or clearly explains missing DVC data |
+| M3-012 | `TODO` | Implement `scripts/reproduce_1a.py` orchestration | M1-011, M3-011 | One command resolves external records and rebuilds data, model, evaluation, and report or identifies missing/mismatched payloads |
 | M3-013 | `TODO` | Perform clean-checkout reproduction audit | M3-012 | Human records commands, environment, elapsed time, hashes, and any numerical deviation |
 | M3-014 | `TODO` | Review code, experimental fairness, and documentation alignment | M3-013 | Findings are fixed or tracked with explicit IDs; plan reflects tested behavior |
 | M3-GATE | `TODO` | Review and close the M3 gate | M3-014 | Independent reviewer reproduces the selected task 1-a result and accepts provenance/fairness |
@@ -231,6 +233,7 @@ an upstream PR merely to make project-local code cleaner.
 | UP-002 | `TODO` | Track `rclib` real-time allocation or latency findings | M5-006 | Reproducer and benchmark show generic library impact before PR work |
 | UP-003 | `TODO` | Track missing generic `skelarm` extension seam | M2-009 | Existing controller/task/log registries are tested first; PR includes generic tests |
 | UP-004 | `TODO` | Track missing generic `rtctrl` bridge/telemetry/safety seam | M5-005 | Existing `Arm`/`Controller` APIs are tested first; PR cannot weaken safety |
+| UP-005 | `TODO` | Fix in-process seed reproducibility of `rclib` `RandomSparseReservoir` (power-iteration start vector uses `Eigen::Random()`/`std::rand`, never re-seeded; `cpp_core/src/reservoirs/RandomSparseReservoir.cpp:39` at pin `a015aca`) | M0-012 | Found 2026-08-29: fresh processes reproduce exactly, repeated construction in one process drifts; documented by strict-xfail `tests/integration/test_smoke_experiment.py::test_in_process_repeat_is_reproducible`. Upstream branch/PR with a regression test, then advance the pin and drop the xfail |
 
 ## Definition of done for every implementation task
 

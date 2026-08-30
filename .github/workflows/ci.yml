@@ -1,0 +1,132 @@
+# Repository quality gate on GitHub Actions (M0-006).
+#
+# Jobs start from a plain checkout and initialize submodules selectively:
+# rclib recursively (its wheel build needs Eigen/pybind11/Catch2), skelarm and
+# rtctrl top-level only. No secrets are required.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  # Exact uv version used for the committed lock; keep in sync with README.md.
+  UV_VERSION: "0.12.5"
+  # Deterministic numerics and headless Qt for skelarm (see tests/conftest.py).
+  OMP_NUM_THREADS: "1"
+  QT_QPA_PLATFORM: offscreen
+
+jobs:
+  python:
+    name: Python ${{ matrix.python-version }} (lint, type check, tests)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.12", "3.13"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Initialize pinned submodules (rclib recursively; skelarm and rtctrl top-level)
+        # rclib's Eigen submodule is hosted on gitlab.com, which regularly refuses
+        # clones under load. Try the pinned upstream first and fall back to the
+        # GitHub mirror; git checks out the recorded commit SHA either way, so the
+        # host cannot change the content. Finally require every nested submodule.
+        run: |
+          git submodule update --init third_party/skelarm third_party/rtctrl third_party/rclib
+          if ! git submodule update --init --recursive third_party/rclib; then
+            echo "gitlab.com refused the Eigen clone; retrying from the GitHub mirror" >&2
+            git -C third_party/rclib config submodule.cpp_core/third_party/eigen.url \
+              https://github.com/eigen-mirror/eigen.git
+            git submodule update --init --recursive third_party/rclib
+          fi
+          if git submodule status --recursive third_party/rclib | grep -q '^-'; then
+            echo "rclib nested submodules are incomplete" >&2
+            exit 1
+          fi
+
+      - name: Install headless Qt runtime libraries (skelarm imports PyQt6)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libegl1 libopengl0 libxkbcommon-x11-0 libdbus-1-3
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          python-version: ${{ matrix.python-version }}
+          enable-cache: true
+
+      - name: Sync locked environment (builds rclib and skelarm from the submodules)
+        run: uv sync --locked
+
+      - name: Rebuild rclib/skelarm from the checked-out submodules and record their build identity
+        run: uv run --locked python -m arm_rc_ctrl.dependencies rebuild
+
+      - name: Verify builds, lint, type check, and test
+        # Every nox session asserts it runs under the matrix interpreter.
+        env:
+          ARM_RC_CTRL_EXPECTED_PYTHON: ${{ matrix.python-version }}
+        run: uv run --locked nox -s deps lint type_check tests
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: coverage-${{ matrix.python-version }}
+          path: coverage.xml
+          if-no-files-found: ignore
+
+  cpp:
+    name: C++ (configure, build, ctest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Configure (warnings as errors; Catch2 fetched at its pinned commit)
+        run: cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release -DARM_RC_CTRL_WERROR=ON
+
+      - name: Build
+        run: cmake --build build -j"$(nproc)"
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure
+
+  pre-commit:
+    name: Pre-commit hooks
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: false
+
+      - name: Initialize rclib and skelarm top-level (uv needs their pyproject metadata even for a dev-group-only sync)
+        run: git submodule update --init third_party/rclib third_party/skelarm
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          version: ${{ env.UV_VERSION }}
+          enable-cache: true
+
+      - name: Run all hooks
+        run: uv run --locked --only-group dev pre-commit run --all-files --show-diff-on-failure

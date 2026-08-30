@@ -1,0 +1,178 @@
+[project]
+name = "arm-rc-ctrl"
+version = "0.1.0.dev0"
+description = "Reservoir-computing target generators for robot-arm control: experiments, protocols, and adapters around rclib, skelarm, and rtctrl."
+readme = "README.md"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+authors = [{ name = "Hiroshi Atsuta", email = "atsuta@ieee.org" }]
+# Floor shared with skelarm (>=3.12). 3.14 is deliberately not claimed yet:
+# rclib's CI and wheels stop at 3.13.
+requires-python = ">=3.12"
+dependencies = [
+  "numpy>=2.0.0",
+  # Domain libraries are built from the pinned submodules (see [tool.uv.sources]).
+  "rclib",
+  "skelarm",
+]
+classifiers = [
+  "Development Status :: 2 - Pre-Alpha",
+  "Intended Audience :: Science/Research",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Physics",
+  "Typing :: Typed",
+]
+keywords = ["reservoir-computing", "echo-state-networks", "robot-arm", "control", "crane-x7"]
+
+[project.urls]
+Repository = "https://github.com/hrshtst/arm-rc-ctrl"
+
+[build-system]
+requires = ["uv_build>=0.9.16,<0.13.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+# Test runner and plugins.
+test = [
+  "pytest>=8.4.2",
+  "pytest-cov>=7.0.0",
+  # Used only to validate CITATION.cff.
+  "pyyaml>=6.0.3",
+  "types-pyyaml>=6.0.12",
+]
+# Default development environment. Kept light: heavier experiment tooling
+# (MLflow, Optuna, DVC) is added by the milestone that first needs it.
+dev = [
+  { include-group = "test" },
+  "basedpyright>=1.39.6",
+  "nox>=2025.11.12",
+  "pre-commit>=4.5.0",
+  "ruff>=0.14.8",
+]
+
+[tool.uv]
+default-groups = ["dev"]
+
+# Non-editable builds of the pinned submodules. uv does not rebuild a path
+# dependency when only its source files change, so after `uv sync` on a fresh
+# clone and after every pin advance run:
+#   uv run python -m arm_rc_ctrl.dependencies rebuild
+# which reinstalls both packages and stamps their build identity; `nox -s deps`
+# and every provenance collection verify that stamp (see dependencies.py).
+[tool.uv.sources]
+rclib = { path = "third_party/rclib" }
+skelarm = { path = "third_party/skelarm" }
+
+# ----------------------------------------------------------------------------
+# Ruff: identical policy to rclib and skelarm (ALL rules, shared ignore list,
+# 120 columns, NumPy docstrings, required future annotations).
+[tool.ruff]
+line-length = 120
+indent-width = 4
+target-version = "py312"
+extend-exclude = [
+  "build",
+  "third_party",
+  # Deliberately invalid files used to prove the quality tools run (M0-004).
+  "tests/fixtures/quality",
+]
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+  "COM812",  # Trailing comma missing
+  "D401",    # First line of docstring should be in imperative mood: "{first_line}"
+  "F841",    # Local variable {name} is assigned to but never used
+  "T201",    # `print` found
+  "PTH123",  # `open()` should be replaced by `Path.open()`
+  "PLC0415", # `import` should be at the top-level of a file
+  "PLR0911", # Too many return statements ({returns} > {max_returns})
+  "PLR0912", # Too many branches ({branches} > {max_branches})
+  "PLR0913", # Too many arguments in function definition ({c_args} > {max_args})
+  "PLR0915", # Too many statements ({statements} > {max_statements})
+  "PLR0917", # Too many positional arguments ({c_pos} > {max_pos})
+  "S101",    # Use of `assert` detected
+  "SIM108",  # Use ternary operator {contents} instead of `if`-`else`-block
+  "RET504",  # Unnecessary assignment to {name} before `return` statement
+  "TC001",   # Move application import into a type-checking block
+  "TC002",   # Move third-party import into a type-checking block
+  "TC003",   # Move standard library import into a type-checking block
+  # Project-specific: subprocess is used only for git and the quality tools
+  # with fixed argument lists and never with shell=True.
+  "S603",    # `subprocess` call: check for execution of untrusted input
+  "S607",    # Starting a process with a partial executable path
+]
+fixable = ["ALL"]
+unfixable = [
+  "SIM105", # Use `contextlib.suppress({exception})` instead of `try`-`except`-`pass`
+]
+dummy-variable-rgx = "^(_+|(_+[a-zA-Z0-9_]*[a-zA-Z0-9]+?))$"
+
+[tool.ruff.lint.per-file-ignores]
+# Tests and scripts are not importable packages; tests may compare against literals.
+"tests/**" = ["INP001", "PLR2004"]
+"scripts/**" = ["INP001"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"
+
+[tool.ruff.lint.isort]
+required-imports = ["from __future__ import annotations"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
+docstring-code-format = true
+docstring-code-line-length = "dynamic"
+
+# ----------------------------------------------------------------------------
+# basedpyright in strict mode. Narrow, documented overrides are permitted only
+# for third-party or C-extension typing gaps.
+[tool.basedpyright]
+include = ["src", "tests", "noxfile.py"]
+exclude = [
+  "**/__pycache__",
+  "third_party",
+  # Deliberately invalid files used to prove the quality tools run (M0-004).
+  "tests/fixtures/quality",
+]
+venvPath = "."
+venv = ".venv"
+pythonVersion = "3.12"
+pythonPlatform = "Linux"
+typeCheckingMode = "strict"
+reportMissingTypeStubs = "error"
+reportUnnecessaryTypeIgnoreComment = "error"
+
+# ----------------------------------------------------------------------------
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = ["-ra", "--strict-markers", "--strict-config", "--import-mode=importlib"]
+xfail_strict = true
+# No warnings policy: unexpected warnings fail the run. Add narrowly scoped,
+# commented ignores here only for third-party warnings we cannot fix.
+filterwarnings = ["error"]
+markers = [
+  "integration: exercises a complete data/control path (may take seconds)",
+  "regression: compares against committed deterministic fixtures",
+  "slow: long-running; deselect with -m 'not slow'",
+]
+
+[tool.coverage.run]
+source = ["arm_rc_ctrl"]
+branch = true
+
+[tool.coverage.report]
+show_missing = true
+skip_covered = false
+exclude_also = [
+  "if TYPE_CHECKING:",
+  "@overload",
+  "raise NotImplementedError",
+]
