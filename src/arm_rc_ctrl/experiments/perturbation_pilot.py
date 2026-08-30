@@ -571,7 +571,7 @@ def _fmt(value: float | None, digits: int = 3) -> str:
 def render_markdown(report: PilotReport) -> str:
     """Human-readable tables of every level plus the selection and its rules."""
     rules = report.rules
-    gains = ", ".join(f"`{m}` (kp {list(g.kp)}, kd {list(g.kd)})" for m, g in report.baselines.items())
+    gains = ", ".join(f"`{m}` (kp {list(g.kp)}, kd {list(g.kd)})" for m, g in sorted(report.baselines.items()))
     dirty = " (dirty)" if report.provenance.project_dirty else ""
     lines = [
         f"# Perturbation pilot `{report.protocol}`",
@@ -597,7 +597,7 @@ def render_markdown(report: PilotReport) -> str:
     for kind, unit in (("posture", "rad"), ("force", "N")):
         lines += ["", f"## {kind.capitalize()} levels", "", f"| Magnitude ({unit}) | {columns} |", "|---" * 11 + "|"]
         for level in (lv for lv in report.levels if lv.kind == kind):
-            for baseline, b in level.baselines.items():
+            for baseline, b in sorted(level.baselines.items()):  # order-independent of the JSON/protocol
                 cells = (
                     f"{level.magnitude:g}",
                     baseline,
