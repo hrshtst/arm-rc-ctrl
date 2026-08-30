@@ -29,6 +29,7 @@ __all__ = [
     "build_skeleton",
     "endpoint_positions",
     "joint_limits",
+    "joint_target",
     "load_scenario",
 ]
 
@@ -267,3 +268,31 @@ def endpoint_positions(config: ScenarioConfig, q: NDArray[np.float64]) -> NDArra
         tip = skeleton.links[-1]
         out[i] = (tip.xe, tip.ye)
     return out
+
+
+def joint_target(config: ScenarioConfig, *, elbow_up: bool = True) -> tuple[float, ...]:
+    """Closed-form inverse kinematics of the task target for a planar 2-DOF arm (rad).
+
+    Raises
+    ------
+    ValueError
+        If the robot is not a two-link arm, the target is unreachable, or the
+        solution violates the joint limits.
+    """
+    if config.dof != _PLANE or config.robot.base_length != 0.0:
+        msg = "joint_target supports only two-link arms with a zero base length"
+        raise ValueError(msg)
+    l1, l2 = (link.length for link in config.robot.links)
+    x, y = config.task.target
+    cos_q2 = (x * x + y * y - l1 * l1 - l2 * l2) / (2.0 * l1 * l2)
+    if not -1.0 <= cos_q2 <= 1.0:
+        msg = f"target {config.task.target} is unreachable"
+        raise ValueError(msg)
+    q2 = math.acos(cos_q2) if elbow_up else -math.acos(cos_q2)
+    q1 = math.atan2(y, x) - math.atan2(l2 * math.sin(q2), l1 + l2 * math.cos(q2))
+    solution = (q1, q2)
+    for i, (angle, link) in enumerate(zip(solution, config.robot.links, strict=True)):
+        if not link.q_min <= angle <= link.q_max:
+            msg = f"joint target[{i}]={angle:.4f} lies outside joint limits [{link.q_min}, {link.q_max}]"
+            raise ValueError(msg)
+    return solution

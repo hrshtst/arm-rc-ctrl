@@ -124,6 +124,24 @@ with a standard deviation at or below `near_zero` (default 1e-8) get scale 1.0
 and are listed in `replaced_near_zero`. `Normalizer` applies and inverts the
 recorded statistics.
 
+## Recording and importing demonstrations
+
+`uv run python -m arm_rc_ctrl.data.teacher --scenario configs/tasks/task_1a.toml --out demo.sklog.npz`
+records the scripted minimum-jerk demonstration (prime hold, minimum-jerk move
+to the closed-form joint solution of the target, dwell hold; tracked by a
+high-gain computed-torque controller in skelarm). Human demonstrations come
+from skelarm's `tools/trajectory_recorder.py`.
+
+`uv run python -m arm_rc_ctrl.data.import_demo --log demo.sklog.npz --scenario … --session … --license … --access …`
+copies the native log unchanged into `armrc://raw/<artifact-id>/demo.sklog.npz`
+(staged, digested, moved atomically), verifies it with the raw loader against
+the record it is about to write, then writes `data/records/raw/<id>.toml` and
+appends the catalog. Intervals are given explicitly (`--intervals
+prime_start,move_start,dwell_start,end`) or proposed from the joint-speed
+profile (`--propose-intervals [--speed-threshold …] --plot review.png`), which
+prints the proposal and writes a review plot; importing with a proposal
+requires `--confirm` after visual review.
+
 ## Preprocessing command
 
 ```bash
