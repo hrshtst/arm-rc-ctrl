@@ -161,7 +161,7 @@ class TargetGeneratorBase(ABC):
 
     @property
     def steps(self) -> int:
-        """Number of steps since the last reset."""
+        """Number of prime and step calls since the last reset."""
         return self._steps
 
     def reset(self, initial_state: RobotState) -> None:
@@ -171,10 +171,9 @@ class TargetGeneratorBase(ABC):
         self._steps = 0
         self._reset(initial_state)
 
-    def step(self, state: RobotState, task_code: NDArray[np.float64] | None = None) -> DesiredJointState:
-        """Validate ``state`` and ``task_code``, delegate to the implementation, and validate its target."""
+    def _validate(self, method: str, state: RobotState, task_code: NDArray[np.float64] | None) -> NDArray[np.float64]:
         if self._dof is None or self._last_t is None:
-            msg = "step() called before reset()"
+            msg = f"{method}() called before reset()"
             raise GeneratorError(msg)
         if state.dof != self._dof:
             msg = f"state has {state.dof} joints but the episode was reset with {self._dof}"
@@ -185,7 +184,22 @@ class TargetGeneratorBase(ABC):
         if state.t < self._last_t:
             msg = f"time must not go backwards: {state.t} s before the reset time {self._last_t} s"
             raise GeneratorError(msg)
-        code = self._task_code(task_code)
+        return self._task_code(task_code)
+
+    def prime(self, state: RobotState, task_code: NDArray[np.float64] | None = None) -> None:
+        """Feed measured state during the priming interval without producing a target.
+
+        Validated exactly like :meth:`step` (an episode must have been reset and
+        time must advance); the default implementation ignores the sample.
+        """
+        code = self._validate("prime", state, task_code)
+        self._prime(state, code)
+        self._last_t = state.t
+        self._steps += 1
+
+    def step(self, state: RobotState, task_code: NDArray[np.float64] | None = None) -> DesiredJointState:
+        """Validate ``state`` and ``task_code``, delegate to the implementation, and validate its target."""
+        code = self._validate("step", state, task_code)
         target = self._step(state, code)
         if not isinstance(target, DesiredJointState):  # pyright: ignore[reportUnnecessaryIsInstance]
             msg = f"the generator returned {type(target).__name__}, expected DesiredJointState"
@@ -212,6 +226,9 @@ class TargetGeneratorBase(ABC):
     @abstractmethod
     def _reset(self, initial_state: RobotState) -> None:
         """Implementation hook for :meth:`reset`."""
+
+    def _prime(self, state: RobotState, task_code: NDArray[np.float64]) -> None:  # noqa: B027
+        """Implementation hook for :meth:`prime` (default: the sample is ignored)."""
 
     @abstractmethod
     def _step(self, state: RobotState, task_code: NDArray[np.float64]) -> DesiredJointState:

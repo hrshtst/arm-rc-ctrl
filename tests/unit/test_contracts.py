@@ -175,3 +175,37 @@ def test_reset_starts_a_fresh_episode() -> None:
     assert generator.steps == 0
     target = generator.step(_state(0.0, [1.0, 1.0], [0.0, 0.0]))
     assert np.array_equal(target.q, [1.0, 1.0])
+
+
+class CountingGenerator(HoldGenerator):
+    """Counts priming samples."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.primed: list[float] = []
+
+    def _prime(self, state: RobotState, task_code: np.ndarray) -> None:
+        del task_code
+        self.primed.append(state.t)
+
+
+def test_priming_is_validated_like_stepping() -> None:
+    """prime() needs a reset, advances the clock, counts as a step, and reaches the implementation hook."""
+    generator = CountingGenerator()
+    with pytest.raises(GeneratorError, match=r"prime\(\) called before reset\(\)"):
+        generator.prime(_state(0.0, [0.0, 0.0], [0.0, 0.0]))
+    generator.reset(_state(0.0, [0.2, 1.2], [0.0, 0.0]))
+    generator.prime(_state(0.0, [0.2, 1.2], [0.0, 0.0]))
+    generator.prime(_state(0.01, [0.2, 1.2], [0.0, 0.0]))
+    with pytest.raises(GeneratorError, match="time must advance"):
+        generator.prime(_state(0.01, [0.2, 1.2], [0.0, 0.0]))
+    with pytest.raises(GeneratorError, match="time must advance"):
+        generator.step(_state(0.01, [0.2, 1.2], [0.0, 0.0]))
+    assert generator.primed == [0.0, 0.01]
+    assert generator.steps == 2
+    generator.step(_state(0.02, [0.2, 1.2], [0.0, 0.0]))
+    assert generator.steps == 3
+    plain = HoldGenerator()
+    plain.reset(_state(0.0, [0.2, 1.2], [0.0, 0.0]))
+    plain.prime(_state(0.0, [0.2, 1.2], [0.0, 0.0]))  # the default hook ignores the sample
+    assert plain.codes == []
