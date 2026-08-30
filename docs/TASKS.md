@@ -22,7 +22,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M1-017`/`M1-018` — dwell and effort metrics.
+- **Next task:** `M1-019` — run-record schema and Git pointer record.
 - **Current milestone:** M1 — demonstration pipeline and frozen baselines.
 - **Active blockers:** None.
 - **Latest completed work:** M0 closed 2026-08-30 (all M0 tasks and `M0-GATE` `DONE`; PR #1); `UP-005` open.
@@ -94,8 +94,8 @@ are complete. Do not mark research software complete merely because it runs once
 | --- | --- | --- | --- | --- |
 | M1-015 | `DONE` | Define typed termination reasons and success/failure records | M0-010 | `arm_rc_ctrl.experiments.termination`: `Termination` (kinds `completed`, `invalid_state`, `invalid_output`, `limit_violation` with limit/joint/value/bound, `divergence`, `timeout`, `backend_failure`; time/step/detail validated per kind) with factories, and `Outcome` (termination + named success criteria; `success`, `failed_criteria`; `completed` criterion must agree with the termination); strict mapping round trip; `tests/unit/test_termination.py` (14 cases) |
 | M1-016 | `DONE` | Implement joint RMSE with per-joint continuous-angle policy | M1-002 | `arm_rc_ctrl.metrics.joint`: `wrap_angle` to (-π, π], `JointAnglePolicy` (per-joint continuous flag; `limited(dof)`), `joint_error` (wrapping on continuous joints only), `joint_rmse` → aggregate `sqrt(Σ‖wrap(q−q_demo)‖²/(N d))` and per-joint RMSE with sample count; shape/finiteness rejection; `tests/unit/test_joint_metrics.py` (11 cases) with hand-calculated fixtures, zero-for-identical/non-negative properties, wrapping policy, and rejections |
-| M1-017 | `TODO` | Implement final-dwell endpoint and stationarity metrics | M1-002 | Fixtures verify mean/RMS/max/p95 error, in-region fraction, dwell duration, and velocity metrics |
-| M1-018 | `TODO` | Implement effort, peak torque, and saturation metrics | M1-002 | Irregular-time analytic fixtures verify integration and saturation fraction |
+| M1-017 | `DONE` | Implement final-dwell endpoint and stationarity metrics | M1-002 | `arm_rc_ctrl.metrics.dwell`: `endpoint_error_stats` (mean/RMS/max/p95 of ‖tip−target‖) and `dwell_metrics` over an inclusive time window (in-tolerance fraction, longest continuous in-tolerance duration = span of the longest run, joint-velocity RMS/max, window span, sample count) with strict input validation; `tests/unit/test_dwell_metrics.py` (14 cases) with hand-calculated fixtures |
+| M1-018 | `DONE` | Implement effort, peak torque, and saturation metrics | M1-002 | `arm_rc_ctrl.metrics.effort`: `effort_metrics` = torque RMS, peak (overall and per joint), saturation fraction (any joint at or beyond its limit), and effort `∫Στ² dt` by the trapezoidal rule on irregular grids, with optional window; `tests/unit/test_effort_metrics.py` (11 cases): analytic exactness on irregular grids (constant and piecewise-linear integrands), saturation by joint, windows, rejections |
 | M1-019 | `TODO` | Define provenance-complete external run-record schema and Git pointer record | M0-011, M0-014, M1-015 | Round-trip retains state, references, torque, disturbances, termination, config, provenance, logical URI, and digest |
 | M1-020 | `TODO` | Add metric report generation from run records | M1-016, M1-017, M1-018, M1-019 | JSON/CSV summaries match pure metric functions and contain no hidden recomputation |
 
