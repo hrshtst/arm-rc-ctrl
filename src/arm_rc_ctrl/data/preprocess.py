@@ -24,6 +24,7 @@ Command line::
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import shutil
 import sys
@@ -46,6 +47,7 @@ from arm_rc_ctrl.data.records import (
     PROCESSED_PAYLOAD_NAME,
     AccessClass,
     ArtifactRecord,
+    Catalog,
     Origin,
     Payload,
     Preprocessing,
@@ -224,96 +226,158 @@ def preprocess_demonstration(
     )
     validate_dataset(samples, spec)
 
-    created_at = provenance.created_at
     staging = store.root / "processed" / f"staging-{uuid.uuid4().hex}"
     staging.mkdir(parents=True)
     try:
         payload_file = staging / PROCESSED_PAYLOAD_NAME
         save_samples(payload_file, samples)
         digest = sha256_file(payload_file)
-        artifact_id = make_artifact_id("processed", created_at, digest)
+        size = payload_file.stat().st_size
+        artifact_id = make_artifact_id("processed", provenance.created_at, digest)
         final_dir = store.path(ArtifactUri("processed", (artifact_id,)), mode="write")
-        record_file = records_root / "data" / "records" / "processed" / f"{artifact_id}.toml"
-        normalization = fit_normalization(
-            samples.arrays(),
-            config.normalization.channels,
-            fitted_on=(artifact_id,),
-            training_rows=np.ones(samples.n_samples, dtype=np.bool_),
-            near_zero=config.normalization.near_zero,
-        )
-        record = ProcessedDatasetRecord(
-            scenario=raw.scenario,
-            artifact=ArtifactRecord(
-                artifact_id=artifact_id,
-                kind="processed",
-                created_at=created_at,
-                license=license_override or raw.artifact.license,
-                access=access_override or raw.artifact.access,
-                payload=Payload(
-                    uri=f"armrc://processed/{artifact_id}/{PROCESSED_PAYLOAD_NAME}",
-                    sha256=digest,
-                    size=payload_file.stat().st_size,
-                    format=PROCESSED_PAYLOAD_FORMAT,
-                    schema_version=SAMPLES_SCHEMA_VERSION,
-                ),
-                origin=Origin.from_provenance(provenance, command=command, sources=(raw.artifact.artifact_id,)),
-                notes=f"Processed from {raw.artifact.artifact_id} under scenario {scenario.name}.",
-            ),
-            n_samples=samples.n_samples,
-            dof=samples.dof,
-            task_dim=samples.task_dim,
-            task_code_dim=samples.task_code_dim,
-            units=dict(CANONICAL_UNITS),
-            phases=dict(PHASE_CODES),
-            preprocessing=Preprocessing(
-                resample_period_s=scenario.timing.dt,
-                smoothing=config.smoothing.label,
-                smoothing_params=config.smoothing.parameters(),
-                derivative_method=config.derivatives.label,
-                interpolation=config.resampling.interpolation,
-            ),
-            arrays=array_specs(samples),
-            normalization=normalization,
-        )
         (staging / PROVENANCE_FILE).write_text(provenance.to_json() + "\n", encoding="utf-8")
-        resumed = _finalize_payload(staging, final_dir, record)
+        # On resume the finalized directory's provenance is authoritative: the record is rebuilt from it.
+        provenance, resumed = _finalize_payload(staging, final_dir, artifact_id, digest, provenance)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
 
+    record = _build_record(
+        raw,
+        scenario,
+        config,
+        samples,
+        artifact_id=artifact_id,
+        digest=digest,
+        size=size,
+        provenance=provenance,
+        command=command,
+        license_label=license_override or raw.artifact.license,
+        access=access_override or raw.artifact.access,
+    )
+    record_file = records_root / "data" / "records" / "processed" / f"{artifact_id}.toml"
     record = _finalize_record(record_file, record, resumed=resumed)
     _finalize_catalog(records_root, record, record_file)
     return PreprocessResult(record, samples, record_file, final_dir / PROCESSED_PAYLOAD_NAME, provenance, resumed)
 
 
-def _finalize_payload(staging: Path, final_dir: Path, record: ProcessedDatasetRecord) -> bool:
-    """Move the staged payload into place, or verify that an identical payload is already there.
+def _build_record(
+    raw: RawDemonstrationRecord,
+    scenario: ScenarioConfig,
+    config: PreprocessConfig,
+    samples: SampleSet,
+    *,
+    artifact_id: str,
+    digest: str,
+    size: int,
+    provenance: ProvenanceRecord,
+    command: str,
+    license_label: str,
+    access: AccessClass,
+) -> ProcessedDatasetRecord:
+    """The Git-tracked record of the payload, deterministic given the samples and the provenance."""
+    normalization = fit_normalization(
+        samples.arrays(),
+        config.normalization.channels,
+        fitted_on=(artifact_id,),
+        training_rows=np.ones(samples.n_samples, dtype=np.bool_),
+        near_zero=config.normalization.near_zero,
+    )
+    return ProcessedDatasetRecord(
+        scenario=raw.scenario,
+        artifact=ArtifactRecord(
+            artifact_id=artifact_id,
+            kind="processed",
+            created_at=provenance.created_at,
+            license=license_label,
+            access=access,
+            payload=Payload(
+                uri=f"armrc://processed/{artifact_id}/{PROCESSED_PAYLOAD_NAME}",
+                sha256=digest,
+                size=size,
+                format=PROCESSED_PAYLOAD_FORMAT,
+                schema_version=SAMPLES_SCHEMA_VERSION,
+            ),
+            origin=Origin.from_provenance(provenance, command=command, sources=(raw.artifact.artifact_id,)),
+            notes=f"Processed from {raw.artifact.artifact_id} under scenario {scenario.name}.",
+        ),
+        n_samples=samples.n_samples,
+        dof=samples.dof,
+        task_dim=samples.task_dim,
+        task_code_dim=samples.task_code_dim,
+        units=dict(CANONICAL_UNITS),
+        phases=dict(PHASE_CODES),
+        preprocessing=Preprocessing(
+            resample_period_s=scenario.timing.dt,
+            smoothing=config.smoothing.label,
+            smoothing_params=config.smoothing.parameters(),
+            derivative_method=config.derivatives.label,
+            interpolation=config.resampling.interpolation,
+        ),
+        arrays=array_specs(samples),
+        normalization=normalization,
+    )
 
-    Returns ``True`` when an earlier, interrupted invocation had already
-    finalized the identical payload (content-addressed, so the digest proves
-    identity); any existing payload with different bytes is an error.
+
+def _finalize_payload(
+    staging: Path, final_dir: Path, artifact_id: str, digest: str, provenance: ProvenanceRecord
+) -> tuple[ProvenanceRecord, bool]:
+    """Move the staged payload into place, or adopt an identical payload finalized by an earlier invocation.
+
+    Returns the authoritative provenance and whether the run resumed. A resumed
+    run must find the same payload bytes (content-addressed, so the digest proves
+    identity) and a strictly valid stored provenance produced from the same
+    resolved configuration and source artifacts; the stored provenance, not the
+    retry's, then describes the dataset. Anything else is left for inspection.
     """
     if not final_dir.exists():
         staging.rename(final_dir)
-        return False
+        return provenance, False
+    where = f"{artifact_id} exists under {final_dir.parent} but"
     existing = final_dir / PROCESSED_PAYLOAD_NAME
-    if not existing.is_file() or sha256_file(existing) != record.artifact.payload.sha256:
-        msg = (
-            f"{record.artifact.artifact_id} exists under {final_dir.parent} but its payload differs from "
-            "the freshly processed one; inspect and remove it manually"
-        )
+    if not existing.is_file() or sha256_file(existing) != digest:
+        msg = f"{where} its payload differs from the freshly processed one; inspect and remove it manually"
+        raise FileExistsError(msg)
+    try:
+        stored = ProvenanceRecord.from_json((final_dir / PROVENANCE_FILE).read_text(encoding="utf-8"))
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        msg = f"{where} its {PROVENANCE_FILE} is missing or invalid ({exc}); inspect and remove it manually"
+        raise FileExistsError(msg) from exc
+    if (
+        stored.config_sha256 != provenance.config_sha256
+        or stored.artifacts != provenance.artifacts
+        or make_artifact_id("processed", stored.created_at, digest) != artifact_id
+    ):
+        msg = f"{where} its {PROVENANCE_FILE} was produced from different inputs; inspect and remove it manually"
         raise FileExistsError(msg)
     shutil.rmtree(staging, ignore_errors=True)
-    return True
+    return stored, True
+
+
+def _differing_fields(existing: ProcessedDatasetRecord, record: ProcessedDatasetRecord) -> list[str]:
+    """Names of the top-level (and artifact-level) fields in which two records differ."""
+    names: list[str] = []
+    for field in dataclasses.fields(ProcessedDatasetRecord):
+        a, b = getattr(existing, field.name), getattr(record, field.name)
+        if field.name == "artifact":
+            names += [
+                f"artifact.{f.name}"
+                for f in dataclasses.fields(ArtifactRecord)
+                if getattr(a, f.name) != getattr(b, f.name)
+            ]
+        elif a != b:
+            names.append(field.name)
+    return names
 
 
 def _finalize_record(record_file: Path, record: ProcessedDatasetRecord, *, resumed: bool) -> ProcessedDatasetRecord:
-    """Write the record, or on resume accept an existing record that describes the same payload."""
+    """Write the record, or on resume accept an existing record equal to the one rebuilt from the stored provenance."""
     if record_file.exists():
         existing = load_record(record_file, ProcessedDatasetRecord)
-        same_payload = existing.artifact.payload == record.artifact.payload and existing.arrays == record.arrays
-        if not resumed or not same_payload:
-            msg = f"{record_file} already exists and does not describe this payload; records are immutable"
+        differing = _differing_fields(existing, record)
+        if not resumed or differing:
+            detail = f" (differs in {', '.join(differing)})" if differing else ""
+            msg = f"{record_file} already exists and does not describe this payload{detail}; records are immutable"
             raise FileExistsError(msg)
         return existing
     record_file.parent.mkdir(parents=True, exist_ok=True)
@@ -327,8 +391,9 @@ def _finalize_catalog(records_root: Path, record: ProcessedDatasetRecord, record
     catalog = load_catalog(catalog_file)
     relative = record_file.relative_to(records_root).as_posix()
     entry = catalog.find(record.artifact.artifact_id)
+    appended = Catalog(catalog.schema_version, ()).with_record(record.artifact, relative).artifacts[0]
     if entry is not None:
-        if entry.uri != record.artifact.payload.uri or entry.sha256 != record.artifact.payload.sha256:
+        if entry != appended:
             msg = f"catalog entry {record.artifact.artifact_id} disagrees with the record"
             raise ValueError(msg)
         return

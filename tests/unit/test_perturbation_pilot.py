@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 
-from arm_rc_ctrl.config import ConfigError
+from arm_rc_ctrl.config import ConfigError, from_mapping, to_mapping
 from arm_rc_ctrl.experiments.perturbation_pilot import (
     ForceSweep,
     PilotCase,
@@ -25,6 +25,7 @@ from arm_rc_ctrl.experiments.perturbation_pilot import (
     select_levels,
     summarize_levels,
 )
+from arm_rc_ctrl.experiments.termination import Termination, completed, limit_violation
 from arm_rc_ctrl.repo import repository_root
 
 if TYPE_CHECKING:
@@ -57,12 +58,13 @@ def _case(
     kind: PerturbationKind,
     magnitude: float,
     *,
-    termination: str = "completed",
+    termination: Termination | None = None,
     success: bool = True,
     recovery: float | None = 0.05,
     deviation: float = 0.005,
     saturation: float = 0.0,
 ) -> PilotCase:
+    termination = completed(5.0, 500) if termination is None else termination
     return PilotCase(
         baseline=baseline,
         kind=kind,
@@ -70,9 +72,9 @@ def _case(
         direction=(1.0, 0.0) if kind == "posture" else (0.0,),
         initial_q=(0.2, 1.2),
         termination=termination,
-        criteria={"completed": termination == "completed", "dwell_in_tolerance": success, "dwell_stationary": success},
-        success=success and termination == "completed",
-        move_joint_rmse=1e-4 if termination == "completed" else None,
+        criteria={"completed": termination.is_completed, "dwell_in_tolerance": success, "dwell_stationary": success},
+        success=success and termination.is_completed,
+        move_joint_rmse=1e-4 if termination.is_completed else None,
         peak_deviation_m=deviation,
         recovery_time_s=recovery,
         peak_torque_fraction=0.5,
@@ -244,3 +246,48 @@ def test_selection_orders_posture_levels() -> None:
     """The small level never exceeds the large one."""
     with pytest.raises(ValueError, match="posture_small_rad must not exceed"):
         Selection(0.2, 0.1, 4.0, 2.0, 0.2, (0.0,))
+
+
+VIOLATION = limit_violation(0.01, 1, "joint_velocity", 6.045592, 6.0, joint=1)
+
+
+def test_levels_keep_the_earliest_failure_with_its_diagnostics() -> None:
+    """A level records the earliest non-completed termination in full, not just its kind."""
+    protocol = _protocol(
+        posture=PostureSweep((0.07,), ((1.0, 0.0), (0.0, 1.0))), force=ForceSweep((4.0,), (0.0,), 2.0, 0.2)
+    )
+    later = limit_violation(0.03, 3, "joint_velocity", 6.2, 6.0, joint=0)
+    cases = [
+        _case("pd", "posture", 0.07, termination=later, success=False, recovery=None),
+        _case("pd", "posture", 0.07, termination=VIOLATION, success=False, recovery=None),
+        _case("computed_torque", "posture", 0.07, recovery=0.23),
+        _case("pd", "force", 4.0, deviation=0.02),
+        _case("computed_torque", "force", 4.0, deviation=0.02),
+    ]
+    (posture, force) = summarize_levels(protocol, cases)
+    pd = posture.baselines["pd"]
+    assert pd.terminations == ("limit_violation",)
+    assert pd.first_failure == VIOLATION
+    assert pd.first_failure is not None
+    assert (pd.first_failure.limit, pd.first_failure.joint) == ("joint_velocity", 1)
+    assert (pd.first_failure.value, pd.first_failure.bound, pd.first_failure.time_s) == (6.045592, 6.0, 0.01)
+    assert posture.baselines["computed_torque"].first_failure is None
+    assert posture.safe is False
+    assert force.baselines["pd"].first_failure is None
+
+
+def test_cases_round_trip_with_their_complete_termination() -> None:
+    """The report mapping (JSON) preserves every termination field of a case."""
+    case = _case("pd", "posture", 0.07, termination=VIOLATION, success=False, recovery=None)
+    mapping = to_mapping(case)
+    assert mapping["termination"] == {
+        "kind": "limit_violation",
+        "time_s": 0.01,
+        "step": 1,
+        "detail": "joint_velocity on joint 1: 6.045592 exceeds bound 6.0",
+        "limit": "joint_velocity",
+        "joint": 1,
+        "value": 6.045592,
+        "bound": 6.0,
+    }
+    assert from_mapping(mapping, PilotCase) == case

@@ -75,7 +75,7 @@ __all__ = [
     "summarize_levels",
 ]
 
-REPORT_SCHEMA_VERSION: Final = 1
+REPORT_SCHEMA_VERSION: Final = 2
 type PerturbationKind = Literal["posture", "force"]
 
 
@@ -201,7 +201,8 @@ class PilotCase:
     direction: tuple[float, ...]
     """Unit joint-space direction (posture) or ``(direction_deg,)`` (force)."""
     initial_q: tuple[float, ...]
-    termination: str
+    termination: Termination
+    """Complete termination, including the violated limit, joint, measured value, bound, and time."""
     criteria: dict[str, bool]
     success: bool
     move_joint_rmse: float | None
@@ -221,6 +222,9 @@ class BaselineLevel:
 
     success_all: bool
     terminations: tuple[str, ...]
+    """Distinct termination kinds over the directions."""
+    first_failure: Termination | None
+    """The earliest non-completed termination over the directions, with its diagnostics."""
     recovered_all: bool
     max_recovery_time_s: float | None
     """Slowest recovery over the directions; ``None`` when any direction never recovered."""
@@ -363,7 +367,7 @@ def _case(
         magnitude=magnitude,
         direction=direction,
         initial_q=initial_q,
-        termination=termination.kind,
+        termination=termination,
         criteria=criteria,
         success=termination.is_completed and all(criteria.values()),
         move_joint_rmse=rmse,
@@ -432,9 +436,11 @@ def run_cases(
 def _baseline_level(cases: Sequence[PilotCase]) -> BaselineLevel:
     recoveries = [c.recovery_time_s for c in cases]
     recovered = all(r is not None for r in recoveries)
+    failures = [c.termination for c in cases if not c.termination.is_completed]
     return BaselineLevel(
         success_all=all(c.success for c in cases),
-        terminations=tuple(sorted({c.termination for c in cases})),
+        terminations=tuple(sorted({c.termination.kind for c in cases})),
+        first_failure=min(failures, key=lambda t: (t.time_s, t.step), default=None),
         recovered_all=recovered,
         max_recovery_time_s=max(r for r in recoveries if r is not None) if recovered else None,
         max_peak_deviation_m=max(c.peak_deviation_m for c in cases),
@@ -568,6 +574,18 @@ def _fmt(value: float | None, digits: int = 3) -> str:
     return f"{value:.{digits}g}"
 
 
+def _failure(termination: Termination | None) -> str:
+    """One-cell description of a failure: the violated limit with its measured value, bound, joint, and time."""
+    if termination is None:
+        return "—"
+    at = f"at t = {termination.time_s:g} s"
+    if termination.limit is not None and termination.value is not None and termination.bound is not None:
+        joint = f" joint {termination.joint}" if termination.joint is not None else ""
+        return f"{termination.limit}{joint}: {termination.value:.4g} > {termination.bound:g} {at}"
+    detail = f": {termination.detail}" if termination.detail else ""
+    return f"{termination.kind}{detail} {at}"
+
+
 def render_markdown(report: PilotReport) -> str:
     """Human-readable tables of every level plus the selection and its rules."""
     rules = report.rules
@@ -591,17 +609,18 @@ def render_markdown(report: PilotReport) -> str:
         ),
     ]
     columns = (
-        "Baseline | Terminations | Success | Recovery max (s) | Peak deviation (m) | Peak torque fraction | "
-        "Saturation | Peak velocity (rad/s) | Safe | Nontrivial"
+        "Baseline | Terminations | First failure | Success | Recovery max (s) | Peak deviation (m) | "
+        "Peak torque fraction | Saturation | Peak velocity (rad/s) | Safe | Nontrivial"
     )
     for kind, unit in (("posture", "rad"), ("force", "N")):
-        lines += ["", f"## {kind.capitalize()} levels", "", f"| Magnitude ({unit}) | {columns} |", "|---" * 11 + "|"]
+        lines += ["", f"## {kind.capitalize()} levels", "", f"| Magnitude ({unit}) | {columns} |", "|---" * 12 + "|"]
         for level in (lv for lv in report.levels if lv.kind == kind):
             for baseline, b in sorted(level.baselines.items()):  # order-independent of the JSON/protocol
                 cells = (
                     f"{level.magnitude:g}",
                     baseline,
                     ", ".join(b.terminations),
+                    _failure(b.first_failure),
                     "yes" if b.success_all else "no",
                     _fmt(b.max_recovery_time_s),
                     _fmt(b.max_peak_deviation_m),

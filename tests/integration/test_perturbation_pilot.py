@@ -77,7 +77,8 @@ def test_pilot_sweeps_every_case_and_selects_levels(prepared: tuple[StorageRoot,
     assert len(report.cases) == 2 * (3 * 2 + 2 * 2)
     assert {c.baseline for c in report.cases} == {"pd", "computed_torque"}
     posture = [c for c in report.cases if c.kind == "posture"]
-    assert all(c.recovery_time_s is not None and c.termination == "completed" for c in posture)
+    assert all(c.recovery_time_s is not None and c.termination.is_completed for c in posture)
+    assert all(c.termination.kind == "completed" for c in report.cases)
     force = [c for c in report.cases if c.kind == "force"]
     assert all(c.initial_q == (0.3, 0.6) for c in force)
     assert all(c.direction in {(0.0,), (180.0,)} for c in force)
@@ -97,7 +98,7 @@ def test_pilot_sweeps_every_case_and_selects_levels(prepared: tuple[StorageRoot,
     assert report.baselines["pd"].type == "pd"
     markdown = render_markdown(report)
     assert "## Posture levels" in markdown
-    assert "| 0.02 | computed_torque |" in markdown
+    assert "| 0.02 | computed_torque | completed | — | yes |" in markdown  # kinds, first failure, success
     assert "- endpoint force pulse: 2 N for 0.05 s from t = 0.12 s" in markdown
 
 

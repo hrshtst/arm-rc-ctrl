@@ -5,19 +5,26 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import shutil
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
 import pytest
 
-from arm_rc_ctrl.data.preprocess import PreprocessError, main, preprocess_demonstration
-from arm_rc_ctrl.data.records import ProcessedDatasetRecord, RawDemonstrationRecord, load_catalog, load_record
+from arm_rc_ctrl.data.preprocess import PreprocessError, PreprocessResult, main, preprocess_demonstration
+from arm_rc_ctrl.data.records import (
+    Origin,
+    ProcessedDatasetRecord,
+    RawDemonstrationRecord,
+    load_catalog,
+    load_record,
+)
 from arm_rc_ctrl.data.samples import PHASE_CODES, load_samples
 from arm_rc_ctrl.data.validate import DatasetValidationError
-from arm_rc_ctrl.provenance import ArtifactMismatchError, DirtyWorktreeError
+from arm_rc_ctrl.provenance import ArtifactMismatchError, DirtyWorktreeError, ProvenanceRecord, canonical_json
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.storage import StorageRoot, StorageRootError
 
@@ -276,3 +283,102 @@ def test_resume_refuses_a_corrupted_or_foreign_partial_result(
     with pytest.raises(FileExistsError, match="payload differs"):
         _run(store, records_root)
     assert _processed_entries(store) == [orphan]  # staging cleaned up, orphan left for inspection
+
+
+def _run_at(store: StorageRoot, records_root: Path, when: datetime, **overrides: object) -> PreprocessResult:
+    return preprocess_demonstration(
+        RAW_RECORD,
+        SCENARIO,
+        CONFIG,
+        store=store,
+        records_root=records_root,
+        exploratory=True,
+        now=when,
+        **overrides,  # type: ignore[arg-type]
+    )
+
+
+def test_retry_at_a_later_time_keeps_the_finalized_provenance(
+    store: StorageRoot, records_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """After an interrupted write, a later retry returns the stored provenance and a record built from it."""
+    monkeypatch.setattr("arm_rc_ctrl.data.preprocess.write_record", _fail)
+    with pytest.raises(RuntimeError, match="injected failure"):
+        _run_at(store, records_root, FIXED_TIME)
+    monkeypatch.undo()
+    (orphan,) = _processed_entries(store)
+    stored = ProvenanceRecord.from_json((store.root / "processed" / orphan / "provenance.json").read_text())
+    assert stored.created_at == FIXED_TIME.isoformat()
+
+    later = _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1))
+    assert later.resumed is True
+    assert later.provenance == stored  # the retry's own (07:01) provenance is discarded
+    assert later.record.artifact.created_at == stored.created_at
+    assert later.record.artifact.origin == Origin.from_provenance(
+        stored, command="python -m arm_rc_ctrl.data.preprocess", sources=(later.record.artifact.origin.sources[0],)
+    )
+    assert load_record(later.record_file, ProcessedDatasetRecord) == later.record
+    entry = load_catalog(records_root / "data" / "catalog.toml").find(orphan)
+    assert entry is not None
+    assert entry.created_at == stored.created_at
+
+    # A further retry with a record already present is a no-op that still reports the stored provenance.
+    before = later.record_file.read_bytes()
+    again = _run_at(store, records_root, FIXED_TIME + timedelta(minutes=2))
+    assert again.resumed is True
+    assert again.provenance == stored
+    assert again.record == later.record
+    assert later.record_file.read_bytes() == before
+
+
+def test_resume_refuses_different_metadata_or_a_tampered_record(
+    store: StorageRoot, records_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A retry that would describe the same payload differently, or a record that was edited, is refused."""
+    monkeypatch.setattr("arm_rc_ctrl.data.preprocess.write_catalog", _fail)
+    with pytest.raises(RuntimeError):
+        _run_at(store, records_root, FIXED_TIME)
+    monkeypatch.undo()
+    (record_file,) = (records_root / "data" / "records" / "processed").iterdir()
+    with pytest.raises(FileExistsError, match=r"does not describe this payload \(differs in artifact\.license\)"):
+        _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1), license_override="CC-BY-4.0")
+    text = record_file.read_text()
+    assert text.count('access = "public"') == 1
+    record_file.write_text(text.replace('access = "public"', 'access = "internal"'))  # edited after the fact
+    with pytest.raises(FileExistsError, match=r"differs in artifact\.access"):
+        _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1))
+
+
+def test_resume_refuses_missing_or_foreign_stored_provenance(
+    store: StorageRoot, records_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The finalized provenance must load strictly and describe the same inputs before it is adopted."""
+    monkeypatch.setattr("arm_rc_ctrl.data.preprocess.write_record", _fail)
+    with pytest.raises(RuntimeError):
+        _run_at(store, records_root, FIXED_TIME)
+    monkeypatch.undo()
+    (orphan,) = _processed_entries(store)
+    provenance_file = store.root / "processed" / orphan / "provenance.json"
+    original = provenance_file.read_text()
+
+    provenance_file.write_text(original[: len(original) // 2])  # truncated JSON
+    with pytest.raises(FileExistsError, match=r"provenance\.json is missing or invalid"):
+        _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1))
+
+    data = json.loads(original)
+    data["config_sha256"] = "0" * 64  # digest no longer matches the canonical configuration
+    provenance_file.write_text(json.dumps(data))
+    with pytest.raises(FileExistsError, match=r"provenance\.json is missing or invalid"):
+        _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1))
+
+    data = json.loads(original)
+    config = json.loads(data["config_json"])
+    config["raw_artifact"] = "raw-20260830-000000000000"
+    data["config_json"] = canonical_json(config)
+    data["config_sha256"] = hashlib.sha256(data["config_json"].encode("utf-8")).hexdigest()
+    provenance_file.write_text(json.dumps(data))  # internally consistent, but from other inputs
+    with pytest.raises(FileExistsError, match="produced from different inputs"):
+        _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1))
+
+    provenance_file.write_text(original)
+    assert _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1)).resumed is True
