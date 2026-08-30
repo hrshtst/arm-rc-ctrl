@@ -35,6 +35,10 @@ initial_q = [0.3, 0.6]
 # Endpoint of the joint target (0.8, 0.4) rad used by the fixture's PD reference.
 target = [0.2996, 0.4482]
 tolerance = 0.004
+# Smoke fixture: the 0.3 s reach is still moving at the end, so the dwell
+# criteria are deliberately vacuous here.
+dwell_min_fraction = 0.0
+dwell_max_velocity = 10.0
 
 [timing]
 dt = 0.01

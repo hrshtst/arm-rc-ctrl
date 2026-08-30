@@ -34,6 +34,7 @@ from skelarm import Skeleton, compute_forward_kinematics, integrate_with_limits
 from arm_rc_ctrl.config import load_config, to_mapping
 from arm_rc_ctrl.controllers.reference import DemonstrationReference
 from arm_rc_ctrl.controllers.tracking import LimitedTracker, TrackerConfig
+from arm_rc_ctrl.data.phases import intervals_from_phases
 from arm_rc_ctrl.data.records import ProcessedDatasetRecord, load_record, verify_payload
 from arm_rc_ctrl.data.samples import SampleSet, load_samples
 from arm_rc_ctrl.experiments.run_record import LoadedRun, RunArrays, RunPointerRecord, RunSummary, load_run, write_run
@@ -45,13 +46,14 @@ from arm_rc_ctrl.experiments.termination import (
     invalid_state,
     limit_violation,
 )
+from arm_rc_ctrl.metrics.dwell import dwell_metrics
 from arm_rc_ctrl.metrics.joint import JointAnglePolicy
 from arm_rc_ctrl.metrics.report import RunReport, build_report, report_to_json
 from arm_rc_ctrl.provenance import collect_provenance, require_clean_for_confirmatory
 from arm_rc_ctrl.scenario import ScenarioConfig, build_skeleton, load_scenario
 from arm_rc_ctrl.storage import StorageRoot, open_storage
 
-__all__ = ["ReplayResult", "main", "run_replay", "simulate_tracking"]
+__all__ = ["ReplayResult", "dwell_outcome", "main", "run_replay", "simulate_tracking"]
 
 _DIVERGENCE_BOUND: Final = 1e3
 """Joint angles or velocities beyond this magnitude are treated as divergence (rad, rad/s)."""
@@ -170,6 +172,30 @@ def simulate_tracking(
     return RunArrays(stacked), termination
 
 
+def dwell_outcome(
+    scenario: ScenarioConfig, reference: SampleSet, arrays: RunArrays, termination: Termination
+) -> dict[str, bool]:
+    """Success criteria of a run: completion plus the scenario's dwell criteria over the reference dwell window."""
+    criteria = scenario.task.dwell_criteria
+    result = {"completed": termination.is_completed, **dict.fromkeys(criteria.names, False)}
+    if not termination.is_completed:
+        return result
+    intervals = intervals_from_phases(reference.t, reference.phase)
+    run_t = cast("NDArray[np.float64]", arrays.arrays["t"])
+    if not np.any((run_t >= intervals.dwell[0]) & (run_t <= intervals.dwell[1])):
+        return result
+    metrics = dwell_metrics(
+        run_t,
+        cast("NDArray[np.float64]", arrays.arrays["tip"]),
+        cast("NDArray[np.float64]", arrays.arrays["dq"]),
+        np.asarray(scenario.task.target, dtype=np.float64),
+        criteria.tolerance,
+        window=(intervals.dwell[0], intervals.dwell[1]),
+    )
+    result.update(criteria.evaluate(metrics))
+    return result
+
+
 def run_replay(
     scenario: ScenarioConfig,
     reference: SampleSet,
@@ -200,15 +226,7 @@ def run_replay(
     demo = DemonstrationReference.from_samples(reference)
     duration = float(reference.t[-1])
     arrays, termination = simulate_tracking(scenario, demo, tracker, duration_s=duration, initial_q=initial_q)
-    final_tip = cast("NDArray[np.float64]", arrays.arrays["tip"])[-1]
-    final_error = float(np.hypot(*(final_tip - np.asarray(scenario.task.target))))
-    outcome = Outcome(
-        termination,
-        {
-            "completed": termination.is_completed,
-            "final_endpoint_in_tolerance": termination.is_completed and final_error <= scenario.task.tolerance,
-        },
-    )
+    outcome = Outcome(termination, dwell_outcome(scenario, reference, arrays, termination))
     pointer, summary, directory = write_run(
         store,
         arrays,

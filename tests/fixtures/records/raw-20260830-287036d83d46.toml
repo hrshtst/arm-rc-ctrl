@@ -19,7 +19,7 @@ schema_version = 1
 
 [artifact.origin]
 command = "python -c 'arm_rc_ctrl.data.synthetic.synthetic_demonstration_log().save(...)'"
-config_sha256 = "bf8719033731b77d8a5bdc07c9bc354937b1c1a2e810c53f28a20203abf389ca"
+config_sha256 = "dedc126a248a228ab8ac5372b85b18da7bb710ceeea79ae8a55ac4a00d712e17"
 project_commit = "c8ad88f324b34fdc5c7f403943720a1b54014905"
 project_dirty = true
 sources = []
@@ -31,7 +31,7 @@ rtctrl = "c601076ee60ec712c1cb4a85756a186882df2e1b"
 
 [scenario]
 config_path = "tests/fixtures/configs/planar_2dof_fixture.toml"
-config_sha256 = "bf8719033731b77d8a5bdc07c9bc354937b1c1a2e810c53f28a20203abf389ca"
+config_sha256 = "dedc126a248a228ab8ac5372b85b18da7bb710ceeea79ae8a55ac4a00d712e17"
 robot = "planar-2dof-fixture"
 task = "pd-reach-fixture"
 dof = 2

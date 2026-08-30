@@ -16,6 +16,7 @@ from skelarm import LinkProp, Skeleton, compute_forward_kinematics
 from arm_rc_ctrl.config import load_config
 from arm_rc_ctrl.data.records import Intervals
 from arm_rc_ctrl.data.validate import JointLimits
+from arm_rc_ctrl.metrics.dwell import DwellCriteria
 from arm_rc_ctrl.validation import require_finite
 
 __all__ = [
@@ -117,14 +118,18 @@ class LimitsConfig:
 
 @dataclass(frozen=True)
 class TaskConfig:
-    """Initial posture and endpoint target."""
+    """Initial posture, endpoint target, and the dwell success criteria."""
 
     initial_q: tuple[float, ...]
     target: tuple[float, ...]
     tolerance: float
+    dwell_min_fraction: float
+    """Minimum fraction of dwell samples whose endpoint lies within ``tolerance``."""
+    dwell_max_velocity: float
+    """Maximum absolute joint velocity (rad/s) allowed at any dwell sample."""
 
     def __post_init__(self) -> None:
-        """Validate dimensions, finiteness, and tolerance."""
+        """Validate dimensions, finiteness, tolerance, and dwell criteria."""
         require_finite(self.initial_q, "task.initial_q")
         if len(self.target) != _PLANE:
             msg = f"task.target must be an [x, y] endpoint, got {list(self.target)}"
@@ -133,6 +138,17 @@ class TaskConfig:
         if not (self.tolerance > 0 and math.isfinite(self.tolerance)):
             msg = f"task.tolerance must be positive and finite, got {self.tolerance!r}"
             raise ValueError(msg)
+        if not 0.0 <= self.dwell_min_fraction <= 1.0:
+            msg = f"task.dwell_min_fraction must be in [0, 1], got {self.dwell_min_fraction!r}"
+            raise ValueError(msg)
+        if not (self.dwell_max_velocity > 0 and math.isfinite(self.dwell_max_velocity)):
+            msg = f"task.dwell_max_velocity must be positive and finite, got {self.dwell_max_velocity!r}"
+            raise ValueError(msg)
+
+    @property
+    def dwell_criteria(self) -> DwellCriteria:
+        """The dwell criteria as evaluated by the dwell metrics."""
+        return DwellCriteria(self.tolerance, self.dwell_min_fraction, self.dwell_max_velocity)
 
 
 @dataclass(frozen=True)

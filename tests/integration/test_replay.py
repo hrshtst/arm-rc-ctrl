@@ -75,6 +75,7 @@ def test_replay_terminates_normally_logs_channels_and_respects_limits(
     assert summary.method == method
     assert summary.termination.kind == "completed"
     assert summary.outcome.criteria["completed"] is True
+    assert set(summary.outcome.criteria) == {"completed", "dwell_in_tolerance", "dwell_stationary"}
     assert set(arrays) == {*REQUIRED_ARRAYS, *OPTIONAL_ARRAYS}
     assert arrays["t"].shape[0] == samples.n_samples
     assert np.allclose(arrays["t"], samples.t)
@@ -130,6 +131,11 @@ def test_velocity_limit_violation_terminates_early(dataset: tuple[StorageRoot, S
     assert termination.limit == "joint_velocity"
     assert termination.bound == 0.3
     assert result.summary.outcome.success is False
+    assert result.summary.outcome.criteria == {
+        "completed": False,
+        "dwell_in_tolerance": False,
+        "dwell_stationary": False,
+    }
     assert result.run.arrays.n_samples == termination.step
     assert result.report.move_coverage < 1.0
     assert result.report.termination_kind == "limit_violation"

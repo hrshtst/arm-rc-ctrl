@@ -50,6 +50,9 @@ def test_canonical_scenario_fixes_every_required_parameter(scenario: ScenarioCon
     assert scenario.task.initial_q == (0.2, 1.2)
     assert scenario.task.target == (0.10, 0.45)
     assert scenario.task.tolerance == 0.01
+    assert scenario.task.dwell_min_fraction == 0.9
+    assert scenario.task.dwell_max_velocity == 0.05
+    assert scenario.task.dwell_criteria.names == ("dwell_in_tolerance", "dwell_stationary")
     assert scenario.timing.dt == 0.01
     assert scenario.timing.intervals == Intervals((0.0, 1.0), (1.0, 4.0), (4.0, 5.0))
     assert scenario.timing.intervals.duration_s == 5.0
@@ -156,8 +159,10 @@ def test_cross_field_consistency_is_enforced(key: str, message: str) -> None:
         (lambda: RobotConfig(links=(LinkConfig(0.3, 1.0, 0.01, (0.15, 0.0), -1.0, 1.0),), gravity=(0.0,)), "gravity"),
         (lambda: LimitsConfig((0.0,), (1.0,), 1.0), "must be positive"),
         (lambda: LimitsConfig((1.0,), (1.0,), 0.0), "endpoint_radius must be positive"),
-        (lambda: TaskConfig((0.0,), (0.1,), 0.01), r"target must be an \[x, y\]"),
-        (lambda: TaskConfig((0.0,), (0.1, 0.1), 0.0), "tolerance must be positive"),
+        (lambda: TaskConfig((0.0,), (0.1,), 0.01, 0.9, 0.05), r"target must be an \[x, y\]"),
+        (lambda: TaskConfig((0.0,), (0.1, 0.1), 0.0, 0.9, 0.05), "tolerance must be positive"),
+        (lambda: TaskConfig((0.0,), (0.1, 0.1), 0.01, 1.2, 0.05), r"dwell_min_fraction must be in \[0, 1\]"),
+        (lambda: TaskConfig((0.0,), (0.1, 0.1), 0.01, 0.9, 0.0), "dwell_max_velocity must be positive"),
         (lambda: TimingConfig(0.0, Intervals((0.0, 1.0), (1.0, 2.0), (2.0, 3.0))), "dt must be positive"),
     ],
 )

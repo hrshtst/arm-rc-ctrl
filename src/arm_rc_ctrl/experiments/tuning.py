@@ -9,7 +9,8 @@ the infeasibility penalty, and the development scenarios. A study samples
 gains with a seeded generator (log-uniform per joint), simulates every
 development scenario headlessly, and scores the trial by the median
 movement-window joint RMSE; trials that terminate early, violate limits, or
-miss the final-endpoint tolerance receive the documented penalty. Every
+fail the scenario's versioned dwell criteria (in-tolerance fraction and
+stationarity over the dwell window) receive the documented penalty. Every
 objective component is kept, and the run is deterministic for a given seed.
 """
 
@@ -28,7 +29,7 @@ from arm_rc_ctrl.controllers.reference import DemonstrationReference
 from arm_rc_ctrl.controllers.tracking import TrackerConfig, TrackerType
 from arm_rc_ctrl.data.phases import intervals_from_phases
 from arm_rc_ctrl.data.samples import SampleSet
-from arm_rc_ctrl.experiments.replay import simulate_tracking
+from arm_rc_ctrl.experiments.replay import dwell_outcome, simulate_tracking
 from arm_rc_ctrl.metrics.joint import JointAnglePolicy, joint_rmse
 from arm_rc_ctrl.scenario import ScenarioConfig, load_scenario
 from arm_rc_ctrl.validation import require_finite
@@ -152,7 +153,8 @@ class TrialScenario:
     initial_q: tuple[float, ...]
     termination: str
     move_joint_rmse: float | None
-    final_endpoint_error: float | None
+    criteria: dict[str, bool]
+    """The scenario's success criteria (completion and the versioned dwell criteria)."""
     feasible: bool
 
 
@@ -217,7 +219,6 @@ def evaluate_gains(
     intervals = intervals_from_phases(reference.t, reference.phase)
     move = (reference.t >= intervals.move[0]) & (reference.t < intervals.move[1])
     policy = JointAnglePolicy.limited(scenario.dof)
-    target = np.asarray(scenario.task.target, dtype=np.float64)
     duration = float(reference.t[-1])
     components: list[TrialScenario] = []
     for index, offset in enumerate(protocol.development.initial_posture_offsets):
@@ -227,19 +228,13 @@ def evaluate_gains(
         initial_q = tuple(float(a + b) for a, b in zip(scenario.task.initial_q, offset, strict=True))
         arrays, termination = simulate_tracking(scenario, demo, gains, duration_s=duration, initial_q=initial_q)
         q = cast("NDArray[np.float64]", arrays.arrays["q"])
-        tip = cast("NDArray[np.float64]", arrays.arrays["tip"])
         n = min(q.shape[0], reference.n_samples)
         rmse: float | None = None
         if termination.is_completed and move[:n].any():
             rmse = joint_rmse(q[:n][move[:n]], reference.q[:n][move[:n]], policy).aggregate
-        final_error: float | None = float(np.hypot(*(tip[-1] - target))) if termination.is_completed else None
-        feasible = (
-            termination.is_completed
-            and rmse is not None
-            and final_error is not None
-            and final_error <= scenario.task.tolerance
-        )
-        components.append(TrialScenario(index, initial_q, termination.kind, rmse, final_error, feasible))
+        criteria = dwell_outcome(scenario, reference, arrays, termination)
+        feasible = rmse is not None and all(criteria.values())
+        components.append(TrialScenario(index, initial_q, termination.kind, rmse, criteria, feasible))
     feasible_all = all(c.feasible for c in components)
     if feasible_all:
         objective = float(np.median([cast("float", c.move_joint_rmse) for c in components]))

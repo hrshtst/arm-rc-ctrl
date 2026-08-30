@@ -42,6 +42,11 @@ initial_q = [0.2, 1.2]
 # i.e. a ~0.28 m reach dominated by shoulder rotation.
 target = [0.10, 0.45]
 tolerance = 0.01
+# Success criteria evaluated over the dwell interval with the dwell metrics:
+# at least this fraction of dwell samples inside the tolerance, and no joint
+# faster than this (rad/s) at any dwell sample.
+dwell_min_fraction = 0.9
+dwell_max_velocity = 0.05
 
 [timing]
 # Control/integration period (s) of the canonical dataset and of every controller.

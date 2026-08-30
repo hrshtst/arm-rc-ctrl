@@ -18,7 +18,14 @@ from typing import Final
 import numpy as np
 from numpy.typing import NDArray
 
-__all__ = ["DwellMetrics", "EndpointErrorStats", "dwell_metrics", "endpoint_error_stats", "longest_run_duration"]
+__all__ = [
+    "DwellCriteria",
+    "DwellMetrics",
+    "EndpointErrorStats",
+    "dwell_metrics",
+    "endpoint_error_stats",
+    "longest_run_duration",
+]
 
 _PERCENTILE: Final = 95.0
 _PLANE: Final = 2
@@ -46,6 +53,39 @@ class DwellMetrics:
     velocity_max: float
     window_s: float
     samples: int
+
+
+@dataclass(frozen=True)
+class DwellCriteria:
+    """Versioned dwell success criteria (``docs/PLAN.md`` section 9.1)."""
+
+    tolerance: float
+    min_fraction: float
+    max_velocity: float
+
+    def __post_init__(self) -> None:
+        """Validate ranges."""
+        if not (self.tolerance > 0 and np.isfinite(self.tolerance)):
+            msg = f"tolerance must be positive and finite, got {self.tolerance!r}"
+            raise ValueError(msg)
+        if not 0.0 <= self.min_fraction <= 1.0:
+            msg = f"min_fraction must be in [0, 1], got {self.min_fraction!r}"
+            raise ValueError(msg)
+        if not (self.max_velocity > 0 and np.isfinite(self.max_velocity)):
+            msg = f"max_velocity must be positive and finite, got {self.max_velocity!r}"
+            raise ValueError(msg)
+
+    def evaluate(self, metrics: DwellMetrics) -> dict[str, bool]:
+        """Named criteria: in-tolerance fraction and stationarity."""
+        return {
+            "dwell_in_tolerance": metrics.in_tolerance_fraction >= self.min_fraction,
+            "dwell_stationary": metrics.velocity_max <= self.max_velocity,
+        }
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        """Criterion names in evaluation order."""
+        return ("dwell_in_tolerance", "dwell_stationary")
 
 
 def _finite(array: NDArray[np.float64], name: str) -> None:

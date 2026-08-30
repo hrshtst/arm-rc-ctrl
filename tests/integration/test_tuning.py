@@ -110,6 +110,7 @@ def test_evaluate_gains_reports_every_component(
     assert all(c.termination == "completed" for c in components)
     rmses = [c.move_joint_rmse for c in components]
     assert all(r is not None and math.isfinite(r) for r in rmses)
+    assert all(set(c.criteria) == {"completed", "dwell_in_tolerance", "dwell_stationary"} for c in components)
     if feasible:
         assert objective == pytest.approx(float(np.median([r for r in rmses if r is not None])))
     else:
@@ -129,7 +130,10 @@ def test_infeasible_trials_receive_the_documented_penalty(
     assert objective == 10.0
     assert feasible is False
     assert all(c.termination == "limit_violation" for c in components)
-    assert all(c.move_joint_rmse is None and c.final_endpoint_error is None for c in components)
+    assert all(c.move_joint_rmse is None for c in components)
+    assert all(
+        c.criteria == {"completed": False, "dwell_in_tolerance": False, "dwell_stationary": False} for c in components
+    )
 
 
 def test_study_is_deterministic_and_selects_the_minimum(
@@ -194,3 +198,23 @@ def test_protocol_invariants(tmp_path: Path, old: str, new: str, expected: str) 
     path.write_text(text)
     with pytest.raises(ConfigError, match=expected):
         load_protocol(path)
+
+
+def test_dwell_criteria_decide_feasibility(dataset: tuple[SampleSet, ScenarioConfig], protocol: TuningProtocol) -> None:
+    """A trial that completes but fails a dwell criterion is infeasible and penalised."""
+    samples, scenario = dataset
+    gains = TrackerConfig("computed_torque", (100.0, 100.0), (20.0, 20.0))
+    lenient = dataclasses.replace(
+        scenario, task=dataclasses.replace(scenario.task, dwell_min_fraction=0.0, dwell_max_velocity=10.0)
+    )
+    demanding = dataclasses.replace(
+        scenario, task=dataclasses.replace(scenario.task, dwell_min_fraction=1.0, dwell_max_velocity=1e-6)
+    )
+    objective_ok, feasible_ok, _ = evaluate_gains(protocol, lenient, samples, gains)
+    objective_bad, feasible_bad, components = evaluate_gains(protocol, demanding, samples, gains)
+    assert feasible_ok is True
+    assert objective_ok < protocol.objective.infeasible_penalty
+    assert feasible_bad is False
+    assert objective_bad == protocol.objective.infeasible_penalty
+    assert all(c.termination == "completed" and c.move_joint_rmse is not None for c in components)
+    assert all(c.criteria["completed"] and not c.criteria["dwell_stationary"] for c in components)

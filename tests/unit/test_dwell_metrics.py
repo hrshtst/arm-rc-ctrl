@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from arm_rc_ctrl.metrics.dwell import dwell_metrics, endpoint_error_stats, longest_run_duration
+from arm_rc_ctrl.metrics.dwell import DwellCriteria, dwell_metrics, endpoint_error_stats, longest_run_duration
 
 TARGET = np.array([0.1, 0.45])
 DIST = np.array([0.0, 0.01, 0.02, 0.005, 0.03])  # planned endpoint distances per sample
@@ -93,3 +93,19 @@ def test_invalid_inputs_are_rejected(kwargs: dict[str, object], message: str) ->
     args.update(kwargs)
     with pytest.raises(ValueError, match=message):
         dwell_metrics(**args)  # type: ignore[arg-type]
+
+
+def test_dwell_criteria_evaluate_fraction_and_stationarity() -> None:
+    """Criteria are named booleans derived from the dwell metrics; ranges are validated."""
+    metrics = dwell_metrics(T, TIP, DQ, TARGET, tolerance=0.01)  # fraction 0.6, velocity_max 0.4
+    strict = DwellCriteria(tolerance=0.01, min_fraction=0.9, max_velocity=0.05)
+    assert strict.evaluate(metrics) == {"dwell_in_tolerance": False, "dwell_stationary": False}
+    loose = DwellCriteria(tolerance=0.01, min_fraction=0.5, max_velocity=0.5)
+    assert loose.evaluate(metrics) == {"dwell_in_tolerance": True, "dwell_stationary": True}
+    assert strict.names == ("dwell_in_tolerance", "dwell_stationary")
+    with pytest.raises(ValueError, match=r"min_fraction must be in \[0, 1\]"):
+        DwellCriteria(0.01, 1.5, 0.1)
+    with pytest.raises(ValueError, match="max_velocity must be positive"):
+        DwellCriteria(0.01, 0.5, 0.0)
+    with pytest.raises(ValueError, match="tolerance must be positive"):
+        DwellCriteria(0.0, 0.5, 0.1)
