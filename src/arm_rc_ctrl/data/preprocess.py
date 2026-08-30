@@ -67,6 +67,7 @@ from arm_rc_ctrl.provenance import (
     ArtifactReference,
     ProvenanceRecord,
     collect_provenance,
+    command_line,
     require_clean_for_confirmatory,
     sha256_file,
 )
@@ -358,9 +359,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         license_override=args.license,
         access_override=args.access,
         now=datetime.now(UTC),
-        command=" ".join(
-            ["python", "-m", "arm_rc_ctrl.data.preprocess", *(argv if argv is not None else sys.argv[1:])]
-        ),
+        command=command_line("arm_rc_ctrl.data.preprocess", argv if argv is not None else sys.argv[1:]),
     )
     print(
         json.dumps(

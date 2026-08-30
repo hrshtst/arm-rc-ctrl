@@ -49,7 +49,7 @@ from arm_rc_ctrl.experiments.termination import (
 from arm_rc_ctrl.metrics.dwell import dwell_metrics
 from arm_rc_ctrl.metrics.joint import JointAnglePolicy
 from arm_rc_ctrl.metrics.report import RunReport, build_report, report_to_json
-from arm_rc_ctrl.provenance import ArtifactReference, collect_provenance, require_clean_for_confirmatory
+from arm_rc_ctrl.provenance import ArtifactReference, collect_provenance, command_line, require_clean_for_confirmatory
 from arm_rc_ctrl.scenario import ScenarioConfig, build_skeleton, load_scenario
 from arm_rc_ctrl.storage import StorageRoot, open_storage
 
@@ -304,9 +304,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         store=store,
         exploratory=args.exploratory,
         now=datetime.now(UTC),
-        command=" ".join(
-            ["python", "-m", "arm_rc_ctrl.experiments.replay", *(argv if argv is not None else sys.argv[1:])]
-        ),
+        command=command_line("arm_rc_ctrl.experiments.replay", argv if argv is not None else sys.argv[1:]),
     )
     text = report_to_json(result.report)
     if args.report is not None:

@@ -54,7 +54,7 @@ from arm_rc_ctrl.data.records import (
     write_record,
 )
 from arm_rc_ctrl.data.review import IntervalProposal, plot_intervals, propose_intervals
-from arm_rc_ctrl.provenance import collect_provenance, require_clean_for_confirmatory, sha256_file
+from arm_rc_ctrl.provenance import collect_provenance, command_line, require_clean_for_confirmatory, sha256_file
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import ScenarioConfig, load_scenario
 from arm_rc_ctrl.storage import ArtifactUri, StorageRoot, open_storage
@@ -311,9 +311,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         units_override=_parse_units(args.units),
         notes=args.notes,
         now=datetime.now(UTC),
-        command=" ".join(
-            ["python", "-m", "arm_rc_ctrl.data.import_demo", *(argv if argv is not None else sys.argv[1:])]
-        ),
+        command=command_line("arm_rc_ctrl.data.import_demo", argv if argv is not None else sys.argv[1:]),
     )
     print(
         json.dumps(

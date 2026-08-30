@@ -18,7 +18,7 @@ import hashlib
 import json
 import os
 import platform
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -42,6 +42,7 @@ __all__ = [
     "artifact_reference",
     "canonical_json",
     "collect_provenance",
+    "command_line",
     "config_digest",
     "require_clean_for_confirmatory",
     "sha256_bytes",
@@ -62,6 +63,15 @@ class ArtifactMismatchError(RuntimeError):
 
 class DirtyWorktreeError(RuntimeError):
     """A confirmatory result was requested from a modified or drifted checkout."""
+
+
+def command_line(module: str, argv: Sequence[str]) -> str:
+    """Render a ``python -m module ...`` command for records, replacing absolute paths by their basenames.
+
+    Records must never carry machine-specific paths; relative arguments are kept verbatim.
+    """
+    rendered = [arg if not Path(arg).is_absolute() else Path(arg).name for arg in argv]
+    return " ".join(["python", "-m", module, *rendered])
 
 
 def sha256_bytes(data: bytes) -> str:
