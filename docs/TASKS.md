@@ -24,7 +24,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 - **Next task:** `M2-011` — task 1-a training CLI, after the owner decides the normalization policy and the first-slice tracker (M2 decision note of 2026-09-01).
 - **Current milestone:** M2 — task 1-a RC vertical slice.
-- **Active blockers:** None.
+- **Active blockers:** M2 closed-loop decision (2026-09-01): with the M1-009 per-joint training-std normalization (joint 2 of the scripted demonstration has scales 0.018 rad / 0.010 rad/s) and the frozen v1 PD gains, every RC+tracker closed loop violates the joint-velocity limit within 50 ms of the boundary; fixed physical input scales make the loop complete (frozen computed torque at several settings, frozen PD at few). The owner decides the normalization policy and the first-slice tracker before `M2-011`.
 - **Latest completed work:** M1 closed 2026-08-31 (all M1 tasks and `M1-GATE` `DONE`; PR #2 approved after three review rounds); M0 closed 2026-08-30 (PR #1); `UP-005` open; `M3-015` scheduled before confirmatory execution.
 
 ## Milestone gates
