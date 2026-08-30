@@ -29,7 +29,14 @@ GIT_ENV = {
 
 
 def _run(args: list[str], cwd: Path) -> str:
-    env = {**os.environ, **GIT_ENV, "DVC_NO_ANALYTICS": "1", "HOME": str(cwd.parent)}
+    # DVC keeps a site cache under /var/tmp by default; keep it inside the test tree.
+    env = {
+        **os.environ,
+        **GIT_ENV,
+        "DVC_NO_ANALYTICS": "1",
+        "HOME": str(cwd.parent),
+        "DVC_SITE_CACHE_DIR": str(cwd.parent / "dvc-site-cache"),
+    }
     result = subprocess.run(args, cwd=cwd, env=env, check=False, capture_output=True, text=True)
     assert result.returncode == 0, f"{' '.join(args)}: {result.stderr}"
     return result.stdout

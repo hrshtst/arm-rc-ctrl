@@ -63,6 +63,7 @@ class LocalDvcConfig:
 
 def _dvc(repo_root: Path, *args: str) -> str:
     env = {**os.environ, "DVC_NO_ANALYTICS": "1"}
+    env.setdefault("DVC_SITE_CACHE_DIR", str(repo_root / ".dvc" / "tmp" / "site-cache"))
     result = subprocess.run(
         [sys.executable, "-m", "dvc", *args], cwd=repo_root, env=env, capture_output=True, text=True, check=False
     )
