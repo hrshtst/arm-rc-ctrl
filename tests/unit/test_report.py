@@ -45,10 +45,11 @@ def _reference() -> SampleSet:
     return SampleSet.from_arrays(arrays)
 
 
-def _run_arrays(reference: SampleSet, n: int) -> RunArrays:
+def _run_arrays(reference: SampleSet, n: int, *, applied: bool = False) -> RunArrays:
     rng = np.random.default_rng(3)
     q = reference.q[:n] + 0.01 * rng.standard_normal((n, 2))
     zeros = np.zeros((n, 2))
+    requested = np.column_stack([np.sin(reference.t[:n]), 6.0 * np.cos(reference.t[:n])])
     arrays: dict[str, NDArray[Any]] = {
         "t": reference.t[:n],
         "q": q,
@@ -60,22 +61,24 @@ def _run_arrays(reference: SampleSet, n: int) -> RunArrays:
         "ddq_desired_raw": zeros,
         "ddq_desired": zeros,
         "tracking_error": reference.q[:n] - q,
-        "tau_requested": np.column_stack([np.sin(reference.t[:n]), 6.0 * np.cos(reference.t[:n])]),
+        "tau_requested": requested,
         "task_code": np.zeros((n, 0)),
         "saturation": np.zeros(n, dtype=np.int64),
     }
+    if applied:
+        arrays["tau_applied"] = np.clip(requested, -np.asarray(LIMITS), np.asarray(LIMITS))
     return RunArrays(arrays)
 
 
-def _stored_run(store: StorageRoot, reference: SampleSet, n: int, *, done: bool) -> LoadedRun:
+def _stored_run(store: StorageRoot, reference: SampleSet, n: int, *, done: bool, applied: bool = False) -> LoadedRun:
     provenance = collect_provenance({"kp": 20.0}, seeds={}, now=FIXED_TIME, env={}, exploratory=True)
     t_end = float(reference.t[n - 1])
     termination = completed(t_end, n - 1) if done else divergence(t_end, n - 1, "stopped early")
     pointer, _, _ = write_run(
         store,
-        _run_arrays(reference, n),
+        _run_arrays(reference, n, applied=applied),
         kind="simulation",
-        method="rc+pd" if done else "rc+pd-early",
+        method=("rc+pd" if done else "rc+pd-early") + ("+applied" if applied else ""),
         scenario="task-1a-reach",
         control_period_s=0.01,
         duration_s=float(reference.t[-1]),
@@ -123,13 +126,32 @@ def test_report_fields_equal_the_pure_metric_functions(store: StorageRoot) -> No
         0.02,
         window=(intervals.dwell[0], intervals.dwell[1]),
     )
+    assert report.effort_source == "tau_requested"  # no applied torque in this synthetic run
     assert report.effort == effort_metrics(run.arrays.arrays["t"], run.arrays.arrays["tau_requested"], LIMITS)
+    assert report.demand == report.effort
     assert report.effort is not None
     assert report.effort.saturation_fraction > 0  # 6 cos t reaches the 5 N*m bound
     assert report.termination_kind == "completed"
     assert report.success is True
     assert report.failed_criteria == ()
     assert report.run_id == run.pointer.artifact.artifact_id
+
+
+def test_effort_uses_applied_torque_when_available(store: StorageRoot) -> None:
+    """With tau_applied recorded, effort is physical (clamped) while demand keeps the requested torque."""
+    reference = _reference()
+    run = _stored_run(store, reference, N, done=True, applied=True)
+    report = build_report(
+        run, reference, "processed-20260830-555555555555", tolerance=0.02, torque_limits=LIMITS, policy=POLICY
+    )
+    assert report.effort_source == "tau_applied"
+    assert report.effort == effort_metrics(run.arrays.arrays["t"], run.arrays.arrays["tau_applied"], LIMITS)
+    assert report.demand == effort_metrics(run.arrays.arrays["t"], run.arrays.arrays["tau_requested"], LIMITS)
+    assert report.effort is not None
+    assert report.demand is not None
+    assert report.effort.effort < report.demand.effort  # saturation clips the physical effort
+    assert report.effort.per_joint_peak[1] <= LIMITS[1]
+    assert report.demand.per_joint_peak[1] > LIMITS[1]  # 6 cos t exceeds the 5 N*m bound
 
 
 def test_early_terminated_run_stays_reportable(store: StorageRoot) -> None:

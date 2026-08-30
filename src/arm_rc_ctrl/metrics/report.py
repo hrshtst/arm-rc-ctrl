@@ -5,8 +5,9 @@
 
 A report evaluates one run against the canonical reference dataset it was
 meant to reproduce: joint RMSE over the reference's movement window, dwell
-metrics over its dwell window, and effort over the whole run, plus the
-termination and outcome. Values are exactly what the pure metric functions
+metrics over its dwell window, and effort over the whole run (from the applied
+torque, with the requested torque kept as a controller-demand diagnostic), plus
+the termination and outcome. Values are exactly what the pure metric functions
 return — the report never recomputes or rounds them — and early-terminated
 runs stay reportable with coverage fractions and ``None`` where a window has
 no samples.
@@ -72,7 +73,12 @@ class RunReport:
     joint_rmse: JointRmse | None
     dwell: DwellMetrics | None
     effort: EffortMetrics | None
-    """``None`` when the run holds fewer than two samples."""
+    """Physical effort from the applied torque (requested torque when the backend exposes no applied torque);
+    ``None`` when the run holds fewer than two samples."""
+    demand: EffortMetrics | None
+    """Controller demand from the requested torque (may exceed the limits); ``None`` for fewer than two samples."""
+    effort_source: str
+    """Which array ``effort`` was computed from: ``tau_applied`` or ``tau_requested``."""
     schema_version: int = REPORT_SCHEMA_VERSION
 
 
@@ -128,8 +134,11 @@ def build_report(
             window=(intervals.dwell[0], intervals.dwell[1]),
         )
     effort: EffortMetrics | None = None
+    demand: EffortMetrics | None = None
+    effort_source = "tau_applied" if "tau_applied" in arrays else "tau_requested"
     if run_t.shape[0] >= 2:  # noqa: PLR2004
-        effort = effort_metrics(run_t, cast("NDArray[np.float64]", arrays["tau_requested"]), torque_limits)
+        effort = effort_metrics(run_t, cast("NDArray[np.float64]", arrays[effort_source]), torque_limits)
+        demand = effort_metrics(run_t, cast("NDArray[np.float64]", arrays["tau_requested"]), torque_limits)
     return RunReport(
         run_id=run.pointer.artifact.artifact_id,
         method=run.summary.method,
@@ -144,6 +153,8 @@ def build_report(
         joint_rmse=rmse,
         dwell=dwell,
         effort=effort,
+        demand=demand,
+        effort_source=effort_source,
     )
 
 
