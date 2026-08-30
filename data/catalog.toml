@@ -1,2 +1,9 @@
 schema_version = 1
-artifacts = []
+
+[[artifacts]]
+artifact_id = "raw-20260830-b5adde395f1c"
+kind = "raw"
+record = "data/records/raw/raw-20260830-b5adde395f1c.toml"
+uri = "armrc://raw/raw-20260830-b5adde395f1c/demo.sklog.npz"
+sha256 = "b5adde395f1cde0a39bb95183f740b2fbb82fc7774988de65664d2a49953a713"
+created_at = "2026-08-30T14:44:19+00:00"

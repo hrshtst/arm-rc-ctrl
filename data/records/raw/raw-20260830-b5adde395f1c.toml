@@ -1,0 +1,69 @@
+session = "scripted-minjerk-01"
+duration_s = 5.0
+
+[artifact]
+artifact_id = "raw-20260830-b5adde395f1c"
+kind = "raw"
+created_at = "2026-08-30T14:44:19+00:00"
+license = "CC0-1.0"
+access = "public"
+notes = "Scripted minimum-jerk teacher (arm_rc_ctrl.data.teacher) for task 1-a: prime hold 1 s, minimum-jerk reach 1-4 s to the elbow-up joint solution of the target, dwell 4-5 s; tracked by computed torque (kp 400, kd 40) in skelarm. Not the sole final scientific evidence: a human demonstration is imported separately."
+schema_version = 1
+
+[artifact.payload]
+uri = "armrc://raw/raw-20260830-b5adde395f1c/demo.sklog.npz"
+sha256 = "b5adde395f1cde0a39bb95183f740b2fbb82fc7774988de65664d2a49953a713"
+size = 20564
+format = "sklog.npz"
+schema_version = 1
+
+[artifact.origin]
+command = "python -m arm_rc_ctrl.data.import_demo --log demo.sklog.npz --scenario configs/tasks/task_1a.toml --session scripted-minjerk-01 --license CC0-1.0 --access public --clock simulated --intervals 0,1,4,5 --plot review.png --notes Scripted minimum-jerk teacher (arm_rc_ctrl.data.teacher) for task 1-a: prime hold 1 s, minimum-jerk reach 1-4 s to the elbow-up joint solution of the target, dwell 4-5 s; tracked by computed torque (kp 400, kd 40) in skelarm. Not the sole final scientific evidence: a human demonstration is imported separately."
+config_sha256 = "bc4c806b8d808135c5862a09acf10a2df9ea1866f2a4521a46213a36b6d31091"
+project_commit = "311646eba55c097ae1a22fda015bb7b654e43eff"
+project_dirty = false
+sources = []
+
+[artifact.origin.dependency_commits]
+rclib = "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b"
+skelarm = "ebb26118864ad158ef2ad36af68027b1a12ade1a"
+rtctrl = "c601076ee60ec712c1cb4a85756a186882df2e1b"
+
+[scenario]
+config_path = "configs/tasks/task_1a.toml"
+config_sha256 = "23c89a7f8a15fde55101dbefa4fe8e226b83e46e7967d0d2dac248a886607c0d"
+robot = "planar-2dof"
+task = "task-1a-reach"
+dof = 2
+initial_q = [
+    0.2,
+    1.2,
+]
+target = [
+    0.1,
+    0.45,
+]
+
+[sampling]
+period_s = 0.010000000000000009
+clock = "simulated"
+
+[sampling.units]
+t = "s"
+q = "rad"
+dq = "rad/s"
+tau = "N*m"
+
+[intervals]
+prime = [
+    0.0,
+    1.0,
+]
+move = [
+    1.0,
+    4.0,
+]
+dwell = [
+    4.0,
+    5.0,
+]
