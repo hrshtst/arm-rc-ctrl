@@ -22,7 +22,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M2-009` — target-generator plus PD `skelarm.Controller` adapter.
+- **Next task:** `M2-011` — task 1-a training CLI, after the owner decides the normalization policy and the first-slice tracker (M2 decision note of 2026-09-01).
 - **Current milestone:** M2 — task 1-a RC vertical slice.
 - **Active blockers:** None.
 - **Latest completed work:** M1 closed 2026-08-31 (all M1 tasks and `M1-GATE` `DONE`; PR #2 approved after three review rounds); M0 closed 2026-08-30 (PR #1); `UP-005` open; `M3-015` scheduled before confirmatory execution.
@@ -132,8 +132,8 @@ are complete. Do not mark research software complete merely because it runs once
 
 | ID | Status | Task | Depends on | Acceptance/evidence |
 | --- | --- | --- | --- | --- |
-| M2-009 | `TODO` | Implement target-generator plus PD `skelarm.Controller` adapter | M1-025, M2-007, M2-008 | Adapter registers without patching `skelarm`, returns finite torque, and exposes all internal channels |
-| M2-010 | `TODO` | Implement explicit initial hold/priming state machine | M2-003, M2-009 | Controller holds initial posture during priming and begins generation at the configured boundary without a command jump |
+| M2-009 | `DONE` | Implement target-generator plus PD `skelarm.Controller` adapter | M1-025, M2-007, M2-008 | `arm_rc_ctrl.controllers.adapter.GeneratorTrackingController` is a `skelarm.Controller` combining a `TargetGeneratorBase` with the `LimitedTracker` (PD or computed torque, frozen gains) through a `LatestTargetReference`; every control sample logs the phase, desired state, the generator's telemetry (ESN input, state norm, generated position, raw/filtered derivatives), and the tracker's channels; `register_with_skelarm()` registers the builder as `[controller].type = "rc_target"` without patching `skelarm` (params: recipe, tracker, torque_limits, hold_until_s, estimator; datasets resolved through the configured store; joint bounds from the skeleton); `arm_rc_ctrl.rc.runtime` rebuilds a generator from a recipe (`load_training_samples` verifies record/payload identity, `generator_from_recipe` refits with verification); `tests/integration/test_adapter.py` (4 cases): a generator trained on the planned task 1-a demonstration runs the full 5 s in `skelarm` with the frozen PD gains with finite, limited torque, bounded generated targets, and every channel logged, and `skelarm.build_controller` constructs the adapter from the registry through a temporary store |
+| M2-010 | `DONE` | Implement explicit initial hold/priming state machine | M2-003, M2-009 | Explicit two-phase state machine in the adapter: before `hold_until_s` the tracker holds the reset posture (zero desired derivatives) while the generator is primed with the measured state; from the boundary on the generator's targets are tracked; `boundary_jump` reports the distance between the first generated target and the held posture; the test proves the hold posture and zero derivatives during priming, the phase switch at the configured boundary, a first generated target within 5e-3 rad of the hold (no command jump, no derivative spike), and that priming alone does not move the arm |
 | M2-011 | `TODO` | Implement task 1-a training CLI | M2-006, M1-014 | Command validates inputs and emits recipe, training metrics, and provenance |
 | M2-012 | `TODO` | Implement nominal RC+PD experiment runner | M2-009, M2-010, M2-011, M1-019 | End-to-end run records measured/generated states, derivatives, torque, ESN state summary, and termination |
 | M2-013 | `TODO` | Add safety validation around generated commands | M2-012 | NaN, shape error, bound violation, stale time, and model exception cause structured safe termination |
