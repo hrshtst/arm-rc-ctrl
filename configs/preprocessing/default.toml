@@ -1,0 +1,20 @@
+# Default offline preprocessing of raw demonstrations into canonical datasets
+# (docs/PLAN.md section 7.3). The control period comes from the scenario.
+
+[smoothing]
+method = "butterworth"
+cutoff_hz = 5.0
+order = 4
+
+[resampling]
+interpolation = "linear"
+
+[derivatives]
+method = "central"
+
+[normalization]
+# Statistics are fitted on all samples of the demonstration being processed
+# (for task 1-a the single demonstration is the training set; evaluation is
+# closed-loop, not a held-out split) and recorded with the dataset.
+channels = ["q", "dq", "ddq", "tip", "dtip", "ddtip"]
+near_zero = 1e-8

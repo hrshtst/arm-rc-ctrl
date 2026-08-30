@@ -123,6 +123,24 @@ with a standard deviation at or below `near_zero` (default 1e-8) get scale 1.0
 and are listed in `replaced_near_zero`. `Normalizer` applies and inverts the
 recorded statistics.
 
+## Preprocessing command
+
+```bash
+uv run python -m arm_rc_ctrl.data.preprocess --raw data/records/raw/<id>.toml \
+    --scenario configs/tasks/task_1a.toml [--config configs/preprocessing/default.toml]
+```
+
+Loads and verifies the raw log, checks that the raw record was recorded under
+the given scenario (digest and dof), smooths joint positions, resamples onto
+the scenario's `dt`, differentiates, computes endpoint kinematics, annotates
+phases, validates the dataset, fits normalization statistics, and then writes
+`samples.npz` (plus `provenance.json`) to a staging directory under the
+`processed` bucket, digests it, moves it atomically to
+`armrc://processed/<artifact-id>/`, writes `data/records/processed/<id>.toml`,
+and appends the catalog. Existing payloads or records are never overwritten,
+any failure removes the staging directory, and a dirty worktree is rejected
+unless `--exploratory` is given (the origin records the dirty flag either way).
+
 ## Phase annotation
 
 `arm_rc_ctrl.data.phases.annotate_phases(t, intervals)` assigns every sample

@@ -1,8 +1,13 @@
-# Scenario of the committed raw fixture tests/fixtures/raw/demo.sklog.npz:
-# a planar 2-DOF PD reach simulated by skelarm (see
-# arm_rc_ctrl.data.synthetic.synthetic_demonstration_log).
+# Scenario of the committed raw fixture tests/fixtures/raw/demo.sklog.npz: a
+# planar 2-DOF PD reach simulated by skelarm (see
+# arm_rc_ctrl.data.synthetic.synthetic_demonstration_log). The fixture log holds
+# 31 frames at 10 ms; its intervals are [0, 0.1] / [0.1, 0.25] / [0.25, 0.3] s.
+name = "pd-reach-fixture"
+
 [robot]
+name = "planar-2dof-fixture"
 base_length = 0.0
+gravity = [0.0, 0.0]
 
 [[robot.links]]
 length = 0.30
@@ -20,10 +25,21 @@ com = [0.125, 0.0]
 q_min = -3.0
 q_max = 3.0
 
-[simulation]
-dt = 0.01
-duration = 0.3
+[limits]
+velocity = [20.0, 20.0]
+torque = [10.0, 5.0]
+endpoint_radius = 0.55
+
+[task]
 initial_q = [0.3, 0.6]
-target_q = [0.8, 0.4]
-kp = [20.0, 10.0]
-kd = [2.0, 1.0]
+# Endpoint of the joint target (0.8, 0.4) rad used by the fixture's PD reference.
+target = [0.2996, 0.4482]
+tolerance = 0.004
+
+[timing]
+dt = 0.01
+
+[timing.intervals]
+prime = [0.0, 0.1]
+move = [0.1, 0.25]
+dwell = [0.25, 0.3]
