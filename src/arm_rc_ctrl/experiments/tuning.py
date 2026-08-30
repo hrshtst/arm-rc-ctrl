@@ -28,8 +28,9 @@ from arm_rc_ctrl.config import load_config
 from arm_rc_ctrl.controllers.reference import DemonstrationReference
 from arm_rc_ctrl.controllers.tracking import TrackerConfig, TrackerType
 from arm_rc_ctrl.data.phases import intervals_from_phases
+from arm_rc_ctrl.data.records import ProcessedDatasetRecord
 from arm_rc_ctrl.data.samples import SampleSet
-from arm_rc_ctrl.experiments.replay import dwell_outcome, simulate_tracking
+from arm_rc_ctrl.experiments.replay import bind_dataset, dwell_outcome, simulate_tracking
 from arm_rc_ctrl.metrics.joint import JointAnglePolicy, joint_rmse
 from arm_rc_ctrl.scenario import ScenarioConfig, load_scenario
 from arm_rc_ctrl.validation import require_finite
@@ -213,9 +214,11 @@ def evaluate_gains(
     scenario: ScenarioConfig,
     reference: SampleSet,
     gains: TrackerConfig,
+    *,
+    interpolation: Literal["linear", "cubic"] = "linear",
 ) -> tuple[float, bool, tuple[TrialScenario, ...]]:
     """Simulate every development scenario and return ``(objective, feasible, components)``."""
-    demo = DemonstrationReference.from_samples(reference)
+    demo = DemonstrationReference.from_samples(reference, interpolation)
     intervals = intervals_from_phases(reference.t, reference.phase)
     move = (reference.t >= intervals.move[0]) & (reference.t < intervals.move[1])
     policy = JointAnglePolicy.limited(scenario.dof)
@@ -245,18 +248,29 @@ def evaluate_gains(
 
 def run_study(
     protocol: TuningProtocol,
+    dataset: ProcessedDatasetRecord,
     reference: SampleSet,
     tracker_type: TrackerType,
     *,
+    scenario_file: Path | None = None,
     scenario: ScenarioConfig | None = None,
 ) -> StudyResult:
-    """Run the full seeded search for one tracker type (same seed and budget for every tracker)."""
-    scenario = load_scenario(protocol.scenario) if scenario is None else scenario
+    """Run the full seeded search for one tracker type (same seed and budget for every tracker).
+
+    The dataset must have been derived under the protocol's scenario file (or
+    ``scenario_file`` when given) and match its record.
+    """
+    scenario_file = protocol.scenario if scenario_file is None else scenario_file
+    scenario = load_scenario(scenario_file) if scenario is None else scenario
+    bind_dataset(scenario, scenario_file, dataset, reference)
+    interpolation = cast('Literal["linear", "cubic"]', dataset.preprocessing.interpolation)
     rng = np.random.default_rng(protocol.sampler_seed)
     trials: list[Trial] = []
     for number in range(protocol.budget):
         gains = sample_gains(protocol, tracker_type, scenario.dof, rng)
-        objective, feasible, components = evaluate_gains(protocol, scenario, reference, gains)
+        objective, feasible, components = evaluate_gains(
+            protocol, scenario, reference, gains, interpolation=interpolation
+        )
         trials.append(Trial(number, gains, objective, feasible, components))
     best = min(trials, key=lambda t: (t.objective, t.number))
     return StudyResult(

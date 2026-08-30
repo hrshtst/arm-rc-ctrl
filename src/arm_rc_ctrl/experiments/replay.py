@@ -49,11 +49,11 @@ from arm_rc_ctrl.experiments.termination import (
 from arm_rc_ctrl.metrics.dwell import dwell_metrics
 from arm_rc_ctrl.metrics.joint import JointAnglePolicy
 from arm_rc_ctrl.metrics.report import RunReport, build_report, report_to_json
-from arm_rc_ctrl.provenance import collect_provenance, require_clean_for_confirmatory
+from arm_rc_ctrl.provenance import ArtifactReference, collect_provenance, require_clean_for_confirmatory
 from arm_rc_ctrl.scenario import ScenarioConfig, build_skeleton, load_scenario
 from arm_rc_ctrl.storage import StorageRoot, open_storage
 
-__all__ = ["ReplayResult", "dwell_outcome", "main", "run_replay", "simulate_tracking"]
+__all__ = ["ReplayResult", "bind_dataset", "dwell_outcome", "main", "run_replay", "simulate_tracking"]
 
 _DIVERGENCE_BOUND: Final = 1e3
 """Joint angles or velocities beyond this magnitude are treated as divergence (rad, rad/s)."""
@@ -196,10 +196,22 @@ def dwell_outcome(
     return result
 
 
+def bind_dataset(
+    scenario: ScenarioConfig, scenario_file: Path, dataset: ProcessedDatasetRecord, reference: SampleSet
+) -> None:
+    """Fail unless the dataset was derived under ``scenario_file`` and matches its record and the scenario."""
+    dataset.check_scenario(scenario_file)
+    dataset.check_samples(reference)
+    if scenario.dof != dataset.dof:
+        msg = f"dof mismatch: scenario {scenario.dof}, dataset {dataset.dof}"
+        raise ValueError(msg)
+
+
 def run_replay(
     scenario: ScenarioConfig,
+    scenario_file: Path,
+    dataset: ProcessedDatasetRecord,
     reference: SampleSet,
-    reference_artifact: str,
     tracker: TrackerConfig,
     *,
     store: StorageRoot,
@@ -211,19 +223,29 @@ def run_replay(
     access: str = "private",
 ) -> ReplayResult:
     """Replay the demonstration with the tracker, persist the run, and evaluate it."""
-    if scenario.dof != reference.dof or tracker.dof != scenario.dof:
-        msg = f"dof mismatch: scenario {scenario.dof}, dataset {reference.dof}, tracker {tracker.dof}"
+    bind_dataset(scenario, scenario_file, dataset, reference)
+    if tracker.dof != scenario.dof:
+        msg = f"dof mismatch: scenario {scenario.dof}, tracker {tracker.dof}"
         raise ValueError(msg)
+    reference_artifact = dataset.artifact.artifact_id
+    payload = dataset.artifact.payload
     resolved = {
         "scenario": to_mapping(scenario),
         "tracker": to_mapping(tracker),
         "reference_artifact": reference_artifact,
+        "interpolation": dataset.preprocessing.interpolation,
         "initial_q": list(scenario.task.initial_q if initial_q is None else initial_q),
         "duration_s": float(reference.t[-1]),
     }
-    provenance = collect_provenance(resolved, seeds={}, exploratory=exploratory, now=now)
+    provenance = collect_provenance(
+        resolved,
+        seeds={},
+        artifacts=[ArtifactReference(payload.uri, payload.sha256, payload.size)],
+        exploratory=exploratory,
+        now=now,
+    )
     require_clean_for_confirmatory(provenance)
-    demo = DemonstrationReference.from_samples(reference)
+    demo = DemonstrationReference.from_samples(reference, cast("Any", dataset.preprocessing.interpolation))
     duration = float(reference.t[-1])
     arrays, termination = simulate_tracking(scenario, demo, tracker, duration_s=duration, initial_q=initial_q)
     outcome = Outcome(termination, dwell_outcome(scenario, reference, arrays, termination))
@@ -272,12 +294,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     scenario = load_scenario(Path(args.scenario))
     record = load_record(Path(args.dataset), ProcessedDatasetRecord)
     samples = load_samples(verify_payload(store, record.artifact))
-    record.check_samples(samples)
     tracker = load_config(Path(args.controller), TrackerConfig)
     result = run_replay(
         scenario,
+        Path(args.scenario),
+        record,
         samples,
-        record.artifact.artifact_id,
         tracker,
         store=store,
         exploratory=args.exploratory,

@@ -31,7 +31,13 @@ import tomli_w
 
 from arm_rc_ctrl.config import load_config, to_mapping
 from arm_rc_ctrl.data.samples import ARRAY_NAMES, PHASE_CODES, SAMPLES_FILE, SampleSet
-from arm_rc_ctrl.provenance import ArtifactReference, ProvenanceRecord, artifact_reference, verify_artifact
+from arm_rc_ctrl.provenance import (
+    ArtifactReference,
+    ProvenanceRecord,
+    artifact_reference,
+    sha256_file,
+    verify_artifact,
+)
 from arm_rc_ctrl.storage import ArtifactUri, StorageRoot
 from arm_rc_ctrl.validation import (
     COMMIT_HEX_LENGTH,
@@ -587,6 +593,8 @@ class ProcessedDatasetRecord:
     """Record of one canonical processed dataset stored as ``samples.npz``."""
 
     artifact: ArtifactRecord
+    scenario: Scenario
+    """Scenario the source demonstration was recorded under (path, digest, robot, task, posture, target)."""
     n_samples: int
     dof: int
     task_dim: int
@@ -631,6 +639,9 @@ class ProcessedDatasetRecord:
                 f"{self.n_samples}, {self.dof}, {self.task_dim}, {self.task_code_dim}"
             )
             raise ValueError(msg)
+        if self.scenario.dof != self.dof:
+            msg = f"scenario.dof {self.scenario.dof} != dof {self.dof}"
+            raise ValueError(msg)
 
     def _validate_arrays(self) -> None:
         if tuple(self.arrays) != ARRAY_NAMES:
@@ -656,6 +667,16 @@ class ProcessedDatasetRecord:
             if len(stats.mean) != widths[name]:
                 msg = f"normalization.channels.{name} must have {widths[name]} columns, got {len(stats.mean)}"
                 raise ValueError(msg)
+
+    def check_scenario(self, scenario_file: Path) -> None:
+        """Fail unless the dataset was derived under the scenario file's current digest."""
+        digest = sha256_file(scenario_file)
+        if self.scenario.config_sha256 != digest:
+            msg = (
+                f"dataset {self.artifact.artifact_id} was derived under scenario digest "
+                f"{self.scenario.config_sha256[:12]} but {scenario_file} has digest {digest[:12]}"
+            )
+            raise ValueError(msg)
 
     def check_samples(self, samples: SampleSet) -> None:
         """Fail unless ``samples`` has exactly the recorded shapes, dtypes, and digests."""

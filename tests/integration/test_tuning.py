@@ -16,7 +16,7 @@ import pytest
 from arm_rc_ctrl.config import ConfigError
 from arm_rc_ctrl.controllers.tracking import TrackerConfig
 from arm_rc_ctrl.data.preprocess import preprocess_demonstration
-from arm_rc_ctrl.data.records import RawDemonstrationRecord, load_record
+from arm_rc_ctrl.data.records import ProcessedDatasetRecord, RawDemonstrationRecord, load_record
 from arm_rc_ctrl.data.samples import SampleSet
 from arm_rc_ctrl.experiments.tuning import (
     GainRange,
@@ -43,8 +43,8 @@ FIXED_TIME = datetime(2026, 8, 30, 11, 0, 0, tzinfo=UTC)
 
 
 @pytest.fixture(scope="module")
-def dataset(tmp_path_factory: pytest.TempPathFactory) -> tuple[SampleSet, ScenarioConfig]:
-    """Processed fixture dataset and its scenario."""
+def dataset(tmp_path_factory: pytest.TempPathFactory) -> tuple[SampleSet, ScenarioConfig, ProcessedDatasetRecord]:
+    """Processed fixture dataset, its scenario, and its record."""
     base = tmp_path_factory.mktemp("tuning")
     root = base / "store"
     root.mkdir()
@@ -56,7 +56,7 @@ def dataset(tmp_path_factory: pytest.TempPathFactory) -> tuple[SampleSet, Scenar
     result = preprocess_demonstration(
         RAW_RECORD, SCENARIO, PREPROCESS, store=store, records_root=records, exploratory=True, now=FIXED_TIME
     )
-    return result.samples, load_scenario(SCENARIO)
+    return result.samples, load_scenario(SCENARIO), result.record
 
 
 @pytest.fixture(scope="module")
@@ -98,10 +98,10 @@ def test_sampling_is_seeded_log_uniform_and_within_bounds(protocol: TuningProtoc
 
 
 def test_evaluate_gains_reports_every_component(
-    dataset: tuple[SampleSet, ScenarioConfig], protocol: TuningProtocol
+    dataset: tuple[SampleSet, ScenarioConfig, ProcessedDatasetRecord], protocol: TuningProtocol
 ) -> None:
     """A feasible trial's objective is the median movement RMSE over the development scenarios."""
-    samples, scenario = dataset
+    samples, scenario, _record = dataset
     gains = TrackerConfig("computed_torque", (100.0, 100.0), (20.0, 20.0))
     objective, feasible, components = evaluate_gains(protocol, scenario, samples, gains)
     assert len(components) == 4
@@ -119,10 +119,10 @@ def test_evaluate_gains_reports_every_component(
 
 
 def test_infeasible_trials_receive_the_documented_penalty(
-    dataset: tuple[SampleSet, ScenarioConfig], protocol: TuningProtocol
+    dataset: tuple[SampleSet, ScenarioConfig, ProcessedDatasetRecord], protocol: TuningProtocol
 ) -> None:
     """A limit violation in any development scenario yields the penalty, with the cause recorded."""
-    samples, scenario = dataset
+    samples, scenario, _record = dataset
     strict = dataclasses.replace(scenario, limits=dataclasses.replace(scenario.limits, velocity=(0.3, 0.3)))
     objective, feasible, components = evaluate_gains(
         protocol, strict, samples, TrackerConfig("pd", (20.0, 10.0), (2.0, 1.0))
@@ -137,30 +137,41 @@ def test_infeasible_trials_receive_the_documented_penalty(
 
 
 def test_study_is_deterministic_and_selects_the_minimum(
-    dataset: tuple[SampleSet, ScenarioConfig], protocol: TuningProtocol
+    dataset: tuple[SampleSet, ScenarioConfig, ProcessedDatasetRecord], protocol: TuningProtocol
 ) -> None:
     """Two runs with the same seed give identical trials; the best trial has the lowest objective."""
-    samples, scenario = dataset
+    samples, scenario, record = dataset
     small = dataclasses.replace(protocol, budget=4)
-    a = run_study(small, samples, "pd", scenario=scenario)
-    b = run_study(small, samples, "pd", scenario=scenario)
+    a = run_study(small, record, samples, "pd", scenario_file=SCENARIO, scenario=scenario)
+    b = run_study(small, record, samples, "pd", scenario_file=SCENARIO, scenario=scenario)
     assert a == b
     assert a.budget == 4
     assert a.sampler_seed == protocol.sampler_seed
     assert [t.number for t in a.trials] == [0, 1, 2, 3]
     assert a.best.objective == min(t.objective for t in a.trials)
     assert a.feasible_trials == sum(1 for t in a.trials if t.feasible)
-    ct = run_study(small, samples, "computed_torque", scenario=scenario)
+    ct = run_study(small, record, samples, "computed_torque", scenario_file=SCENARIO, scenario=scenario)
     assert ct.sampler_seed == a.sampler_seed
     assert ct.budget == a.budget  # equal budget for both trackers
 
 
+def test_study_refuses_a_dataset_from_another_scenario(
+    dataset: tuple[SampleSet, ScenarioConfig, ProcessedDatasetRecord], protocol: TuningProtocol
+) -> None:
+    """The protocol's scenario file must be the one the dataset was derived under."""
+    samples, _scenario, record = dataset
+    with pytest.raises(ValueError, match="was derived under scenario digest"):
+        run_study(dataclasses.replace(protocol, budget=1), record, samples, "pd")  # protocol scenario = task_1a
+
+
 def test_study_result_consistency_is_enforced(
-    dataset: tuple[SampleSet, ScenarioConfig], protocol: TuningProtocol
+    dataset: tuple[SampleSet, ScenarioConfig, ProcessedDatasetRecord], protocol: TuningProtocol
 ) -> None:
     """Budget must match the trial count and best must be the minimum."""
-    samples, scenario = dataset
-    result = run_study(dataclasses.replace(protocol, budget=2), samples, "pd", scenario=scenario)
+    samples, scenario, record = dataset
+    result = run_study(
+        dataclasses.replace(protocol, budget=2), record, samples, "pd", scenario_file=SCENARIO, scenario=scenario
+    )
     with pytest.raises(ValueError, match="trials but budget"):
         dataclasses.replace(result, budget=3)
     worst = max(result.trials, key=lambda t: t.objective)
@@ -200,9 +211,11 @@ def test_protocol_invariants(tmp_path: Path, old: str, new: str, expected: str) 
         load_protocol(path)
 
 
-def test_dwell_criteria_decide_feasibility(dataset: tuple[SampleSet, ScenarioConfig], protocol: TuningProtocol) -> None:
+def test_dwell_criteria_decide_feasibility(
+    dataset: tuple[SampleSet, ScenarioConfig, ProcessedDatasetRecord], protocol: TuningProtocol
+) -> None:
     """A trial that completes but fails a dwell criterion is infeasible and penalised."""
-    samples, scenario = dataset
+    samples, scenario, _record = dataset
     gains = TrackerConfig("computed_torque", (100.0, 100.0), (20.0, 20.0))
     lenient = dataclasses.replace(
         scenario, task=dataclasses.replace(scenario.task, dwell_min_fraction=0.0, dwell_max_velocity=10.0)

@@ -18,6 +18,7 @@ from arm_rc_ctrl.data.records import (
     Payload,
     Preprocessing,
     ProcessedDatasetRecord,
+    Scenario,
     array_specs,
     make_artifact_id,
 )
@@ -69,6 +70,9 @@ def _processed_record(samples: SampleSet) -> ProcessedDatasetRecord:
     )
     return ProcessedDatasetRecord(
         artifact=artifact,
+        scenario=Scenario(
+            "configs/tasks/task_1a.toml", "2" * 64, "r", "t", samples.dof, (0.0,) * samples.dof, (0.1, 0.4)
+        ),
         n_samples=samples.n_samples,
         dof=samples.dof,
         task_dim=samples.task_dim,

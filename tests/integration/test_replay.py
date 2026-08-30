@@ -17,7 +17,7 @@ import pytest
 from arm_rc_ctrl.config import load_config
 from arm_rc_ctrl.controllers.tracking import TrackerConfig
 from arm_rc_ctrl.data.preprocess import preprocess_demonstration
-from arm_rc_ctrl.data.records import RawDemonstrationRecord, load_record
+from arm_rc_ctrl.data.records import ProcessedDatasetRecord, RawDemonstrationRecord, load_record
 from arm_rc_ctrl.data.samples import SampleSet
 from arm_rc_ctrl.experiments.replay import main, run_replay
 from arm_rc_ctrl.experiments.run_record import OPTIONAL_ARRAYS, REQUIRED_ARRAYS
@@ -46,7 +46,9 @@ def _now() -> datetime:
 
 
 @pytest.fixture(scope="module")
-def dataset(tmp_path_factory: pytest.TempPathFactory) -> tuple[StorageRoot, SampleSet, str, ScenarioConfig]:
+def dataset(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> tuple[StorageRoot, SampleSet, ProcessedDatasetRecord, ScenarioConfig]:
     """A processed dataset built from the committed raw fixture in a module-scoped store."""
     base = tmp_path_factory.mktemp("replay")
     root = base / "store"
@@ -59,17 +61,18 @@ def dataset(tmp_path_factory: pytest.TempPathFactory) -> tuple[StorageRoot, Samp
     result = preprocess_demonstration(
         RAW_RECORD, SCENARIO, PREPROCESS, store=store, records_root=records, exploratory=True, now=FIXED_TIME
     )
-    return store, result.samples, result.record.artifact.artifact_id, load_scenario(SCENARIO)
+    return store, result.samples, result.record, load_scenario(SCENARIO)
 
 
 @pytest.mark.parametrize(("controller", "method"), [(PD, "replay+pd"), (CT, "replay+computed_torque")])
 def test_replay_terminates_normally_logs_channels_and_respects_limits(
-    dataset: tuple[StorageRoot, SampleSet, str, ScenarioConfig], controller: Path, method: str
+    dataset: tuple[StorageRoot, SampleSet, ProcessedDatasetRecord, ScenarioConfig], controller: Path, method: str
 ) -> None:
     """Both trackers complete the demonstration, record every channel, and never exceed the torque limits."""
-    store, samples, artifact_id, scenario = dataset
+    store, samples, record, scenario = dataset
+    artifact_id = record.artifact.artifact_id
     tracker = load_config(controller, TrackerConfig)
-    result = run_replay(scenario, samples, artifact_id, tracker, store=store, exploratory=True, now=_now())
+    result = run_replay(scenario, SCENARIO, record, samples, tracker, store=store, exploratory=True, now=_now())
     summary, arrays = result.summary, result.run.arrays.arrays
 
     assert summary.method == method
@@ -89,6 +92,8 @@ def test_replay_terminates_normally_logs_channels_and_respects_limits(
     assert np.all(np.abs(arrays["dq"]) <= np.asarray(scenario.limits.velocity))
     assert np.all(np.hypot(arrays["tip"][:, 0], arrays["tip"][:, 1]) <= scenario.limits.endpoint_radius)
     assert result.pointer.artifact.origin.sources == (artifact_id,)
+    assert [a.uri for a in summary.provenance.artifacts] == [record.artifact.payload.uri]
+    assert summary.provenance.config["interpolation"] == record.preprocessing.interpolation
     assert cast("dict[str, object]", summary.provenance.config["tracker"])["kp"] == list(tracker.kp)
 
     report = result.report
@@ -102,15 +107,29 @@ def test_replay_terminates_normally_logs_channels_and_respects_limits(
 
 
 def test_computed_torque_shows_the_dynamics_feedforward(
-    dataset: tuple[StorageRoot, SampleSet, str, ScenarioConfig],
+    dataset: tuple[StorageRoot, SampleSet, ProcessedDatasetRecord, ScenarioConfig],
 ) -> None:
     """With an exact model the computed-torque replay tracks much better than PD and its torque differs."""
-    store, samples, artifact_id, scenario = dataset
+    store, samples, record, scenario = dataset
     pd = run_replay(
-        scenario, samples, artifact_id, load_config(PD, TrackerConfig), store=store, exploratory=True, now=FIXED_TIME
+        scenario,
+        SCENARIO,
+        record,
+        samples,
+        load_config(PD, TrackerConfig),
+        store=store,
+        exploratory=True,
+        now=FIXED_TIME,
     )
     ct = run_replay(
-        scenario, samples, artifact_id, load_config(CT, TrackerConfig), store=store, exploratory=True, now=FIXED_TIME
+        scenario,
+        SCENARIO,
+        record,
+        samples,
+        load_config(CT, TrackerConfig),
+        store=store,
+        exploratory=True,
+        now=FIXED_TIME,
     )
     assert ct.report.joint_rmse is not None
     assert pd.report.joint_rmse is not None
@@ -119,12 +138,14 @@ def test_computed_torque_shows_the_dynamics_feedforward(
     assert ct.pointer.artifact.artifact_id != pd.pointer.artifact.artifact_id
 
 
-def test_velocity_limit_violation_terminates_early(dataset: tuple[StorageRoot, SampleSet, str, ScenarioConfig]) -> None:
+def test_velocity_limit_violation_terminates_early(
+    dataset: tuple[StorageRoot, SampleSet, ProcessedDatasetRecord, ScenarioConfig],
+) -> None:
     """A scenario with an unreachable velocity bound stops with a typed limit violation and a truncated log."""
-    store, samples, artifact_id, scenario = dataset
+    store, samples, record, scenario = dataset
     strict = dataclasses.replace(scenario, limits=dataclasses.replace(scenario.limits, velocity=(0.3, 0.3)))
     result = run_replay(
-        strict, samples, artifact_id, load_config(PD, TrackerConfig), store=store, exploratory=True, now=FIXED_TIME
+        strict, SCENARIO, record, samples, load_config(PD, TrackerConfig), store=store, exploratory=True, now=FIXED_TIME
     )
     termination = result.summary.termination
     assert termination.kind == "limit_violation"
@@ -143,26 +164,50 @@ def test_velocity_limit_violation_terminates_early(dataset: tuple[StorageRoot, S
 
 
 def test_initial_posture_override_and_reruns_are_content_addressed(
-    dataset: tuple[StorageRoot, SampleSet, str, ScenarioConfig],
+    dataset: tuple[StorageRoot, SampleSet, ProcessedDatasetRecord, ScenarioConfig],
 ) -> None:
     """A different initial posture yields a different run; identical inputs map to an existing run ID."""
-    store, samples, artifact_id, scenario = dataset
+    store, samples, record, scenario = dataset
     tracker = load_config(PD, TrackerConfig)
     shifted = run_replay(
-        scenario, samples, artifact_id, tracker, store=store, exploratory=True, now=FIXED_TIME, initial_q=(0.35, 0.55)
+        scenario,
+        SCENARIO,
+        record,
+        samples,
+        tracker,
+        store=store,
+        exploratory=True,
+        now=FIXED_TIME,
+        initial_q=(0.35, 0.55),
     )
     assert np.allclose(shifted.run.arrays.arrays["q"][0], [0.35, 0.55])
     with pytest.raises(FileExistsError, match="runs are immutable"):
         run_replay(
             scenario,
+            SCENARIO,
+            record,
             samples,
-            artifact_id,
             tracker,
             store=store,
             exploratory=True,
             now=FIXED_TIME,
             initial_q=(0.35, 0.55),
         )
+
+
+def test_dataset_from_another_scenario_is_refused(
+    dataset: tuple[StorageRoot, SampleSet, ProcessedDatasetRecord, ScenarioConfig], tmp_path: Path
+) -> None:
+    """A same-dof dataset derived under a different scenario file cannot be replayed silently."""
+    store, samples, record, scenario = dataset
+    other = tmp_path / "other_scenario.toml"
+    other.write_text(SCENARIO.read_text().replace('name = "pd-reach-fixture"', 'name = "another-task"'))
+    tracker = load_config(PD, TrackerConfig)
+    with pytest.raises(ValueError, match="was derived under scenario digest"):
+        run_replay(load_scenario(other), other, record, samples, tracker, store=store, exploratory=True, now=_now())
+    drifted = SampleSet.from_arrays({**samples.arrays(), "q": samples.q + 1e-6})
+    with pytest.raises(ValueError, match="samples do not match the record"):
+        run_replay(scenario, SCENARIO, record, drifted, tracker, store=store, exploratory=True, now=_now())
 
 
 def test_command_line_entry_point(

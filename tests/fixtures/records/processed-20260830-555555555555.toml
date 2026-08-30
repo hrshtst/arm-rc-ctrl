@@ -33,6 +33,21 @@ rclib = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 skelarm = "cccccccccccccccccccccccccccccccccccccccc"
 rtctrl = "dddddddddddddddddddddddddddddddddddddddd"
 
+[scenario]
+config_path = "configs/tasks/task_1a.toml"
+config_sha256 = "2222222222222222222222222222222222222222222222222222222222222222"
+robot = "planar-2dof"
+task = "task-1a-reach"
+dof = 2
+initial_q = [
+    0.2,
+    1.2,
+]
+target = [
+    0.1,
+    0.45,
+]
+
 [units]
 t = "s"
 q = "rad"

@@ -23,6 +23,7 @@ from arm_rc_ctrl.data.records import (
     Payload,
     Preprocessing,
     ProcessedDatasetRecord,
+    Scenario,
     array_specs,
     load_record,
     make_artifact_id,
@@ -67,10 +68,22 @@ def _artifact(**changes: object) -> ArtifactRecord:
     return dataclasses.replace(base, **changes)
 
 
+SCENARIO = Scenario(
+    config_path="configs/tasks/task_1a.toml",
+    config_sha256="2" * 64,
+    robot="planar-2dof",
+    task="task-1a-reach",
+    dof=2,
+    initial_q=(0.2, 1.2),
+    target=(0.10, 0.45),
+)
+
+
 def _record(**changes: object) -> ProcessedDatasetRecord:
     samples = _samples()
     base = ProcessedDatasetRecord(
         artifact=_artifact(),
+        scenario=SCENARIO,
         n_samples=samples.n_samples,
         dof=samples.dof,
         task_dim=samples.task_dim,
@@ -160,9 +173,14 @@ def _with_payload(**changes: object) -> ArtifactRecord:
         ({"units": {k: v for k, v in CANONICAL_UNITS.items() if k != "phase"}}, "units must be exactly"),
         ({"phases": {"prime": 0, "move": 2, "dwell": 1}}, "phases must be exactly"),
         ({"n_samples": 1}, "n_samples >= 2"),
+        ({"scenario": dataclasses.replace(SCENARIO, dof=3, initial_q=(0.0, 0.0, 0.0))}, "scenario.dof 3 != dof 2"),
         ({"task_code_dim": -1}, "task_code_dim >= 0"),
         ({"n_samples": 7}, r"arrays.t.shape must be \[7\], got \[6\]"),
-        ({"dof": 3}, r"arrays.q.shape must be \[6, 3\], got \[6, 2\]"),
+        ({"dof": 3}, "scenario.dof 2 != dof 3"),
+        (
+            {"dof": 3, "scenario": dataclasses.replace(SCENARIO, dof=3, initial_q=(0.0, 0.0, 0.0))},
+            r"arrays.q.shape must be \[6, 3\], got \[6, 2\]",
+        ),
         ({"arrays": {k: v for k, v in array_specs(_samples()).items() if k != "phase"}}, "arrays must be exactly"),
         ({"arrays": dict(reversed(array_specs(_samples()).items()))}, "arrays must be exactly .* in order"),
         (
@@ -247,3 +265,16 @@ def test_array_specs_describe_every_array() -> None:
     assert specs["phase"] == ArraySpec((6,), "int64", samples.digests()["phase"])
     assert specs["task_code"].shape == (6, 0)
     assert np.all([spec.dtype == "float64" for name, spec in specs.items() if name != "phase"])
+
+
+def test_check_scenario_binds_the_dataset_to_a_scenario_file(tmp_path: Path) -> None:
+    """The record accepts only the scenario file whose digest it was derived under."""
+    record = _record()
+    other = tmp_path / "task.toml"
+    other.write_text("name = 'x'\n")
+    with pytest.raises(ValueError, match="was derived under scenario digest 222222222222"):
+        record.check_scenario(other)
+    from arm_rc_ctrl.provenance import sha256_file
+
+    bound = dataclasses.replace(record, scenario=dataclasses.replace(SCENARIO, config_sha256=sha256_file(other)))
+    bound.check_scenario(other)

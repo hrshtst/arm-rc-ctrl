@@ -69,6 +69,8 @@ def test_preprocessing_produces_payload_record_and_catalog(store: StorageRoot, r
     assert record.n_samples == 31
     assert (record.dof, record.task_dim, record.task_code_dim) == (2, 2, 0)
     assert record.artifact.origin.sources == ("raw-20260830-287036d83d46",)
+    assert record.scenario == load_record(RAW_RECORD, RawDemonstrationRecord).scenario
+    record.check_scenario(SCENARIO)
     assert record.artifact.license == "GPL-3.0-only"
     assert record.artifact.access == "public"
     assert record.preprocessing.smoothing == "butterworth-zero-phase"

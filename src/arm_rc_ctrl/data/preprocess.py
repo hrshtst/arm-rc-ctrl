@@ -247,6 +247,7 @@ def preprocess_demonstration(
             near_zero=config.normalization.near_zero,
         )
         record = ProcessedDatasetRecord(
+            scenario=raw.scenario,
             artifact=ArtifactRecord(
                 artifact_id=artifact_id,
                 kind="processed",
