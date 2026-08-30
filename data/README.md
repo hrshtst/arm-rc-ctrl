@@ -93,6 +93,15 @@ serialization must stay byte-stable.
   record path, `uri`, `sha256`, `created_at`). It is append-only: entries are
   never changed or removed.
 
+## Offline signal processing
+
+`arm_rc_ctrl.data.smoothing.smooth(signal, sample_rate_hz, SmoothingConfig)`
+applies a zero-phase Butterworth low-pass (forward and backward, so the
+magnitude response is squared and there is no phase shift) column by column;
+`method = "none"` disables it. Non-finite input, a cutoff at or above Nyquist,
+and signals too short for the edge padding are errors. The configuration's
+`label`/`parameters()` feed the processed record's `[preprocessing]`.
+
 ## Phase annotation
 
 `arm_rc_ctrl.data.phases.annotate_phases(t, intervals)` assigns every sample
