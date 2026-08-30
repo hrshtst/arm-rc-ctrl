@@ -22,7 +22,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M1-008` — implement or validate explicit prime/move/dwell interval annotation.
+- **Next task:** `M1-005` — zero-phase smoothing for offline demonstrations.
 - **Current milestone:** M1 — demonstration pipeline and frozen baselines.
 - **Active blockers:** None.
 - **Latest completed work:** M0 closed 2026-08-30 (all M0 tasks and `M0-GATE` `DONE`; PR #1); `UP-005` open.
@@ -80,7 +80,7 @@ are complete. Do not mark research software complete merely because it runs once
 | M1-005 | `TODO` | Implement configurable smoothing using zero-phase processing for offline demonstrations | M1-003, M1-004 | Analytic noisy-signal tests verify attenuation and absence of measurable phase shift |
 | M1-006 | `TODO` | Implement resampling to the configured control period | M1-005 | Constant/linear analytic signals and endpoint inclusion pass within numerical tolerance |
 | M1-007 | `TODO` | Implement offline derivative generation for `dq`, `ddq`, `dtip`, and `ddtip` | M1-006 | Polynomial/sinusoidal fixtures meet declared interior/boundary error tolerances |
-| M1-008 | `TODO` | Implement or validate explicit prime/move/dwell interval annotation | M1-003 | Missing/overlapping/reversed intervals fail; all samples receive exactly one phase |
+| M1-008 | `DONE` | Implement or validate explicit prime/move/dwell interval annotation | M1-003 | `arm_rc_ctrl.data.phases`: `annotate_phases(t, intervals)` gives every sample exactly one code (half-open boundaries, inclusive dwell end within a tolerance), rejects samples outside the intervals and intervals without samples; `check_annotation` verifies an existing phase array; `intervals_from_phases` recovers boundaries; missing/overlapping/gapped/reversed intervals fail in `Intervals`; `tests/unit/test_phases.py` (23 cases) |
 | M1-009 | `TODO` | Implement training-only normalization statistics | M1-004 | Tests prevent evaluation leakage and define near-zero scale handling |
 | M1-010 | `TODO` | Add transactional preprocessing CLI as a thin wrapper around tested functions | M1-006, M1-007, M1-008, M1-009 | Command writes/validates external payload atomically, then creates its record; overwrite and repository fallback are rejected |
 | M1-011 | `TODO` | Initialize DVC with external per-machine cache and remote | M0-007, M0-014, M1-010 | Ignored local config maps cache/remote below storage root; Git contains only portable DVC metadata and artifact records |

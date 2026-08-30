@@ -93,6 +93,15 @@ serialization must stay byte-stable.
   record path, `uri`, `sha256`, `created_at`). It is append-only: entries are
   never changed or removed.
 
+## Phase annotation
+
+`arm_rc_ctrl.data.phases.annotate_phases(t, intervals)` assigns every sample
+exactly one phase from the record's contiguous `[intervals]` (half-open
+boundaries; the dwell end is inclusive within a small tolerance). Samples
+outside the intervals or an interval without samples are errors;
+`check_annotation` verifies an existing `phase` array and
+`intervals_from_phases` recovers boundaries from one.
+
 ## Validating datasets
 
 `arm_rc_ctrl.data.validate.validate_dataset(samples, spec)` checks a
