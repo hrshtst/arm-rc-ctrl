@@ -41,9 +41,19 @@ jobs:
           submodules: false
 
       - name: Initialize pinned submodules (rclib recursively; skelarm and rtctrl top-level)
+        # Eigen is hosted on gitlab.com, which occasionally refuses clones under
+        # load; retry the recursive init and then require every nested submodule.
         run: |
           git submodule update --init third_party/skelarm third_party/rtctrl
-          git submodule update --init --recursive third_party/rclib
+          for attempt in 1 2 3; do
+            git submodule update --init --recursive third_party/rclib && break
+            echo "rclib submodule fetch failed (attempt $attempt); retrying in 30 s" >&2
+            sleep 30
+          done
+          if git submodule status --recursive third_party/rclib | grep -q '^-'; then
+            echo "rclib nested submodules are incomplete" >&2
+            exit 1
+          fi
 
       - name: Install headless Qt runtime libraries (skelarm imports PyQt6)
         run: |
