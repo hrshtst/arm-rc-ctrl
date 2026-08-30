@@ -22,7 +22,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M1-020` — metric report generation from run records.
+- **Next task:** `M1-021` — sampled joint reference from the canonical demonstration.
 - **Current milestone:** M1 — demonstration pipeline and frozen baselines.
 - **Active blockers:** None.
 - **Latest completed work:** M0 closed 2026-08-30 (all M0 tasks and `M0-GATE` `DONE`; PR #1); `UP-005` open.
@@ -97,7 +97,7 @@ are complete. Do not mark research software complete merely because it runs once
 | M1-017 | `DONE` | Implement final-dwell endpoint and stationarity metrics | M1-002 | `arm_rc_ctrl.metrics.dwell`: `endpoint_error_stats` (mean/RMS/max/p95 of ‖tip−target‖) and `dwell_metrics` over an inclusive time window (in-tolerance fraction, longest continuous in-tolerance duration = span of the longest run, joint-velocity RMS/max, window span, sample count) with strict input validation; `tests/unit/test_dwell_metrics.py` (14 cases) with hand-calculated fixtures |
 | M1-018 | `DONE` | Implement effort, peak torque, and saturation metrics | M1-002 | `arm_rc_ctrl.metrics.effort`: `effort_metrics` = torque RMS, peak (overall and per joint), saturation fraction (any joint at or beyond its limit), and effort `∫Στ² dt` by the trapezoidal rule on irregular grids, with optional window; `tests/unit/test_effort_metrics.py` (11 cases): analytic exactness on irregular grids (constant and piecewise-linear integrands), saturation by joint, windows, rejections |
 | M1-019 | `DONE` | Define provenance-complete external run-record schema and Git pointer record | M0-011, M0-014, M1-015 | `arm_rc_ctrl.experiments.run_record`: `RunArrays` (measured `t/q/dq/tip`, desired `q` + raw/filtered derivatives, tracking error, requested/optional applied torque, task code, saturation; names/dtypes/shapes enforced, read-only), `Disturbance`, `RunSummary` (`run.json`: kind, method, scenario, period/duration, target, task code, disturbances, termination + outcome, per-array specs/digests, arrays digest, seeds, full provenance; cross-validated), `write_run` (staged, content-addressed `run-<date>-<12 hex of run.json>`, atomic move, immutable) returning the Git `RunPointerRecord` (kind `run`), and `load_run` verifying summary digest, arrays digest, per-array digests, and pointer consistency; `tests/unit/test_run_record.py` (11 cases) incl. full round trip, TOML pointer round trip, tampering, immutability |
-| M1-020 | `TODO` | Add metric report generation from run records | M1-016, M1-017, M1-018, M1-019 | JSON/CSV summaries match pure metric functions and contain no hidden recomputation |
+| M1-020 | `DONE` | Add metric report generation from run records | M1-016, M1-017, M1-018, M1-019 | `arm_rc_ctrl.metrics.report`: `build_report(run, reference, …)` aligns the run with the reference dataset on the shared control grid (period/start checked), takes the movement/dwell windows from the reference phases, and stores exactly the outputs of `joint_rmse` (movement window), `dwell_metrics` (dwell window), and `effort_metrics` (whole run) plus termination/outcome and coverage fractions; early-terminated runs remain reportable (`None` where a window has no samples); `report_to_json`/`report_from_json` (strict) and `report_to_csv` (flattened dotted columns); `tests/unit/test_report.py` (5 cases) proves field-by-field equality with the pure functions and JSON/CSV consistency |
 
 ### M1.3 Direct-replay baselines
 
