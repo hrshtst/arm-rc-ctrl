@@ -22,7 +22,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M1-012` — canonical 2-DOF task 1-a scenario TOML.
+- **Next task:** `M1-010` — transactional preprocessing CLI.
 - **Current milestone:** M1 — demonstration pipeline and frozen baselines.
 - **Active blockers:** None.
 - **Latest completed work:** M0 closed 2026-08-30 (all M0 tasks and `M0-GATE` `DONE`; PR #1); `UP-005` open.
@@ -84,7 +84,7 @@ are complete. Do not mark research software complete merely because it runs once
 | M1-009 | `DONE` | Implement training-only normalization statistics | M1-004 | `arm_rc_ctrl.data.normalization`: `fit_normalization(arrays, channels, fitted_on, training_rows, near_zero)` fits per-column mean/std over the boolean training mask only, replaces std ≤ `near_zero` (default 1e-8) by 1.0 and records the indices, skips zero-width channels, rejects empty masks/non-finite training rows; `Normalizer.transform/inverse`; `tests/unit/test_normalization.py` (12 cases) incl. a leakage test (arbitrary/NaN evaluation rows leave the statistics identical) and near-zero handling |
 | M1-010 | `TODO` | Add transactional preprocessing CLI as a thin wrapper around tested functions | M1-006, M1-007, M1-008, M1-009 | Command writes/validates external payload atomically, then creates its record; overwrite and repository fallback are rejected |
 | M1-011 | `TODO` | Initialize DVC with external per-machine cache and remote | M0-007, M0-014, M1-010 | Ignored local config maps cache/remote below storage root; Git contains only portable DVC metadata and artifact records |
-| M1-012 | `TODO` | Create or select the canonical 2-DOF robot/task 1-a scenario | M0-003 | Versioned TOML fixes robot parameters, target, `dt`, limits, duration, prime, and dwell intervals |
+| M1-012 | `DONE` | Create or select the canonical 2-DOF robot/task 1-a scenario | M0-003 | `configs/tasks/task_1a.toml` pins the planar 2-DOF robot (links 0.30/0.25 m, masses, inertias, joint limits ±3 rad, gravity-free), velocity/torque/endpoint-radius limits, initial posture (0.2, 1.2) rad, endpoint target (0.10, 0.45) m ± 0.01 m (0.46 m, elbow-up solution ≈ (0.83, 1.16) rad), `dt` = 0.01 s, and nominal prime/move/dwell intervals [0,1]/[1,4]/[4,5] s; `arm_rc_ctrl.scenario` provides the typed `ScenarioConfig` (cross-field checks: per-joint lengths, posture within limits, target within reach and radius), `load_scenario`, `joint_limits`, `build_skeleton`, and `endpoint_positions` via skelarm FK; smoke reuses the shared link/robot schema; `tests/unit/test_scenario.py` (22 cases) incl. closed-form IK/FK agreement |
 | M1-013 | `TODO` | Record/import one external task 1-a demonstration and commit its immutable record | M1-010, M1-012 | Payload is absent from Git, record resolves and validates, and visual/manual review confirms intended reach/dwell |
 | M1-014 | `TODO` | Add preprocessing integration/regression fixture | M1-013 | Clean reproduction through a configured external store yields expected records, arrays, and digests |
 
