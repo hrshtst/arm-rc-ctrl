@@ -492,13 +492,20 @@ class Preprocessing:
     smoothing_params: dict[str, float]
     derivative_method: str
     """Label of the offline derivative scheme, e.g. ``central-difference``."""
+    interpolation: str = "linear"
+    """Interpolation used when resampling onto the control-period grid."""
 
     def __post_init__(self) -> None:
         """Validate the period, labels, and parameters."""
         if not (self.resample_period_s > 0 and self.resample_period_s < float("inf")):
             msg = f"preprocessing.resample_period_s must be positive and finite, got {self.resample_period_s!r}"
             raise ValueError(msg)
-        for name, label in (("smoothing", self.smoothing), ("derivative_method", self.derivative_method)):
+        labels = (
+            ("smoothing", self.smoothing),
+            ("derivative_method", self.derivative_method),
+            ("interpolation", self.interpolation),
+        )
+        for name, label in labels:
             if not _LABEL_RE.match(label):
                 msg = f"preprocessing.{name} must be a lowercase label, got {label!r}"
                 raise ValueError(msg)

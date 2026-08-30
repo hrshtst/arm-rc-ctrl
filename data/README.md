@@ -102,6 +102,12 @@ magnitude response is squared and there is no phase shift) column by column;
 and signals too short for the edge padding are errors. The configuration's
 `label`/`parameters()` feed the processed record's `[preprocessing]`.
 
+`arm_rc_ctrl.data.resampling.resample(t, values, ResamplingConfig)` moves a
+signal onto the uniform grid `t[0] + k * period` (endpoint included within a
+relative tolerance of 1e-6 of the period; never extrapolated) by linear or
+cubic interpolation per column; the method is recorded as
+`preprocessing.interpolation`.
+
 ## Phase annotation
 
 `arm_rc_ctrl.data.phases.annotate_phases(t, intervals)` assigns every sample
