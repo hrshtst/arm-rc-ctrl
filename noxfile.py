@@ -80,11 +80,24 @@ def type_check(session: nox.Session) -> None:
     _python(session, "-m", "basedpyright")
 
 
+COVERAGE_FAIL_UNDER = 90
+"""Minimum combined line+branch coverage (percent) enforced by the gate (decided at the M1 review)."""
+
+
 @nox.session
 def tests(session: nox.Session) -> None:
-    """Run the test suite with branch coverage reporting (no threshold yet; see M1)."""
+    """Run the test suite with branch coverage; fail below the enforced threshold."""
     _require_project_interpreter(session)
-    _python(session, "-m", "pytest", "--cov", "--cov-report=term-missing", "--cov-report=xml", *session.posargs)
+    _python(
+        session,
+        "-m",
+        "pytest",
+        "--cov",
+        "--cov-report=term-missing",
+        "--cov-report=xml",
+        f"--cov-fail-under={COVERAGE_FAIL_UNDER}",
+        *session.posargs,
+    )
 
 
 @nox.session

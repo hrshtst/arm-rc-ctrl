@@ -79,7 +79,7 @@ uv run nox                 # deps, lint, type_check, tests, cpp (the full gate)
 uv run nox -s deps         # verify rclib/skelarm build identity (-- --rebuild to rebuild)
 uv run nox -s lint         # ruff check + ruff format --check
 uv run nox -s type_check   # basedpyright, strict mode
-uv run nox -s tests        # pytest with branch coverage (coverage.xml)
+uv run nox -s tests        # pytest with branch coverage (coverage.xml); fails below 90 %
 uv run nox -s cpp          # cmake configure/build + ctest with -Werror
 uv run nox -s pre_commit   # all pre-commit hooks on all files
 ```
