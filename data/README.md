@@ -116,6 +116,13 @@ not-a-knot cubic spline). Declared tolerances on polynomial and sinusoidal
 fixtures are checked in `tests/unit/test_derivatives.py`; the scheme label is
 recorded as `preprocessing.derivative_method`.
 
+`arm_rc_ctrl.data.normalization.fit_normalization(arrays, channels, fitted_on=…,
+training_rows=mask)` fits per-column mean and standard deviation on the
+masked training rows only (evaluation rows can never influence them); columns
+with a standard deviation at or below `near_zero` (default 1e-8) get scale 1.0
+and are listed in `replaced_near_zero`. `Normalizer` applies and inverts the
+recorded statistics.
+
 ## Phase annotation
 
 `arm_rc_ctrl.data.phases.annotate_phases(t, intervals)` assigns every sample
