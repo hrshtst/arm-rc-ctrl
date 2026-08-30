@@ -22,7 +22,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M1-015` — typed termination reasons and success/failure records.
+- **Next task:** `M1-017`/`M1-018` — dwell and effort metrics.
 - **Current milestone:** M1 — demonstration pipeline and frozen baselines.
 - **Active blockers:** None.
 - **Latest completed work:** M0 closed 2026-08-30 (all M0 tasks and `M0-GATE` `DONE`; PR #1); `UP-005` open.
@@ -92,8 +92,8 @@ are complete. Do not mark research software complete merely because it runs once
 
 | ID | Status | Task | Depends on | Acceptance/evidence |
 | --- | --- | --- | --- | --- |
-| M1-015 | `TODO` | Define typed termination reasons and success/failure records | M0-010 | Unit tests cover normal end, invalid state/output, limits, divergence, timeout, and backend failure |
-| M1-016 | `TODO` | Implement joint RMSE with per-joint continuous-angle policy | M1-002 | Hand-calculated fixtures test aggregate, per-joint, wrapping, and shape rejection |
+| M1-015 | `DONE` | Define typed termination reasons and success/failure records | M0-010 | `arm_rc_ctrl.experiments.termination`: `Termination` (kinds `completed`, `invalid_state`, `invalid_output`, `limit_violation` with limit/joint/value/bound, `divergence`, `timeout`, `backend_failure`; time/step/detail validated per kind) with factories, and `Outcome` (termination + named success criteria; `success`, `failed_criteria`; `completed` criterion must agree with the termination); strict mapping round trip; `tests/unit/test_termination.py` (14 cases) |
+| M1-016 | `DONE` | Implement joint RMSE with per-joint continuous-angle policy | M1-002 | `arm_rc_ctrl.metrics.joint`: `wrap_angle` to (-π, π], `JointAnglePolicy` (per-joint continuous flag; `limited(dof)`), `joint_error` (wrapping on continuous joints only), `joint_rmse` → aggregate `sqrt(Σ‖wrap(q−q_demo)‖²/(N d))` and per-joint RMSE with sample count; shape/finiteness rejection; `tests/unit/test_joint_metrics.py` (11 cases) with hand-calculated fixtures, zero-for-identical/non-negative properties, wrapping policy, and rejections |
 | M1-017 | `TODO` | Implement final-dwell endpoint and stationarity metrics | M1-002 | Fixtures verify mean/RMS/max/p95 error, in-region fraction, dwell duration, and velocity metrics |
 | M1-018 | `TODO` | Implement effort, peak torque, and saturation metrics | M1-002 | Irregular-time analytic fixtures verify integration and saturation fraction |
 | M1-019 | `TODO` | Define provenance-complete external run-record schema and Git pointer record | M0-011, M0-014, M1-015 | Round-trip retains state, references, torque, disturbances, termination, config, provenance, logical URI, and digest |
