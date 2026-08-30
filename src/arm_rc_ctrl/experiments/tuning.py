@@ -16,23 +16,37 @@ objective component is kept, and the run is deterministic for a given seed.
 
 from __future__ import annotations
 
+import argparse
+import json
 import math
+import sys
+from collections.abc import Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Literal, cast
 
 import numpy as np
+import tomli_w
 from numpy.typing import NDArray
 
-from arm_rc_ctrl.config import load_config
+from arm_rc_ctrl.config import load_config, to_mapping
 from arm_rc_ctrl.controllers.reference import DemonstrationReference
 from arm_rc_ctrl.controllers.tracking import TrackerConfig, TrackerType
 from arm_rc_ctrl.data.phases import intervals_from_phases
-from arm_rc_ctrl.data.records import ProcessedDatasetRecord
-from arm_rc_ctrl.data.samples import SampleSet
+from arm_rc_ctrl.data.records import ProcessedDatasetRecord, load_record, verify_payload
+from arm_rc_ctrl.data.samples import SampleSet, load_samples
 from arm_rc_ctrl.experiments.replay import bind_dataset, dwell_outcome, simulate_tracking
 from arm_rc_ctrl.metrics.joint import JointAnglePolicy, joint_rmse
+from arm_rc_ctrl.provenance import (
+    ArtifactReference,
+    ProvenanceRecord,
+    collect_provenance,
+    require_clean_for_confirmatory,
+)
+from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import ScenarioConfig, load_scenario
+from arm_rc_ctrl.storage import open_storage
 from arm_rc_ctrl.validation import require_finite
 
 __all__ = [
@@ -40,12 +54,15 @@ __all__ = [
     "GainRange",
     "Objective",
     "SearchSpaces",
+    "StudyReport",
     "StudyResult",
     "Trial",
     "TrialScenario",
     "TuningProtocol",
     "evaluate_gains",
+    "freeze_config_toml",
     "load_protocol",
+    "main",
     "run_study",
     "sample_gains",
 ]
@@ -283,3 +300,86 @@ def run_study(
         best=best,
         feasible_trials=sum(1 for t in trials if t.feasible),
     )
+
+
+@dataclass(frozen=True)
+class StudyReport:
+    """Curated, Git-tracked study summary: every trial plus the provenance of the run."""
+
+    result: StudyResult
+    dataset: str
+    scenario_file: str
+    provenance: ProvenanceRecord
+    schema_version: int = 1
+
+
+def freeze_config_toml(gains: TrackerConfig, *, study: str, dataset: str, best_objective: float) -> str:
+    """Render the selected gains as a tracker TOML with a header naming the study that chose them."""
+    header = (
+        f"# Frozen by study {study!r} on dataset {dataset} (objective {best_objective:.6g} rad).\n"
+        "# Do not edit: baseline gains are fixed before any ESN tuning (docs/PLAN.md section 6).\n"
+    )
+    return header + tomli_w.dumps(to_mapping(gains))
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Run one tracker's study on a processed dataset, write the report, and freeze the selected gains."""
+    parser = argparse.ArgumentParser(description="Tune and freeze direct-replay tracker gains.")
+    parser.add_argument("--protocol", type=Path, required=True, help="study TOML (configs/studies/*.toml)")
+    parser.add_argument("--dataset", type=Path, required=True, help="processed dataset record (TOML)")
+    parser.add_argument("--tracker", required=True, choices=("pd", "computed_torque"))
+    parser.add_argument("--report", type=Path, required=True, help="study report JSON to write")
+    parser.add_argument("--freeze", type=Path, required=True, help="frozen tracker TOML to write")
+    parser.add_argument("--exploratory", action="store_true", help="allow a dirty worktree")
+    args = parser.parse_args(argv)
+    if Path(args.report).exists() or Path(args.freeze).exists():
+        msg = f"{args.report} or {args.freeze} already exists; studies and frozen configs are immutable"
+        raise FileExistsError(msg)
+    protocol = load_protocol(Path(args.protocol))
+    store = open_storage()
+    dataset = load_record(Path(args.dataset), ProcessedDatasetRecord)
+    samples = load_samples(verify_payload(store, dataset.artifact))
+    resolved = {"protocol": to_mapping(protocol), "dataset": dataset.artifact.artifact_id, "tracker": args.tracker}
+    payload = dataset.artifact.payload
+    provenance = collect_provenance(
+        resolved,
+        seeds={"sampler": protocol.sampler_seed},
+        artifacts=[ArtifactReference(payload.uri, payload.sha256, payload.size)],
+        exploratory=args.exploratory,
+        now=datetime.now(UTC),
+    )
+    require_clean_for_confirmatory(provenance)
+    result = run_study(protocol, dataset, samples, cast("TrackerType", args.tracker))
+    report = StudyReport(
+        result=result,
+        dataset=dataset.artifact.artifact_id,
+        scenario_file=protocol.scenario.relative_to(repository_root()).as_posix(),
+        provenance=provenance,
+    )
+    Path(args.report).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.report).write_text(json.dumps(to_mapping(report), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    Path(args.freeze).write_text(
+        freeze_config_toml(
+            result.best.gains, study=protocol.name, dataset=report.dataset, best_objective=result.best.objective
+        ),
+        encoding="utf-8",
+    )
+    print(
+        json.dumps(
+            {
+                "tracker": args.tracker,
+                "budget": result.budget,
+                "feasible_trials": result.feasible_trials,
+                "best_trial": result.best.number,
+                "best_objective": result.best.objective,
+                "kp": list(result.best.gains.kp),
+                "kd": list(result.best.gains.kd),
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -231,3 +231,65 @@ def test_dwell_criteria_decide_feasibility(
     assert objective_bad == protocol.objective.infeasible_penalty
     assert all(c.termination == "completed" and c.move_joint_rmse is not None for c in components)
     assert all(c.criteria["completed"] and not c.criteria["dwell_stationary"] for c in components)
+
+
+def test_command_line_runs_a_study_writes_the_report_and_freezes_gains(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The CLI resolves the dataset through the store, runs the seeded study, and writes report + frozen TOML."""
+    import json
+
+    from arm_rc_ctrl.config import load_config, to_mapping
+    from arm_rc_ctrl.experiments.tuning import StudyReport, main
+
+    root = tmp_path / "store"
+    root.mkdir()
+    store = StorageRoot(root, repositories=(REPO_ROOT,))
+    raw = load_record(RAW_RECORD, RawDemonstrationRecord)
+    store.path(raw.artifact.payload.uri, mode="write").write_bytes(RAW_LOG.read_bytes())
+    records = tmp_path / "repo"
+    (records / "data" / "records" / "processed").mkdir(parents=True)
+    processed = preprocess_demonstration(
+        RAW_RECORD, SCENARIO, PREPROCESS, store=store, records_root=records, exploratory=True, now=FIXED_TIME
+    )
+    # A small protocol bound to the fixture scenario, mirroring the committed one otherwise.
+    small = tmp_path / "studies" / "small.toml"
+    small.parent.mkdir()
+    text = (
+        PROTOCOL.read_text()
+        .replace('scenario = "../tasks/task_1a.toml"', f'scenario = "{SCENARIO}"')
+        .replace("budget = 64", "budget = 2")
+    )
+    small.write_text(text)
+    monkeypatch.setenv("ARM_RC_CTRL_STORAGE_ROOT", str(root))
+    report = tmp_path / "report.json"
+    frozen = tmp_path / "pd_frozen.toml"
+    args = [
+        "--protocol",
+        str(small),
+        "--dataset",
+        str(processed.record_file),
+        "--tracker",
+        "pd",
+        "--report",
+        str(report),
+        "--freeze",
+        str(frozen),
+        "--exploratory",
+    ]
+    assert main(args) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["budget"] == 2
+    assert printed["best_trial"] in (0, 1)
+    loaded = json.loads(report.read_text())
+    assert loaded["result"]["budget"] == 2
+    assert len(loaded["result"]["trials"]) == 2
+    assert loaded["provenance"]["seeds"] == {"sampler": 20260830}
+    assert loaded["provenance"]["artifacts"][0]["uri"] == processed.record.artifact.payload.uri
+    gains = load_config(frozen, TrackerConfig)
+    assert gains.type == "pd"
+    assert to_mapping(gains) == loaded["result"]["best"]["gains"]
+    assert frozen.read_text().startswith("# Frozen by study")
+    with pytest.raises(FileExistsError, match="immutable"):
+        main(args)
+    del StudyReport
