@@ -22,7 +22,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M1-021` — sampled joint reference from the canonical demonstration.
+- **Next task:** `M1-022` — headless direct-replay PD experiment.
 - **Current milestone:** M1 — demonstration pipeline and frozen baselines.
 - **Active blockers:** None.
 - **Latest completed work:** M0 closed 2026-08-30 (all M0 tasks and `M0-GATE` `DONE`; PR #1); `UP-005` open.
@@ -103,7 +103,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 | ID | Status | Task | Depends on | Acceptance/evidence |
 | --- | --- | --- | --- | --- |
-| M1-021 | `TODO` | Build a sampled joint reference from the canonical demonstration | M1-014 | Samples at grid/between-grid/boundaries match the processed data policy |
+| M1-021 | `DONE` | Build a sampled joint reference from the canonical demonstration | M1-014 | `arm_rc_ctrl.controllers.reference.DemonstrationReference` (skelarm `JointReference` protocol): exact at dataset grid points, linear or cubic between them per the dataset policy, holds the boundary posture with zero `dq`/`ddq` outside the recorded range; `from_samples`, `sample`, `sample_many`; `tests/unit/test_reference.py` (6 cases) for grid/between-grid/boundary behaviour, both policies, vectorized consistency, validation. Implemented ahead of M1-014 against the fixture-derived dataset; the real task 1-a dataset plugs in unchanged |
 | M1-022 | `TODO` | Implement headless direct-replay PD experiment through `skelarm` | M1-019, M1-021 | Run terminates normally, logs required channels, and respects configured limits |
 | M1-023 | `TODO` | Implement headless direct-replay computed-torque experiment | M1-019, M1-021 | Same acceptance as PD and dynamics feedforward is visible in telemetry |
 | M1-024 | `TODO` | Define an equal-budget baseline-gain tuning protocol | M1-022, M1-023 | Versioned config fixes search spaces, objective, sampler seed, budget, limits, and development scenarios |
