@@ -25,7 +25,7 @@ are complete. Do not mark research software complete merely because it runs once
 - **Next task:** `M1-GATE` — review and close the M1 gate (reviewer reproduces preprocessing and both frozen baselines from the records).
 - **Current milestone:** M1 — demonstration pipeline and frozen baselines.
 - **Active blockers:** None.
-- **Latest completed work:** M0 closed 2026-08-30 (all M0 tasks and `M0-GATE` `DONE`; PR #1); `UP-005` open.
+- **Latest completed work:** `M1-001`–`M1-028` `DONE` on branch `m1-demonstration-pipeline` (2026-08-31): scripted demonstration imported and preprocessed, both baseline gains frozen, replay regression tests, confirmatory perturbation levels and seeds locked; `M1-GATE` awaits the bulk review. M0 closed 2026-08-30 (PR #1); `UP-005` open.
 
 ## Milestone gates
 
