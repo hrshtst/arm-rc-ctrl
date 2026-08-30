@@ -286,6 +286,9 @@ def test_command_line_runs_a_study_writes_the_report_and_freezes_gains(
     assert len(loaded["result"]["trials"]) == 2
     assert loaded["provenance"]["seeds"] == {"sampler": 20260830}
     assert loaded["provenance"]["artifacts"][0]["uri"] == processed.record.artifact.payload.uri
+    assert str(tmp_path) not in report.read_text()  # no machine paths in the curated report
+    assert loaded["scenario_file"] == "tests/fixtures/configs/planar_2dof_fixture.toml"
+    assert loaded["provenance"]["config_json"].count(str(tmp_path)) == 0
     gains = load_config(frozen, TrackerConfig)
     assert gains.type == "pd"
     assert to_mapping(gains) == loaded["result"]["best"]["gains"]

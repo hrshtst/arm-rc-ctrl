@@ -339,7 +339,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     store = open_storage()
     dataset = load_record(Path(args.dataset), ProcessedDatasetRecord)
     samples = load_samples(verify_payload(store, dataset.artifact))
-    resolved = {"protocol": to_mapping(protocol), "dataset": dataset.artifact.artifact_id, "tracker": args.tracker}
+    scenario_file = protocol.scenario.relative_to(repository_root()).as_posix()
+    protocol_mapping = to_mapping(protocol)
+    protocol_mapping["scenario"] = scenario_file  # records never carry machine paths
+    resolved = {"protocol": protocol_mapping, "dataset": dataset.artifact.artifact_id, "tracker": args.tracker}
     payload = dataset.artifact.payload
     provenance = collect_provenance(
         resolved,
@@ -353,7 +356,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     report = StudyReport(
         result=result,
         dataset=dataset.artifact.artifact_id,
-        scenario_file=protocol.scenario.relative_to(repository_root()).as_posix(),
+        scenario_file=scenario_file,
         provenance=provenance,
     )
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
