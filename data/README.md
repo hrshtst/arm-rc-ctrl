@@ -108,6 +108,14 @@ relative tolerance of 1e-6 of the period; never extrapolated) by linear or
 cubic interpolation per column; the method is recorded as
 `preprocessing.interpolation`.
 
+`arm_rc_ctrl.data.derivatives.differentiate(values, period_s, DerivativeConfig)`
+returns first and second derivatives on the uniform grid: `central`
+(second-order central differences with second-order one-sided boundary
+formulas, so every sample is O(h²)) or `spline` (analytic derivatives of a
+not-a-knot cubic spline). Declared tolerances on polynomial and sinusoidal
+fixtures are checked in `tests/unit/test_derivatives.py`; the scheme label is
+recorded as `preprocessing.derivative_method`.
+
 ## Phase annotation
 
 `arm_rc_ctrl.data.phases.annotate_phases(t, intervals)` assigns every sample
