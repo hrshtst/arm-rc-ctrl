@@ -340,7 +340,9 @@ def test_resume_refuses_different_metadata_or_a_tampered_record(
         _run_at(store, records_root, FIXED_TIME)
     monkeypatch.undo()
     (record_file,) = (records_root / "data" / "records" / "processed").iterdir()
-    with pytest.raises(FileExistsError, match=r"does not describe this payload \(differs in artifact\.license\)"):
+    with pytest.raises(
+        FileExistsError, match=r"recorded with license 'GPL-3\.0-only', and this retry asks for 'CC-BY-4\.0'"
+    ):
         _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1), license_override="CC-BY-4.0")
     text = record_file.read_text()
     assert text.count('access = "public"') == 1
@@ -382,3 +384,101 @@ def test_resume_refuses_missing_or_foreign_stored_provenance(
 
     provenance_file.write_text(original)
     assert _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1)).resumed is True
+
+
+def test_retry_after_a_utc_date_rollover_resumes_the_finalized_artifact(
+    store: StorageRoot, records_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A payload finalized just before midnight is found and adopted by a retry on the next UTC day."""
+    before_midnight = datetime(2026, 8, 30, 23, 59, 59, tzinfo=UTC)
+    monkeypatch.setattr("arm_rc_ctrl.data.preprocess.write_record", _fail)
+    with pytest.raises(RuntimeError):
+        _run_at(store, records_root, before_midnight)
+    monkeypatch.undo()
+    (orphan,) = _processed_entries(store)
+    assert orphan.startswith("processed-20260830-")
+
+    result = _run_at(store, records_root, before_midnight + timedelta(seconds=2))
+    assert result.resumed is True
+    assert result.record.artifact.artifact_id == orphan
+    assert result.record.artifact.created_at == before_midnight.isoformat()
+    assert result.provenance.created_at == before_midnight.isoformat()
+    assert _processed_entries(store) == [orphan]  # no processed-20260831-... duplicate
+    assert result.record_file.name == f"{orphan}.toml"
+    assert [e.artifact_id for e in load_catalog(records_root / "data" / "catalog.toml").artifacts] == [orphan]
+
+
+def test_metadata_recorded_at_finalization_wins_on_resume(
+    store: StorageRoot, records_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """License, access, and command come from the pending record kept with the payload, not from the retry."""
+    monkeypatch.setattr("arm_rc_ctrl.data.preprocess.write_record", _fail)
+    with pytest.raises(RuntimeError):
+        _run_at(
+            store, records_root, FIXED_TIME, license_override="CC-BY-4.0", access_override="internal", command="first"
+        )
+    monkeypatch.undo()
+    (orphan,) = _processed_entries(store)
+    pending = load_record(store.root / "processed" / orphan / "record.toml", ProcessedDatasetRecord)
+    assert (pending.artifact.license, pending.artifact.access, pending.artifact.origin.command) == (
+        "CC-BY-4.0",
+        "internal",
+        "first",
+    )
+
+    with pytest.raises(FileExistsError, match=r"recorded with license 'CC-BY-4\.0', and this retry asks for 'MIT'"):
+        _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1), license_override="MIT")
+    with pytest.raises(FileExistsError, match="recorded with access 'internal', and this retry asks for 'public'"):
+        _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1), access_override="public")
+    assert list((records_root / "data" / "records" / "processed").iterdir()) == []
+
+    result = _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1), command="second")
+    assert result.resumed is True
+    assert result.record == pending
+    assert load_record(result.record_file, ProcessedDatasetRecord) == pending
+    assert result.record.artifact.origin.command == "first"
+
+
+def test_resume_refuses_a_tampered_or_missing_pending_record(
+    store: StorageRoot, records_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The pending record must load strictly and be exactly what this invocation rebuilds from the stored provenance."""
+    monkeypatch.setattr("arm_rc_ctrl.data.preprocess.write_record", _fail)
+    with pytest.raises(RuntimeError):
+        _run_at(store, records_root, FIXED_TIME)
+    monkeypatch.undo()
+    (orphan,) = _processed_entries(store)
+    pending_file = store.root / "processed" / orphan / "record.toml"
+    original = pending_file.read_text()
+
+    pending_file.write_text(original.replace("Processed from", "Edited after finalization:"))
+    with pytest.raises(FileExistsError, match=r"record\.toml does not describe this payload and provenance"):
+        _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1))
+
+    pending_file.write_text(original[: len(original) // 2])
+    with pytest.raises(FileExistsError, match=r"record\.toml is missing or invalid"):
+        _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1))
+
+    pending_file.unlink()
+    with pytest.raises(FileExistsError, match=r"record\.toml is missing or invalid"):
+        _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1))
+
+    pending_file.write_text(original)
+    assert _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1)).resumed is True
+
+
+def test_resume_refuses_several_finalized_copies(
+    store: StorageRoot, records_root: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Two finalized directories with the same payload digest are ambiguous and left for inspection."""
+    monkeypatch.setattr("arm_rc_ctrl.data.preprocess.write_record", _fail)
+    with pytest.raises(RuntimeError):
+        _run_at(store, records_root, FIXED_TIME)
+    monkeypatch.undo()
+    (orphan,) = _processed_entries(store)
+    shutil.copytree(
+        store.root / "processed" / orphan, store.root / "processed" / orphan.replace("20260830", "20260829")
+    )
+    with pytest.raises(FileExistsError, match="several finalized payloads carry digest"):
+        _run_at(store, records_root, FIXED_TIME + timedelta(minutes=1))
+    assert len(_processed_entries(store)) == 2  # staging cleaned up, both copies left in place

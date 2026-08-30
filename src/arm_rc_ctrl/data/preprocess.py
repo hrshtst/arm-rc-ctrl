@@ -29,7 +29,7 @@ import json
 import shutil
 import sys
 import uuid
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -58,6 +58,7 @@ from arm_rc_ctrl.data.records import (
     load_catalog,
     load_record,
     make_artifact_id,
+    to_toml,
     write_catalog,
     write_record,
 )
@@ -90,6 +91,8 @@ __all__ = [
 
 DEFAULT_CONFIG = Path("configs") / "preprocessing" / "default.toml"
 PROVENANCE_FILE = "provenance.json"
+PENDING_RECORD_FILE = "record.toml"
+"""Copy of the complete record kept beside the payload from finalization on (see ``_finalize_payload``)."""
 _TASK_DIM = 2
 
 
@@ -233,28 +236,43 @@ def preprocess_demonstration(
         save_samples(payload_file, samples)
         digest = sha256_file(payload_file)
         size = payload_file.stat().st_size
-        artifact_id = make_artifact_id("processed", provenance.created_at, digest)
-        final_dir = store.path(ArtifactUri("processed", (artifact_id,)), mode="write")
+
+        def rebuild(
+            artifact_id: str, origin: ProvenanceRecord, command_line: str, license_label: str, access: AccessClass
+        ) -> ProcessedDatasetRecord:
+            return _build_record(
+                raw,
+                scenario,
+                config,
+                samples,
+                artifact_id=artifact_id,
+                digest=digest,
+                size=size,
+                provenance=origin,
+                command=command_line,
+                license_label=license_label,
+                access=access,
+            )
+
+        record = rebuild(
+            make_artifact_id("processed", provenance.created_at, digest),
+            provenance,
+            command,
+            license_override or raw.artifact.license,
+            access_override or raw.artifact.access,
+        )
         (staging / PROVENANCE_FILE).write_text(provenance.to_json() + "\n", encoding="utf-8")
-        # On resume the finalized directory's provenance is authoritative: the record is rebuilt from it.
-        provenance, resumed = _finalize_payload(staging, final_dir, artifact_id, digest, provenance)
+        # The complete pending record travels with the payload, so a retry cannot redefine its metadata.
+        (staging / PENDING_RECORD_FILE).write_text(to_toml(record), encoding="utf-8")
+        record, provenance, resumed = _finalize_payload(
+            store, staging, record, provenance, rebuild, requested=(license_override, access_override)
+        )
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
 
-    record = _build_record(
-        raw,
-        scenario,
-        config,
-        samples,
-        artifact_id=artifact_id,
-        digest=digest,
-        size=size,
-        provenance=provenance,
-        command=command,
-        license_label=license_override or raw.artifact.license,
-        access=access_override or raw.artifact.access,
-    )
+    artifact_id = record.artifact.artifact_id
+    final_dir = store.path(ArtifactUri("processed", (artifact_id,)), mode="write")
     record_file = records_root / "data" / "records" / "processed" / f"{artifact_id}.toml"
     record = _finalize_record(record_file, record, resumed=resumed)
     _finalize_catalog(records_root, record, record_file)
@@ -319,21 +337,49 @@ def _build_record(
     )
 
 
-def _finalize_payload(
-    staging: Path, final_dir: Path, artifact_id: str, digest: str, provenance: ProvenanceRecord
-) -> tuple[ProvenanceRecord, bool]:
-    """Move the staged payload into place, or adopt an identical payload finalized by an earlier invocation.
+type RecordBuilder = Callable[[str, ProvenanceRecord, str, str, AccessClass], ProcessedDatasetRecord]
+"""Rebuilds the record for (artifact ID, provenance, command, license, access) from the freshly processed samples."""
 
-    Returns the authoritative provenance and whether the run resumed. A resumed
-    run must find the same payload bytes (content-addressed, so the digest proves
-    identity) and a strictly valid stored provenance produced from the same
-    resolved configuration and source artifacts; the stored provenance, not the
-    retry's, then describes the dataset. Anything else is left for inspection.
+
+def _finalized_payloads(store: StorageRoot, digest: str) -> list[Path]:
+    """Finalized processed directories whose content-addressed ID carries this payload digest, on any date."""
+    bucket = store.root / "processed"
+    suffix = make_artifact_id("processed", "2000-01-01T00:00:00+00:00", digest).rsplit("-", 1)[1]
+    return sorted(path for path in bucket.glob(f"processed-*-{suffix}") if path.is_dir())
+
+
+def _finalize_payload(
+    store: StorageRoot,
+    staging: Path,
+    record: ProcessedDatasetRecord,
+    provenance: ProvenanceRecord,
+    rebuild: RecordBuilder,
+    *,
+    requested: tuple[str | None, AccessClass | None],
+) -> tuple[ProcessedDatasetRecord, ProvenanceRecord, bool]:
+    """Move the staged payload into place, or adopt the identical payload an earlier invocation finalized.
+
+    A finalized payload is located by its digest whatever day it was created on,
+    so a retry after a UTC date rollover resumes instead of duplicating it. Adopting
+    it requires byte-identical content, a strictly valid stored provenance from the
+    same resolved configuration and source artifacts, and a strictly valid pending
+    record that this invocation reproduces exactly from that provenance. The stored
+    provenance and pending record (license, access, and command included) then
+    describe the dataset; a retry asking for other metadata is refused, and anything
+    inconsistent is left in place for inspection.
     """
-    if not final_dir.exists():
+    digest = record.artifact.payload.sha256
+    candidates = _finalized_payloads(store, digest)
+    if not candidates:
+        final_dir = store.path(ArtifactUri("processed", (record.artifact.artifact_id,)), mode="write")
         staging.rename(final_dir)
-        return provenance, False
-    where = f"{artifact_id} exists under {final_dir.parent} but"
+        return record, provenance, False
+    if len(candidates) > 1:
+        names = ", ".join(path.name for path in candidates)
+        msg = f"several finalized payloads carry digest {digest[:12]} ({names}); inspect and remove them manually"
+        raise FileExistsError(msg)
+    final_dir = candidates[0]
+    where = f"{final_dir.name} exists under {final_dir.parent} but"
     existing = final_dir / PROCESSED_PAYLOAD_NAME
     if not existing.is_file() or sha256_file(existing) != digest:
         msg = f"{where} its payload differs from the freshly processed one; inspect and remove it manually"
@@ -343,15 +389,32 @@ def _finalize_payload(
     except (OSError, ValueError, TypeError, KeyError) as exc:
         msg = f"{where} its {PROVENANCE_FILE} is missing or invalid ({exc}); inspect and remove it manually"
         raise FileExistsError(msg) from exc
-    if (
-        stored.config_sha256 != provenance.config_sha256
-        or stored.artifacts != provenance.artifacts
-        or make_artifact_id("processed", stored.created_at, digest) != artifact_id
-    ):
+    if stored.config_sha256 != provenance.config_sha256 or stored.artifacts != provenance.artifacts:
         msg = f"{where} its {PROVENANCE_FILE} was produced from different inputs; inspect and remove it manually"
         raise FileExistsError(msg)
+    try:
+        pending = load_record(final_dir / PENDING_RECORD_FILE, ProcessedDatasetRecord)
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        msg = f"{where} its {PENDING_RECORD_FILE} is missing or invalid ({exc}); inspect and remove it manually"
+        raise FileExistsError(msg) from exc
+    artifact = pending.artifact
+    expected = rebuild(artifact.artifact_id, stored, artifact.origin.command, artifact.license, artifact.access)
+    if (
+        artifact.artifact_id != final_dir.name
+        or artifact.artifact_id != make_artifact_id("processed", stored.created_at, digest)
+        or pending != expected
+    ):
+        msg = f"{where} its {PENDING_RECORD_FILE} does not describe this payload and provenance; inspect and remove it"
+        raise FileExistsError(msg)
+    for name, wanted, recorded in (
+        ("license", requested[0], artifact.license),
+        ("access", requested[1], artifact.access),
+    ):
+        if wanted is not None and wanted != recorded:
+            msg = f"{where} it was recorded with {name} {recorded!r}, and this retry asks for {wanted!r}"
+            raise FileExistsError(msg)
     shutil.rmtree(staging, ignore_errors=True)
-    return stored, True
+    return pending, stored, True
 
 
 def _differing_fields(existing: ProcessedDatasetRecord, record: ProcessedDatasetRecord) -> list[str]:
