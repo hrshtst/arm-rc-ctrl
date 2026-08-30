@@ -12,7 +12,7 @@ provenance-complete run record and evaluated with the report functions.
 Command line::
 
     python -m arm_rc_ctrl.experiments.replay --scenario configs/tasks/task_1a.toml
-        --dataset data/records/processed/<id>.toml --controller configs/controllers/pd.toml
+        --dataset data/records/processed/<id>.toml --controller configs/controllers/task_1a_pd.toml
         [--exploratory] [--report report.json]
 """
 

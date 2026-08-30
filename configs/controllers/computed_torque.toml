@@ -1,5 +1,6 @@
 # Computed-torque tracker: tau = H(q) (ddq_r + Kd (dq_r - dq) + Kp (q_r - q)) + b(q, dq).
-# Placeholder gains (omega^2 = 100, 2*zeta*omega = 20); M1-026 tunes and freezes them.
+# Development gains (omega^2 = 100, 2*zeta*omega = 20) for the fixture scenario and integration
+# tests only. The task 1-a baseline gains are frozen in task_1a_computed_torque.toml (M1-026).
 type = "computed_torque"
 kp = [100.0, 100.0]
 kd = [20.0, 20.0]
