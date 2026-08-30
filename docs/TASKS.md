@@ -22,16 +22,16 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M0-GATE` — reviewer sign-off on PR #1 (CI green), then merge and start `M1-001`.
-- **Current milestone:** M0 — repository foundation.
-- **Active blockers:** None; `M0-GATE` awaits reviewer sign-off on PR #1.
-- **Latest completed work:** M0-001 … M0-005, M0-007, M0-009 … M0-014 (`DONE`); M0-006 and M0-008 evidence recorded; UP-005 opened.
+- **Next task:** `M1-001` — define versioned raw-demonstration artifact records.
+- **Current milestone:** M1 — demonstration pipeline and frozen baselines.
+- **Active blockers:** None.
+- **Latest completed work:** M0 closed 2026-08-30 (all M0 tasks and `M0-GATE` `DONE`; PR #1); `UP-005` open.
 
 ## Milestone gates
 
 | Milestone | Gate | Status |
 | --- | --- | --- |
-| M0 | Clean recursive checkout installs and passes documented Python/C++ quality commands | `IN PROGRESS` |
+| M0 | Clean recursive checkout installs and passes documented Python/C++ quality commands | `DONE` |
 | M1 | Demonstration preprocessing and both direct-replay baselines are reproducible | `TODO` |
 | M2 | Task 1-a ESN completes a provenance-complete nominal closed-loop run | `TODO` |
 | M3 | Frozen task 1-a model and confirmatory robustness report reproduce with one command | `TODO` |
@@ -65,7 +65,7 @@ are complete. Do not mark research software complete merely because it runs once
 | M0-012 | `DONE` | Add headless deterministic smoke experiment independent of GUI/hardware | M0-003, M0-010, M0-011 | `arm_rc_ctrl.experiments.smoke` + `configs/evaluations/smoke.toml`: headless 2-DOF `skelarm` PD reach and teacher-forced `rclib` ESN (`[q,dq]→q_next`), single-OpenMP-thread guard, finite/float64 checks, transactional immutable output under `armrc://runs/<id>/` (`arrays.npz`, `summary.json` with per-array SHA-256, canonical digest, full provenance), clean-worktree policy, `python -m` entry point; `tests/integration/test_smoke_experiment.py`: two fresh-process executions are bitwise identical (tolerance 0); in-process repeat is a strict xfail pending UP-005; review round 1: config validation also covers ESN ranges (mirroring rclib), non-negative gains, and initial/target postures within joint limits |
 | M0-013 | `DONE` | Add owner-approved citation and publication metadata | M0-001 | `CITATION.cff` (CFF 1.2.0; author Hiroshi Atsuta <atsuta@ieee.org>, GPL-3.0-only, repository URL, dev version, no DOI/date yet; affiliation/ORCID pending) and `docs/PUBLICATION.md` (public development, archival release + Zenodo DOI only after a reproducible milestone, external/private data); `tests/unit/test_citation_metadata.py` checks required CFF fields and consistency with `pyproject.toml` |
 | M0-014 | `DONE` | Implement machine-local external storage-root resolution | M0-010 | `arm_rc_ctrl.storage` resolves env → XDG `storage.toml` → `/external/arm-rc-ctrl`, validates an existing readable root outside any known worktree (never created, never the repository), parses/renders `armrc://<bucket>/…` with traversal/absolute/charset rejection, canonicalizes targets and refuses symlink escapes, and distinguishes read (must exist/readable) from write (writable root, parents created); `tests/unit/test_storage.py` (43 cases) covers precedence, XDG fallback, invalid config, access checks, symlinks, and the committed example config; review round 1: unknown access modes raise `ValueError` without creating directories |
-| M0-GATE | `IN PROGRESS` | Review and close the M0 gate | M0-006, M0-007, M0-008, M0-009, M0-012, M0-013, M0-014 | Review round 1 (2026-08-29) requested changes: CI interpreter fallback, unverifiable compiled builds, unvalidated provenance, plus `Literal` typing, smoke ranges, storage mode, PR wording — all addressed in commits `c6ade00`…`15dc0ff`. Re-verified from fresh clones of `m0-foundation` @ `15dc0ff` under Python 3.12 and 3.13 (`UV_PYTHON` + `ARM_RC_CTRL_EXPECTED_PYTHON`): documented bootstrap, `uv sync`, `dependencies rebuild`, `uv run nox` = deps + lint + basedpyright strict + 223 tests (1 strict xfail, UP-005) + CTest 2/2 `-Werror`, two non-exploratory smoke runs with identical canonical digest `25517ac9b02306ff…` on both interpreters and `builds` recorded in provenance, all pre-commit hooks passed, all submodules clean. Remaining for closure: reviewer sign-off and the first hosted CI run (`M0-006`) after push + pull request; hosted CI run 33285899541 (head `53f6b41`, review round 2 applied) on PR #1 passed all four jobs; only reviewer sign-off remains |
+| M0-GATE | `DONE` | Review and close the M0 gate | M0-006, M0-007, M0-008, M0-009, M0-012, M0-013, M0-014 | Reviewer sign-off 2026-08-30 on PR #1 head `c48f3bd`: full gate 239 passed + 1 strict xfail (UP-005), coverage 92%, CTest 2/2 with `-Werror`, Ruff/format/basedpyright strict/pre-commit clean, all four hosted CI jobs passed (run 33286023074, Python 3.12 and 3.13), Eigen mirror serves the pinned commit, worktree and submodules clean. Review rounds 1–2 findings resolved in `c6ade00`…`86e4c13`; residual item UP-005 is documented and non-blocking |
 
 ## M1 — Demonstration pipeline and frozen baselines
 
