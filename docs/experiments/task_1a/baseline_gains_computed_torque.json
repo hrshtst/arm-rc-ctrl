@@ -1,0 +1,5162 @@
+{
+  "dataset": "processed-20260830-feaf73e6663c",
+  "provenance": {
+    "artifacts": [
+      {
+        "sha256": "feaf73e6663c865cf9232c5a620bab5729ea02e6bd8c0181ad3dae5733540767",
+        "size": 58288,
+        "uri": "armrc://processed/processed-20260830-feaf73e6663c/samples.npz"
+      }
+    ],
+    "builds": [
+      {
+        "editable": false,
+        "extension_sha256": "f91828d8243700f1a283de80f5ef6cd3c756a3af1ba46a60103b5ad33cdebd5b",
+        "name": "rclib",
+        "python_sources_sha256": "458cc468c0af3dcee87c2c710024b487c8cb86075bad7702ac7984259734cfa3",
+        "source_commit": "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b",
+        "source_dirty": false,
+        "version": "0.1.0"
+      },
+      {
+        "editable": false,
+        "extension_sha256": null,
+        "name": "skelarm",
+        "python_sources_sha256": "4257de5cc8dfcedade31d75a8142ec1e4f337723d5191d8a51f52fe5aef3484a",
+        "source_commit": "ebb26118864ad158ef2ad36af68027b1a12ade1a",
+        "source_dirty": false,
+        "version": "0.3.0"
+      }
+    ],
+    "config_json": "{\"dataset\":\"processed-20260830-feaf73e6663c\",\"protocol\":{\"budget\":64,\"development\":{\"initial_posture_offsets\":[[0.0,0.0],[0.05,-0.05],[-0.05,0.05],[0.08,0.0]]},\"name\":\"baseline-gains-1a\",\"objective\":{\"infeasible_penalty\":10.0,\"kind\":\"median_move_joint_rmse\"},\"sampler_seed\":20260830,\"scenario\":\"configs/tasks/task_1a.toml\",\"search\":{\"computed_torque\":{\"kd\":{\"high\":120.0,\"log\":true,\"low\":2.0},\"kp\":{\"high\":900.0,\"log\":true,\"low\":10.0}},\"pd\":{\"kd\":{\"high\":60.0,\"log\":true,\"low\":0.05},\"kp\":{\"high\":300.0,\"log\":true,\"low\":1.0}}}},\"tracker\":\"computed_torque\"}",
+    "config_sha256": "8b99bd3bc5fcdd403758ef433d904dd7537598e9d2ba48e19f1647eb0f51150d",
+    "created_at": "2026-08-30T14:56:57+00:00",
+    "exploratory": false,
+    "lock_sha256": "a2a796249e346bdc2947baecf2925bdc851906a8480eb453973c1c73560a2f6b",
+    "platform": {
+      "implementation": "CPython",
+      "machine": "x86_64",
+      "packages": {
+        "arm-rc-ctrl": "0.1.0.dev0",
+        "numpy": "2.5.2",
+        "rclib": "0.1.0",
+        "skelarm": "0.3.0"
+      },
+      "python": "3.12.11",
+      "release": "7.0.0-30-generic",
+      "system": "Linux",
+      "thread_environment": {}
+    },
+    "project_commit": "2621a7e6edc2689d485b4fea63ba3861103c1b21",
+    "project_dirty": false,
+    "schema_version": 1,
+    "seeds": {
+      "sampler": 20260830
+    },
+    "submodules": [
+      {
+        "checked_out": "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b",
+        "dirty": false,
+        "name": "rclib",
+        "path": "third_party/rclib",
+        "recorded": "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b"
+      },
+      {
+        "checked_out": "ebb26118864ad158ef2ad36af68027b1a12ade1a",
+        "dirty": false,
+        "name": "skelarm",
+        "path": "third_party/skelarm",
+        "recorded": "ebb26118864ad158ef2ad36af68027b1a12ade1a"
+      },
+      {
+        "checked_out": "c601076ee60ec712c1cb4a85756a186882df2e1b",
+        "dirty": false,
+        "name": "rtctrl",
+        "path": "third_party/rtctrl",
+        "recorded": "c601076ee60ec712c1cb4a85756a186882df2e1b"
+      }
+    ]
+  },
+  "result": {
+    "best": {
+      "feasible": true,
+      "gains": {
+        "kd": [
+          9.613035006148348,
+          35.99857512413955
+        ],
+        "kp": [
+          808.611917423121,
+          277.88260825351
+        ],
+        "type": "computed_torque"
+      },
+      "number": 25,
+      "objective": 3.193363608156891e-05,
+      "scenarios": [
+        {
+          "criteria": {
+            "completed": true,
+            "dwell_in_tolerance": true,
+            "dwell_stationary": true
+          },
+          "feasible": true,
+          "index": 0,
+          "initial_q": [
+            0.2,
+            1.2
+          ],
+          "move_joint_rmse": 1.4836058687035973e-05,
+          "termination": "completed"
+        },
+        {
+          "criteria": {
+            "completed": true,
+            "dwell_in_tolerance": true,
+            "dwell_stationary": true
+          },
+          "feasible": true,
+          "index": 1,
+          "initial_q": [
+            0.25,
+            1.15
+          ],
+          "move_joint_rmse": 3.199080518090366e-05,
+          "termination": "completed"
+        },
+        {
+          "criteria": {
+            "completed": true,
+            "dwell_in_tolerance": true,
+            "dwell_stationary": true
+          },
+          "feasible": true,
+          "index": 2,
+          "initial_q": [
+            0.15000000000000002,
+            1.25
+          ],
+          "move_joint_rmse": 3.187646698223416e-05,
+          "termination": "completed"
+        },
+        {
+          "criteria": {
+            "completed": true,
+            "dwell_in_tolerance": true,
+            "dwell_stationary": true
+          },
+          "feasible": true,
+          "index": 3,
+          "initial_q": [
+            0.28,
+            1.2
+          ],
+          "move_joint_rmse": 4.76708236964394e-05,
+          "termination": "completed"
+        }
+      ]
+    },
+    "budget": 64,
+    "feasible_trials": 63,
+    "objective": "median_move_joint_rmse",
+    "protocol": "baseline-gains-1a",
+    "sampler_seed": 20260830,
+    "tracker_type": "computed_torque",
+    "trials": [
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            8.3060747741445,
+            43.316829156468785
+          ],
+          "kp": [
+            20.797004761029672,
+            83.82133801887129
+          ],
+          "type": "computed_torque"
+        },
+        "number": 0,
+        "objective": 0.0009659863656296655,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00034978820095923424,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.001483194129571199,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0014678397227219438,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0004641330085373872,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            38.71752290053298,
+            12.215878259757806
+          ],
+          "kp": [
+            20.541735236639013,
+            49.607629543464746
+          ],
+          "type": "computed_torque"
+        },
+        "number": 1,
+        "objective": 0.011428885718212841,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0006119333771180208,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0118124795863072,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.011045291850118483,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.018660300314746935,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            77.9856468960919,
+            5.116014397222579
+          ],
+          "kp": [
+            56.785305271039,
+            85.27528416487768
+          ],
+          "type": "computed_torque"
+        },
+        "number": 2,
+        "objective": 0.008136322140954,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0005599499008672552,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.008451523316299676,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.007821120965608322,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.013292989753188588,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            15.5777454252105,
+            11.688215965548363
+          ],
+          "kp": [
+            30.83609479166597,
+            27.46988277316821
+          ],
+          "type": "computed_torque"
+        },
+        "number": 3,
+        "objective": 0.0013172330691005973,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0003880989713488795,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0014021867180009447,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0012322794202002498,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0019653428779257197,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            3.9793753330011707,
+            4.007143379899816
+          ],
+          "kp": [
+            139.42850842422277,
+            444.28991404349824
+          ],
+          "type": "computed_torque"
+        },
+        "number": 4,
+        "objective": 0.0014142448383346598,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 3.0217712214405137e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0014127092718209924,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0014157804048483271,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0016349284797876422,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            12.4909073087743,
+            12.943928993136128
+          ],
+          "kp": [
+            281.15158537242115,
+            24.369725271582773
+          ],
+          "type": "computed_torque"
+        },
+        "number": 5,
+        "objective": 0.000655065887123463,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 5.278352868813207e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0012690019522694155,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0012562806660469377,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 5.38511081999884e-05,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            2.4807639895992892,
+            27.522962114767658
+          ],
+          "kp": [
+            36.376997567407024,
+            756.7926193791667
+          ],
+          "type": "computed_torque"
+        },
+        "number": 6,
+        "objective": 0.0029057866206693484,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 7.806483686008209e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0028937031561441263,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0029178700851945705,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.004636174513900701,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            56.366043814182305,
+            60.33206200470318
+          ],
+          "kp": [
+            396.7862049190646,
+            342.3574078303156
+          ],
+          "type": "computed_torque"
+        },
+        "number": 7,
+        "objective": 0.00014153686689102047,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00014115376534981028,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.00014212503792832473,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.00014163199594193998,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.00014144173784010096,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            2.9414834977363102,
+            63.34292453811957
+          ],
+          "kp": [
+            20.335609478641633,
+            221.9338500738266
+          ],
+          "type": "computed_torque"
+        },
+        "number": 8,
+        "objective": 0.0016650657045464315,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00016906684812824387,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0016879820575087855,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0016421493515840777,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0026582682652890326,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            65.39628186683211,
+            4.973558741934479
+          ],
+          "kp": [
+            104.4130802272958,
+            56.488330706619905
+          ],
+          "type": "computed_torque"
+        },
+        "number": 9,
+        "objective": 0.002351831114769368,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00042008761445743933,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0024993673363369858,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.00220429489320175,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0038077062650765316,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            11.577109843292158,
+            32.01360508943439
+          ],
+          "kp": [
+            54.45113926548147,
+            66.23373609030112
+          ],
+          "type": "computed_torque"
+        },
+        "number": 10,
+        "objective": 0.0006909647396215005,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00021190852035799909,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0011808980215216218,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0011677751418772695,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0002141543373657315,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            4.719679481010011,
+            8.950775691923534
+          ],
+          "kp": [
+            137.320176706415,
+            171.14310690363922
+          ],
+          "type": "computed_torque"
+        },
+        "number": 11,
+        "objective": 0.0006371327162292959,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 3.650442430749318e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0006348812950615494,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0006393841373970424,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0010125923947010291,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            106.91089403876556,
+            3.8744970180138143
+          ],
+          "kp": [
+            131.49705777237355,
+            16.297528783475173
+          ],
+          "type": "computed_torque"
+        },
+        "number": 12,
+        "objective": 0.004031670643909293,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00046923324471580366,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.004225650548364528,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0038376907394540587,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0062806921877289505,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            7.800397988837196,
+            9.842998668425999
+          ],
+          "kp": [
+            269.4458005226548,
+            40.7458427355148
+          ],
+          "type": "computed_torque"
+        },
+        "number": 13,
+        "objective": 0.00010658592064866085,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 3.378024148203167e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.00010715485735900952,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.00010601698393831216,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.000142223109379196,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            6.608754112146978,
+            28.289596001773205
+          ],
+          "kp": [
+            44.97944347165417,
+            160.17853532947623
+          ],
+          "type": "computed_torque"
+        },
+        "number": 14,
+        "objective": 0.000289521903103935,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00015569096981638906,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.00028541385119883357,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0002936299550090364,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0004158456022240552,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            33.10430396010577,
+            41.752687357094835
+          ],
+          "kp": [
+            16.80391051063917,
+            17.729357821343214
+          ],
+          "type": "computed_torque"
+        },
+        "number": 15,
+        "objective": 0.018337260059906726,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0006204232435238331,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.018613795635993167,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.01806072448382029,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.019459793678483887,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            9.143738914852909,
+            8.201563898417398
+          ],
+          "kp": [
+            500.7495113202045,
+            35.442566933465
+          ],
+          "type": "computed_torque"
+        },
+        "number": 16,
+        "objective": 8.538935629614303e-05,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 2.4068558858837805e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.00010675835831389995,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.00010461877632686005,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 6.6159936265426e-05,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            93.7746247089619,
+            45.302768765353214
+          ],
+          "kp": [
+            157.75113824344052,
+            13.264400719900216
+          ],
+          "type": "computed_torque"
+        },
+        "number": 17,
+        "objective": 0.010825794516164347,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0004108125486015412,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.018308738031224913,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.018212036166262283,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.003439552866066412,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            21.532754825876836,
+            105.05977210643974
+          ],
+          "kp": [
+            123.58688294719603,
+            44.554468207316205
+          ],
+          "type": "computed_torque"
+        },
+        "number": 18,
+        "objective": 0.007039010780123848,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00017719999118196578,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.013956303328681486,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.013900754307599988,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.00017726725264770858,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            78.78413587589428,
+            3.840572375474312
+          ],
+          "kp": [
+            39.908230526322676,
+            135.39534492551388
+          ],
+          "type": "computed_torque"
+        },
+        "number": 19,
+        "objective": 0.01198741763673596,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0006170983838544692,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.012379724448059461,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.011595110825412458,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.019483819019692407,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            70.5809068228719,
+            7.892743632031201
+          ],
+          "kp": [
+            179.91865035865973,
+            209.9674436560362
+          ],
+          "type": "computed_torque"
+        },
+        "number": 20,
+        "objective": 0.0007461129232349372,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0003219492670192021,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0008165081367645368,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0006757177097053375,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0011951918510886969,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            3.0409157245936584,
+            2.9681959734602565
+          ],
+          "kp": [
+            118.26467509077384,
+            21.025826993182303
+          ],
+          "type": "computed_torque"
+        },
+        "number": 21,
+        "objective": 0.002330384289657964,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 2.9388161102523537e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0023299781703920663,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.002330790408923861,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0027039330008729393,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            53.4998564302942,
+            26.83875735290606
+          ],
+          "kp": [
+            36.154724903799206,
+            46.7353889100041
+          ],
+          "type": "computed_torque"
+        },
+        "number": 22,
+        "objective": 0.009032738250992297,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0005734931242345103,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.009359425401589743,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.00870605110039485,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.014489330427524942,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            12.56041659157809,
+            12.397180736614281
+          ],
+          "kp": [
+            13.401520221862377,
+            311.0212123161506
+          ],
+          "type": "computed_torque"
+        },
+        "number": 23,
+        "objective": 0.004606839564228514,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0005072839288948567,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.004824065307802486,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.004389613820654543,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.007566533026048158,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            5.259184086475691,
+            17.235908994114038
+          ],
+          "kp": [
+            41.41390718405882,
+            11.942658308386271
+          ],
+          "type": "computed_torque"
+        },
+        "number": 24,
+        "objective": 0.0047103992055169555,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00014208675790794228,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.008596986512919576,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.008556701130398879,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0008640972806350324,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            9.613035006148348,
+            35.99857512413955
+          ],
+          "kp": [
+            808.611917423121,
+            277.88260825351
+          ],
+          "type": "computed_torque"
+        },
+        "number": 25,
+        "objective": 3.193363608156891e-05,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 1.4836058687035973e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 3.199080518090366e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 3.187646698223416e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 4.76708236964394e-05,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            23.083315674630153,
+            2.50894537853145
+          ],
+          "kp": [
+            107.07248122683453,
+            411.991603822435
+          ],
+          "type": "computed_torque"
+        },
+        "number": 26,
+        "objective": 0.0013828793293906624,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00020757347399270664,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0025535690689107316,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.00255327553684377,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.00021248312193755442,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            11.491363844723121,
+            17.759061806742476
+          ],
+          "kp": [
+            127.93327545161183,
+            199.75139349639085
+          ],
+          "type": "computed_torque"
+        },
+        "number": 27,
+        "objective": 9.420156728431356e-05,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 9.338466197482676e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 9.464843382449882e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 9.37547007441283e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 9.616669883965875e-05,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            2.714202699146724,
+            2.074271683397442
+          ],
+          "kp": [
+            30.662876845233097,
+            11.69823958124196
+          ],
+          "type": "computed_torque"
+        },
+        "number": 28,
+        "objective": 0.004274637897062596,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00010298203323637178,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.004674795706331313,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0046823206261340615,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0038744800877938794,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            4.247761697757825,
+            87.60838405065459
+          ],
+          "kp": [
+            163.1741987678352,
+            155.11020668591843
+          ],
+          "type": "computed_torque"
+        },
+        "number": 29,
+        "objective": 0.0016446947039009201,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 3.7556674048582606e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0020016577488870834,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.001986655607900447,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0013027337999013935,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": false,
+        "gains": {
+          "kd": [
+            36.355400206439285,
+            28.22929788615163
+          ],
+          "kp": [
+            11.087025352595834,
+            14.202904294440907
+          ],
+          "type": "computed_torque"
+        },
+        "number": 30,
+        "objective": 10.0,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0006936509000847508,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.021823339822431943,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.020975976909948468,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": false,
+              "dwell_stationary": true
+            },
+            "feasible": false,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.02881850197334831,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            3.557071173187585,
+            3.199206949098298
+          ],
+          "kp": [
+            154.4936950391728,
+            23.156937642396027
+          ],
+          "type": "computed_torque"
+        },
+        "number": 31,
+        "objective": 0.0019025392908818954,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 2.6381049409587428e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0019021330380484933,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0019029455437152977,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.00210208171728587,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            2.127409658942545,
+            5.7892529875882035
+          ],
+          "kp": [
+            101.86274552253862,
+            21.5009550348903
+          ],
+          "type": "computed_torque"
+        },
+        "number": 32,
+        "objective": 0.00325840310418185,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 2.8497259972215933e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0032583126201792996,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.003258493588184401,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0051555890831323945,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            7.790794600159197,
+            8.701550961756267
+          ],
+          "kp": [
+            425.357716255667,
+            88.4662970121328
+          ],
+          "type": "computed_torque"
+        },
+        "number": 33,
+        "objective": 0.00010664966417026208,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 2.0101283089696978e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.00010706712297145908,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.00010623220536906509,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0001452681799112648,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            20.973763937024426,
+            7.700884058241413
+          ],
+          "kp": [
+            117.55539101854905,
+            199.41065122150584
+          ],
+          "type": "computed_torque"
+        },
+        "number": 34,
+        "objective": 0.00018533383657716579,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00017615500641280382,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.00019451393056272524,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.00019442766958085834,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.00017624000357347323,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            5.470595494067498,
+            2.6468195717230385
+          ],
+          "kp": [
+            103.78074366462253,
+            348.1666087759079
+          ],
+          "type": "computed_torque"
+        },
+        "number": 35,
+        "objective": 0.001487955571119008,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 5.5987844057339394e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0023811556109045225,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0023802922212655103,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0005956189209725057,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            8.572464109453513,
+            2.8425016488501815
+          ],
+          "kp": [
+            163.51578860067838,
+            66.44544722752534
+          ],
+          "type": "computed_torque"
+        },
+        "number": 36,
+        "objective": 0.0010760578823180082,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 5.489462487217342e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0020333909060134365,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.002032944219410236,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.00011917154522578034,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            3.262626004273496,
+            72.69490391827428
+          ],
+          "kp": [
+            350.62338818174607,
+            31.817577006593748
+          ],
+          "type": "computed_torque"
+        },
+        "number": 37,
+        "objective": 0.008049203831658728,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 4.232186492051719e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.01368750639309216,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.013633187778774276,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.002465219884543179,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            43.593578057973254,
+            6.77168367918734
+          ],
+          "kp": [
+            645.5479935470199,
+            350.0814326978202
+          ],
+          "type": "computed_torque"
+        },
+        "number": 38,
+        "objective": 0.0001296842480029303,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 6.892787040001691e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.00019044062560582786,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.00019050871249986354,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 6.892787040003277e-05,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            7.28193253138372,
+            4.874235653400059
+          ],
+          "kp": [
+            36.15127631321365,
+            572.8719327395883
+          ],
+          "type": "computed_torque"
+        },
+        "number": 39,
+        "objective": 0.00043672215647433627,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00020696326260763605,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.000608332504795386,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0005990342102717274,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.00027441010267694523,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            100.41243478725947,
+            5.661209843150289
+          ],
+          "kp": [
+            57.915712717676776,
+            179.73026600417774
+          ],
+          "type": "computed_torque"
+        },
+        "number": 40,
+        "objective": 0.010520709896048487,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0005965726877256061,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.010887068855441552,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.010154350936655421,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.017182477994518126,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            4.222662302479461,
+            60.85382010249968
+          ],
+          "kp": [
+            607.0788224321518,
+            14.80978536831061
+          ],
+          "type": "computed_torque"
+        },
+        "number": 41,
+        "objective": 0.010724808748890934,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 4.699684281811557e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.020178081065438162,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.020109392878574585,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0013402246192072847,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            36.819819219193384,
+            15.66275620367776
+          ],
+          "kp": [
+            92.15440655080378,
+            20.39684947005451
+          ],
+          "type": "computed_torque"
+        },
+        "number": 42,
+        "objective": 0.002225767747595933,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00033013836279272707,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.003326606963332796,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0032738218463039,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0011777136488879665,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            10.536516720334776,
+            89.20673163738563
+          ],
+          "kp": [
+            144.9730459013418,
+            105.37813118233501
+          ],
+          "type": "computed_torque"
+        },
+        "number": 43,
+        "objective": 0.0020627470561895784,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 8.168485429793541e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.004067908101841978,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.004040392232712283,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 8.51018796668735e-05,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            6.854625151287611,
+            51.999796700849174
+          ],
+          "kp": [
+            10.402992988918575,
+            137.9759678573749
+          ],
+          "type": "computed_torque"
+        },
+        "number": 44,
+        "objective": 0.002054447494889031,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0004556087329675049,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.002152586027647737,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.001956308962130324,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.003210136748568223,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            8.469165751596215,
+            7.07237265339898
+          ],
+          "kp": [
+            25.891740945002766,
+            649.2264893107941
+          ],
+          "type": "computed_torque"
+        },
+        "number": 45,
+        "objective": 0.0003192685719576381,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0003042144682219419,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0003293035734324598,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.00034887896328724733,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0003092335704828164,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            61.535026049350854,
+            7.9345557064461225
+          ],
+          "kp": [
+            80.01698197001531,
+            149.0528153778155
+          ],
+          "type": "computed_torque"
+        },
+        "number": 46,
+        "objective": 0.003433758859544636,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00046017842482971166,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0036248542780810663,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0032426634410082054,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0056590920028526375,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            53.49544932928545,
+            50.59842032385148
+          ],
+          "kp": [
+            121.96746378637751,
+            375.2665963249492
+          ],
+          "type": "computed_torque"
+        },
+        "number": 47,
+        "objective": 0.0009815045918976908,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00034683430741488816,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0010678663703099054,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0008951428134854765,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.001602764682854127,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            41.58743423053758,
+            106.19178919863528
+          ],
+          "kp": [
+            69.00762952663723,
+            151.78871610002497
+          ],
+          "type": "computed_torque"
+        },
+        "number": 48,
+        "objective": 0.0034550731590333728,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0004154020390081366,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.003645644576140851,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0034623328735456835,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0034478134445210615,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            3.275554390517066,
+            19.09293393887631
+          ],
+          "kp": [
+            438.3110959576792,
+            184.61193893599724
+          ],
+          "type": "computed_torque"
+        },
+        "number": 49,
+        "objective": 0.0015612996843947556,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 1.0317176058438458e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0015616503855495215,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0015609489832399898,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0024983969920446217,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            19.798740441533997,
+            49.732100418483064
+          ],
+          "kp": [
+            38.49477035087201,
+            68.4166475723539
+          ],
+          "type": "computed_torque"
+        },
+        "number": 50,
+        "objective": 0.002730372632812126,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0003891323019260937,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.003381310776053196,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0032795154347691727,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0021812298308550794,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            6.775218573682641,
+            11.537666010972398
+          ],
+          "kp": [
+            58.20564328334658,
+            419.9361619101069
+          ],
+          "type": "computed_torque"
+        },
+        "number": 51,
+        "objective": 0.00022473703177507657,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00012343216533599536,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0002165736019875642,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.00023290046156258895,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.000315696062272568,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            5.266112129174126,
+            5.8590011296916025
+          ],
+          "kp": [
+            26.00285251703265,
+            186.63413379954454
+          ],
+          "type": "computed_torque"
+        },
+        "number": 52,
+        "objective": 0.0005058838295058249,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0002145855577216694,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0005315218892886923,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.00048024576972295743,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0006715486400382921,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            2.512728644370971,
+            16.24952341287574
+          ],
+          "kp": [
+            343.28595083295755,
+            65.59277693438752
+          ],
+          "type": "computed_torque"
+        },
+        "number": 53,
+        "objective": 0.002603204395887131,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 1.7014516741425833e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.002602948698562076,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0026034600932121855,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.004164616771064525,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            32.47399511251439,
+            31.180979372947885
+          ],
+          "kp": [
+            897.1841780415542,
+            487.2263977101614
+          ],
+          "type": "computed_torque"
+        },
+        "number": 54,
+        "objective": 3.740743397213937e-05,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 3.740743401996113e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 3.74074339243176e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 3.7407434115629555e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 3.7407433909544786e-05,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            36.77145438086319,
+            6.190936499804921
+          ],
+          "kp": [
+            54.28313687593201,
+            24.407945783447918
+          ],
+          "type": "computed_torque"
+        },
+        "number": 55,
+        "objective": 0.002680269550151734,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00043874013376560316,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0028412718860150064,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.002519267214288461,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.004383516011347724,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            4.098778018591572,
+            52.29797089970129
+          ],
+          "kp": [
+            40.88712894238473,
+            10.301603629468994
+          ],
+          "type": "computed_torque"
+        },
+        "number": 56,
+        "objective": 0.011971350815213298,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0001205467354685475,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.022333658767151637,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.022261886470842485,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0016808151595841137,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            93.31302302721573,
+            20.905946180509442
+          ],
+          "kp": [
+            32.99776963353802,
+            12.719678994481557
+          ],
+          "type": "computed_torque"
+        },
+        "number": 57,
+        "objective": 0.018835493205379406,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0006712290128382774,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.019244009941065163,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.01842697646969365,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.02606848991035489,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            101.02894549189915,
+            6.638130697651865
+          ],
+          "kp": [
+            842.3151905966831,
+            52.078374316175555
+          ],
+          "type": "computed_torque"
+        },
+        "number": 58,
+        "objective": 0.0001931665299358692,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00011996706447080005,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.00026627833447160346,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0002672761382613732,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.00012005472540013498,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            37.095534713791295,
+            3.854268012585217
+          ],
+          "kp": [
+            364.16504650742826,
+            289.8763056189677
+          ],
+          "type": "computed_torque"
+        },
+        "number": 59,
+        "objective": 0.0005501945297763649,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00010307716995775272,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.0009973117272877084,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.000997386431710438,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.00010307733226502141,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            10.833749262317598,
+            6.463700969543494
+          ],
+          "kp": [
+            97.82478280970349,
+            18.904233655367054
+          ],
+          "type": "computed_torque"
+        },
+        "number": 60,
+        "objective": 0.00022413752115081078,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00011661390840233145,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.00033022022258813645,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.0003341777387613023,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.00011805481971348508,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            16.67942399326435,
+            72.77658112084082
+          ],
+          "kp": [
+            49.012861672923506,
+            30.343323208318484
+          ],
+          "type": "computed_torque"
+        },
+        "number": 61,
+        "objective": 0.007321063899775931,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.00030415726693951134,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.014160094131000906,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.014102595638550356,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.0005395321610015062,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            58.70916017892111,
+            88.00809803384799
+          ],
+          "kp": [
+            42.540093245074715,
+            136.33418599846064
+          ],
+          "type": "computed_torque"
+        },
+        "number": 62,
+        "objective": 0.008518452233822678,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 0.0005621067984639841,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.008824609122452592,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.008212295345192763,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 0.013362750420075316,
+            "termination": "completed"
+          }
+        ]
+      },
+      {
+        "feasible": true,
+        "gains": {
+          "kd": [
+            10.045100215703178,
+            107.3303517852364
+          ],
+          "kp": [
+            305.31505368174845,
+            80.52707640993846
+          ],
+          "type": "computed_torque"
+        },
+        "number": 63,
+        "objective": 0.003929303919231833,
+        "scenarios": [
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 0,
+            "initial_q": [
+              0.2,
+              1.2
+            ],
+            "move_joint_rmse": 4.941586812678156e-05,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 1,
+            "initial_q": [
+              0.25,
+              1.15
+            ],
+            "move_joint_rmse": 0.007839791158964356,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 2,
+            "initial_q": [
+              0.15000000000000002,
+              1.25
+            ],
+            "move_joint_rmse": 0.007799800832203503,
+            "termination": "completed"
+          },
+          {
+            "criteria": {
+              "completed": true,
+              "dwell_in_tolerance": true,
+              "dwell_stationary": true
+            },
+            "feasible": true,
+            "index": 3,
+            "initial_q": [
+              0.28,
+              1.2
+            ],
+            "move_joint_rmse": 5.880700626016327e-05,
+            "termination": "completed"
+          }
+        ]
+      }
+    ]
+  },
+  "scenario_file": "configs/tasks/task_1a.toml",
+  "schema_version": 1
+}
