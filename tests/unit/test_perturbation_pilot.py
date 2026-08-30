@@ -227,7 +227,8 @@ def test_unrecovered_or_failed_cases_make_a_level_unsafe() -> None:
     levels = summarize_levels(protocol, cases)
     assert [lv.safe for lv in levels] == [False, False]
     assert levels[0].baselines["pd"].recovered_all is False
-    assert math.isinf(levels[0].baselines["pd"].max_recovery_time_s)
+    assert levels[0].baselines["pd"].max_recovery_time_s is None
+    assert levels[0].nontrivial is True  # an unrecovered baseline is a visible effect
     with pytest.raises(ValueError, match="no safe and nontrivial posture level"):
         select_levels(protocol, levels)
 

@@ -222,7 +222,8 @@ class BaselineLevel:
     success_all: bool
     terminations: tuple[str, ...]
     recovered_all: bool
-    max_recovery_time_s: float
+    max_recovery_time_s: float | None
+    """Slowest recovery over the directions; ``None`` when any direction never recovered."""
     max_peak_deviation_m: float
     max_peak_torque_fraction: float
     max_saturation_fraction: float
@@ -435,12 +436,17 @@ def _baseline_level(cases: Sequence[PilotCase]) -> BaselineLevel:
         success_all=all(c.success for c in cases),
         terminations=tuple(sorted({c.termination for c in cases})),
         recovered_all=recovered,
-        max_recovery_time_s=max((r for r in recoveries if r is not None), default=math.inf) if recovered else math.inf,
+        max_recovery_time_s=max(r for r in recoveries if r is not None) if recovered else None,
         max_peak_deviation_m=max(c.peak_deviation_m for c in cases),
         max_peak_torque_fraction=max(c.peak_torque_fraction for c in cases),
         max_saturation_fraction=max(c.saturation_fraction for c in cases),
         max_peak_velocity=max(c.peak_velocity for c in cases),
     )
+
+
+def _within(recovery: float | None, bound: float) -> bool:
+    """Whether every direction recovered, and the slowest one within ``bound`` seconds."""
+    return recovery is not None and recovery <= bound
 
 
 def summarize_levels(
@@ -460,15 +466,17 @@ def summarize_levels(
                 per_baseline[baseline] = _baseline_level(subset)
             if kind == "posture":
                 safe = all(
-                    b.success_all and b.recovered_all and b.max_recovery_time_s <= rules.posture_recovery_max_s
+                    b.success_all and _within(b.max_recovery_time_s, rules.posture_recovery_max_s)
                     for b in per_baseline.values()
                 )
-                nontrivial = any(b.max_recovery_time_s >= rules.posture_recovery_min_s for b in per_baseline.values())
+                nontrivial = any(
+                    b.max_recovery_time_s is None or b.max_recovery_time_s >= rules.posture_recovery_min_s
+                    for b in per_baseline.values()
+                )
             else:
                 safe = all(
                     b.success_all
-                    and b.recovered_all
-                    and b.max_recovery_time_s <= rules.force_recovery_max_s
+                    and _within(b.max_recovery_time_s, rules.force_recovery_max_s)
                     and b.max_saturation_fraction <= rules.force_max_saturation_fraction
                     for b in per_baseline.values()
                 )
@@ -657,7 +665,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         command=command_line("arm_rc_ctrl.experiments.perturbation_pilot", sys.argv[1:] if argv is None else argv),
     )
     args.report.parent.mkdir(parents=True, exist_ok=True)
-    args.report.write_text(json.dumps(to_mapping(report), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    text = json.dumps(to_mapping(report), indent=2, sort_keys=True, allow_nan=False)  # inf/NaN cannot be recorded
+    args.report.write_text(text + "\n", encoding="utf-8")
     if args.markdown is not None:
         args.markdown.write_text(render_markdown(report), encoding="utf-8")
     summary = {
