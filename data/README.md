@@ -93,6 +93,18 @@ serialization must stay byte-stable.
   record path, `uri`, `sha256`, `created_at`). It is append-only: entries are
   never changed or removed.
 
+## Validating datasets
+
+`arm_rc_ctrl.data.validate.validate_dataset(samples, spec)` checks a
+`SampleSet` against a `ValidationSpec` (dimensions, sampling period, joint
+position and optional speed limits; `ValidationSpec.from_record` derives it
+from a processed record plus the scenario limits): non-finite values, time not
+starting at zero / not strictly increasing / not uniform at the period,
+dimension mismatches, missing or out-of-order prime/move/dwell phases,
+task-code rows that are not one-hot, and joint-limit violations. All problems
+are reported together in `DatasetValidationError.problems`; nothing is
+repaired.
+
 ## Loading raw demonstrations
 
 `arm_rc_ctrl.data.raw.load_raw_demonstration(store, record)` resolves the
