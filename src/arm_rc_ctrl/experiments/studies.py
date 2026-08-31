@@ -20,10 +20,12 @@ from __future__ import annotations
 
 import json
 import re
+import weakref
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Final, Literal, cast
 
 import optuna
+from optuna.storages import RDBStorage
 from optuna.trial import TrialState
 
 from arm_rc_ctrl.config import from_mapping, to_mapping
@@ -44,6 +46,7 @@ __all__ = [
     "StudyMismatchError",
     "StudySummary",
     "TrialRecord",
+    "close_study",
     "finished",
     "open_study",
     "run_trials",
@@ -57,6 +60,14 @@ __all__ = [
 OPTUNA_BUCKET: Final = "optuna"
 _NAME: Final = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _IDENTITY_ATTRS: Final = ("armrc.protocol_sha256", "armrc.sampler", "armrc.pruner", "armrc.direction")
+_FINALIZERS: dict[int, weakref.finalize[[RDBStorage], optuna.Study]] = {}
+"""Engine disposal per open study, keyed by the study object's id while the caller holds it."""
+
+
+def _dispose(storage: RDBStorage) -> None:
+    storage.engine.dispose()
+
+
 optuna.logging.set_verbosity(optuna.logging.WARNING)  # per-trial INFO lines belong to the study summary, not stderr
 
 
@@ -141,14 +152,16 @@ def open_study(
     """Create the study in the store or resume it when its recorded identity matches."""
     database = store.path(study_uri(name), mode="write")
     identity = _identity(protocol_sha256, sampler, pruner, direction)
+    storage = RDBStorage(f"sqlite:///{database}")
     study = optuna.create_study(
         study_name=name,
-        storage=f"sqlite:///{database}",
+        storage=storage,
         sampler=sampler.build(),
         pruner=pruner.build(),
         direction=direction,
         load_if_exists=True,
     )
+    _FINALIZERS[id(study)] = weakref.finalize(study, _dispose, storage)
     stored = {key: study.user_attrs.get(key) for key in _IDENTITY_ATTRS}
     if all(value is None for value in stored.values()):
         for key, value in identity.items():
@@ -159,6 +172,13 @@ def open_study(
         msg = f"study {name!r} in {study_uri(name)} was created under a different {', '.join(differing)}"
         raise StudyMismatchError(msg)
     return study
+
+
+def close_study(study: optuna.Study) -> None:
+    """Dispose of the study's database connections (done at garbage collection otherwise)."""
+    finalizer = _FINALIZERS.pop(id(study), None)
+    if finalizer is not None:
+        finalizer()
 
 
 def finished(study: optuna.Study) -> tuple[FrozenTrial, ...]:

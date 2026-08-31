@@ -394,6 +394,7 @@ class _Reproducer:
             exploratory=False,
             arms=suite.arms,
             classes=self.classes,
+            scenarios=suite.scenarios,  # replay the recorded scenarios, never regenerated ones
             now=self.now,
         )
         worst, differences = compare_suites(suite, rebuilt)

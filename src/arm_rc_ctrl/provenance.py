@@ -93,10 +93,31 @@ def canonical_json(value: object) -> str:
     return json.dumps(value, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
 
 
+def portable_config(value: object) -> object:
+    """The configuration with every absolute path made machine-independent.
+
+    Paths inside the repository become repository-relative POSIX strings; other
+    absolute paths keep only their basename. Records must never carry a
+    machine-specific path, and identities derived from a configuration must not
+    depend on where the checkout lives.
+    """
+    if isinstance(value, dict):
+        return {str(k): portable_config(v) for k, v in cast("dict[object, object]", value).items()}
+    if isinstance(value, (list, tuple)):
+        return [portable_config(v) for v in cast("Sequence[object]", value)]
+    if isinstance(value, Path) or (isinstance(value, str) and value.startswith("/") and len(value) > 1):
+        path = Path(value)
+        root = repository_root()
+        if path.is_relative_to(root):
+            return path.relative_to(root).as_posix()
+        return path.name
+    return value
+
+
 def config_digest(config: object) -> tuple[str, str]:
-    """Return ``(canonical_json, sha256)`` of a resolved configuration (dataclass or mapping)."""
+    """Return ``(canonical_json, sha256)`` of a resolved configuration (dataclass or mapping), made portable."""
     mapping = to_mapping(config) if dataclasses.is_dataclass(config) and not isinstance(config, type) else config
-    text = canonical_json(mapping)
+    text = canonical_json(portable_config(mapping))
     return text, sha256_bytes(text.encode("utf-8"))
 
 

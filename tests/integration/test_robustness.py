@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import pytest
@@ -134,6 +134,27 @@ def test_every_arm_runs_identical_scenarios_and_the_suite_round_trips(
     text = suite_to_markdown(suite)
     assert text.startswith("# Robustness suite `fixture-robustness` (development)")
     assert "6 scenarios x 2 arms = 12 runs" in text
+    replayed = run_robustness(
+        LEVELS,
+        protocol_file,
+        label="development",
+        scenario=scenario,
+        scenario_file=SCENARIO,
+        dataset=processed.record,
+        reference=processed.samples,
+        recipe=recipe,
+        recipe_file=recipe_file,
+        estimator=EstimatorSpec(20.0, 20.0),
+        trackers={"pd": load_config(DEV_PD, TrackerConfig)},
+        training_samples=load_training_samples(recipe, store, records_root=records),
+        store=store,
+        exploratory=True,
+        classes=("nominal", "force"),
+        scenarios=suite.scenarios,  # a rerun replays the recorded scenarios of the requested classes
+        now=FIXED_TIME + timedelta(minutes=1),  # a rerun is a new content-addressed run
+    )
+    assert [s.scenario_id for s in replayed.scenarios] == ["nominal", "force-2N-000deg", "force-2N-090deg"]
+    assert replayed.scenarios == tuple(s for s in suite.scenarios if s.kind in ("nominal", "force"))
     tampered = json.loads(report.read_text(encoding="utf-8"))
     tampered["aggregates"][0]["successes"] = 99
     report.write_text(json.dumps(tampered), encoding="utf-8")

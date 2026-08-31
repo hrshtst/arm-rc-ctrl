@@ -44,7 +44,15 @@ from arm_rc_ctrl.experiments.esn_search import (
     protocol_digest,
 )
 from arm_rc_ctrl.experiments.scalars import flatten_scalars
-from arm_rc_ctrl.experiments.studies import StudySummary, finished, open_study, run_trials, select_best, summarize
+from arm_rc_ctrl.experiments.studies import (
+    StudySummary,
+    close_study,
+    finished,
+    open_study,
+    run_trials,
+    select_best,
+    summarize,
+)
 from arm_rc_ctrl.experiments.tracking import MlflowTracker
 from arm_rc_ctrl.provenance import (
     ArtifactReference,
@@ -402,11 +410,14 @@ def run_esn_study(
 
     objective = make_objective(protocol, context, on_evaluation=on_evaluation)
     budget = protocol.budget if max_trials is None else min(protocol.budget, len(finished(study)) + max_trials)
-    ran = run_trials(study, objective, budget=budget)
-    summary = summarize(study, eligible=is_feasible, selection_rule=FEASIBLE_RULE)
-    best = None
-    if summary.best_number is not None:
-        best = point_from_params(protocol.search, select_best(study, eligible=is_feasible).params)
+    try:
+        ran = run_trials(study, objective, budget=budget)
+        summary = summarize(study, eligible=is_feasible, selection_rule=FEASIBLE_RULE)
+        best = None
+        if summary.best_number is not None:
+            best = point_from_params(protocol.search, select_best(study, eligible=is_feasible).params)
+    finally:
+        close_study(study)
     n_feasible = sum(1 for t in summary.trials if t.flags.get("feasible") is True)
     report = EsnStudyReport(
         protocol=protocol.name,

@@ -110,12 +110,12 @@ def test_canonical_json_is_order_independent_and_rejects_nan() -> None:
 
 
 def test_config_digest_covers_resolved_dataclass() -> None:
-    """The digest is over the plain resolved mapping (paths as strings, tuples as lists)."""
+    """The digest is over the plain, portable mapping (absolute paths reduced, tuples as lists)."""
     text, digest = config_digest(CONFIG)
     assert json.loads(text) == {
         "name": "smoke",
         "steps": 3,
-        "inner": {"gain": 0.5, "path": "/data/x.npz"},
+        "inner": {"gain": 0.5, "path": "x.npz"},
         "weights": [1.0, 2.0],
     }
     assert digest == sha256_bytes(text.encode())
@@ -201,7 +201,7 @@ def test_collect_provenance_captures_everything(store: StorageRoot) -> None:
     assert record.builds[0].source_commit == record.submodules[0].recorded
     assert record.lock_sha256 == sha256_file(REPO_ROOT / "uv.lock")
     assert (record.config_json, record.config_sha256) == config_digest(CONFIG)
-    assert record.config["inner"] == {"gain": 0.5, "path": "/data/x.npz"}
+    assert record.config["inner"] == {"gain": 0.5, "path": "x.npz"}  # absolute paths never enter a record
     assert record.artifacts == (ref,)
     assert record.seeds == {"reservoir": 1, "scenario": 42}
     assert record.platform.packages["arm-rc-ctrl"] == __version__
@@ -492,3 +492,30 @@ def test_command_line_strips_machine_paths() -> None:
         "python -m arm_rc_ctrl.data.import_demo --log demo.sklog.npz --scenario configs/tasks/task_1a.toml --plot r.png"
     )
     assert "/mnt" not in rendered
+
+
+def test_portable_config_removes_machine_specific_paths() -> None:
+    """Repository paths become repository-relative, other absolute paths keep their basename, the rest is untouched."""
+    from pathlib import Path as _Path
+
+    from arm_rc_ctrl.provenance import config_digest, portable_config
+    from arm_rc_ctrl.repo import repository_root
+
+    root = repository_root()
+    value = {
+        "inside": str(root / "configs" / "tasks" / "task_1a.toml"),
+        "path": root / "configs" / "models" / "esn_task_1a_v2.toml",
+        "outside": "/somewhere/else/data.npz",
+        "nested": [{"deep": str(root / "docs" / "x.json")}, "relative/y.toml", 2.5, True, None, "/"],
+    }
+    assert portable_config(value) == {
+        "inside": "configs/tasks/task_1a.toml",
+        "path": "configs/models/esn_task_1a_v2.toml",
+        "outside": "data.npz",
+        "nested": [{"deep": "docs/x.json"}, "relative/y.toml", 2.5, True, None, "/"],
+    }
+    text, digest = config_digest(value)
+    assert str(root) not in text
+    assert (
+        digest == config_digest({**value, "path": _Path(str(root / "configs" / "models" / "esn_task_1a_v2.toml"))})[1]
+    )

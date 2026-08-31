@@ -16,6 +16,7 @@ from arm_rc_ctrl.experiments.studies import (
     PrunerSpec,
     SamplerSpec,
     StudyMismatchError,
+    close_study,
     open_study,
     run_trials,
     select_best,
@@ -132,6 +133,9 @@ def test_study_creates_prunes_resumes_and_selects_deterministically(tmp_path: Pa
     assert continued[0] == continued[1]
     assert len(continued[0]) == 12
 
+    for opened in (study, other, straight):
+        close_study(opened)  # disposes of the SQLite connections; a second call is a no-op
+        close_study(opened)
     best = select_best(resumed)
     complete = [t for t in resumed.trials if t.state.name == "COMPLETE"]
     assert best.value == min(t.value for t in complete if t.value is not None)

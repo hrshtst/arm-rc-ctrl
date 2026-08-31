@@ -18,7 +18,6 @@ regression locks).
 
 from __future__ import annotations
 
-import hashlib
 import math
 from dataclasses import dataclass, field, replace
 from pathlib import Path
@@ -26,11 +25,11 @@ from typing import TYPE_CHECKING, Final, Literal
 
 from optuna.trial import TrialState
 
-from arm_rc_ctrl.config import load_config, to_mapping
+from arm_rc_ctrl.config import load_config
 from arm_rc_ctrl.experiments.closed_loop import EstimatorSpec
 from arm_rc_ctrl.experiments.studies import PrunerSpec, SamplerSpec
 from arm_rc_ctrl.experiments.tuning import DevelopmentScenarios, Feasibility
-from arm_rc_ctrl.provenance import canonical_json
+from arm_rc_ctrl.provenance import config_digest
 from arm_rc_ctrl.rc.esn import EsnConfig
 from arm_rc_ctrl.rc.train import ModelConfig, load_model_config
 
@@ -297,8 +296,8 @@ def load_esn_search(path: Path) -> EsnSearchProtocol:
 
 
 def protocol_digest(protocol: EsnSearchProtocol) -> str:
-    """SHA-256 of the canonical protocol (the study identity)."""
-    return hashlib.sha256(canonical_json(to_mapping(protocol)).encode("utf-8")).hexdigest()
+    """SHA-256 of the canonical, machine-independent protocol (the study identity)."""
+    return config_digest(protocol)[1]
 
 
 def suggest_point(space: EsnSearchSpace, trial: optuna.Trial) -> TrialPoint:

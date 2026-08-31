@@ -25,6 +25,7 @@ from arm_rc_ctrl.experiments.esn_search import (
     protocol_digest,
     suggest_point,
 )
+from arm_rc_ctrl.provenance import config_digest
 from arm_rc_ctrl.rc.train import load_model_config
 from arm_rc_ctrl.repo import repository_root
 
@@ -161,8 +162,13 @@ def test_protocol_validation(protocol: EsnSearchProtocol) -> None:
 
 
 def test_protocol_digest_identifies_the_protocol(protocol: EsnSearchProtocol) -> None:
-    """The digest is stable for equal protocols and changes with any field."""
+    """The digest is stable for equal protocols, changes with any field, and does not depend on the checkout path."""
     digest = protocol_digest(protocol)
     assert len(digest) == 64
     assert digest == protocol_digest(load_esn_search(PROTOCOL))
     assert digest != protocol_digest(replace(protocol, budget=protocol.budget + 1))
+    canonical, same = config_digest(protocol)
+    assert same == digest
+    assert str(REPO_ROOT) not in canonical  # machine-independent: paths inside the repository are relative
+    assert '"configs/tasks/task_1a.toml"' in canonical
+    assert '"configs/models/esn_task_1a_v2.toml"' in canonical

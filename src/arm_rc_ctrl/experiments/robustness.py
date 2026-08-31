@@ -45,6 +45,7 @@ from arm_rc_ctrl.experiments.perturbations import (
     DevelopmentRobustness,
     PerturbationClass,
     RobustnessScenario,
+    check_offsets,
     load_development_robustness,
     robustness_scenarios,
 )
@@ -350,6 +351,7 @@ def run_robustness(
     exploratory: bool,
     arms: Sequence[Arm] | None = None,
     classes: Sequence[PerturbationClass] = CLASS_ORDER,
+    scenarios: Sequence[RobustnessScenario] | None = None,
     now: datetime | None = None,
     command: str = "python -m arm_rc_ctrl.experiments.robustness",
     on_run: Callable[[ArmRun, object], ArmRun] | None = None,
@@ -358,7 +360,8 @@ def run_robustness(
 
     ``on_run`` (pointer recording, tracking) is applied to every run after the
     last simulation, so nothing is written into the repository while runs that
-    require a clean worktree are still to come.
+    require a clean worktree are still to come. ``scenarios`` replays recorded
+    scenarios (a reproduction) instead of regenerating them from the protocol.
     """
     confirmatory = isinstance(protocol, ConfirmatoryProtocol)
     if label == "development" and confirmatory:
@@ -374,9 +377,14 @@ def run_robustness(
         raise ValueError(msg)
     lower = [link.q_min for link in scenario.robot.links]
     upper = [link.q_max for link in scenario.robot.links]
-    scenarios = robustness_scenarios(
-        protocol, nominal=scenario.task.initial_q, lower=lower, upper=upper, classes=classes
-    )
+    if scenarios is None:
+        scenarios = robustness_scenarios(
+            protocol, nominal=scenario.task.initial_q, lower=lower, upper=upper, classes=classes
+        )
+    else:
+        # A rerun replays the recorded scenarios exactly; they must still belong to the requested classes and limits.
+        scenarios = tuple(s for s in scenarios if s.kind in classes)
+        check_offsets([s.offset for s in scenarios], scenario.task.initial_q, lower, upper)
     payload = dataset.artifact.payload
     resolved = {
         "label": label,

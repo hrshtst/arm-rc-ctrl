@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import math
+from dataclasses import replace
+
 import pytest
 
 from arm_rc_ctrl.experiments.closed_loop import load_nominal_config
@@ -50,7 +53,10 @@ def test_confirmatory_suite_used_the_locked_protocol_and_the_frozen_recipe() -> 
     lower = [link.q_min for link in scenario.robot.links]
     upper = [link.q_max for link in scenario.robot.links]
     expected = robustness_scenarios(protocol, nominal=scenario.task.initial_q, lower=lower, upper=upper)
-    assert suite.scenarios == expected
+    assert len(suite.scenarios) == len(expected)
+    for stored, generated in zip(suite.scenarios, expected, strict=True):
+        assert replace(stored, offset=()) == replace(generated, offset=())
+        assert all(math.isclose(a, b, abs_tol=1e-12) for a, b in zip(stored.offset, generated.offset, strict=True))
     assert suite.scenario == scenario.name
     recipe = load_recipe(RECIPE_V4)
     assert suite.recipe == recipe.name == "esn-task-1a-v4"

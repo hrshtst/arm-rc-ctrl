@@ -128,7 +128,9 @@ class RobustnessScenario:
 
 
 def _unit(vector: NDArray[np.float64]) -> NDArray[np.float64]:
-    norm = float(np.linalg.norm(vector))
+    # The norm is accumulated in plain Python so that the generated offsets do not depend on the BLAS kernel
+    # (and therefore on the CPU) numpy would pick: every machine must derive identical scenarios.
+    norm = math.sqrt(sum(float(v) * float(v) for v in vector))
     if norm == 0.0:
         msg = "direction must be non-zero"
         raise ValueError(msg)
