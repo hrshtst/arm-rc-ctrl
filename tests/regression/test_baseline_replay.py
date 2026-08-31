@@ -33,6 +33,7 @@ from arm_rc_ctrl.data.samples import load_samples
 from arm_rc_ctrl.experiments.baselines import (
     FROZEN_BASELINES,
     BaselineExpectations,
+    baseline_method,
     build_expectations,
     compare_snapshots,
     frozen_baseline_digest,
@@ -168,7 +169,7 @@ def test_frozen_gains_are_the_ones_selected_by_their_study(method: str) -> None:
     best = report["result"]["best"]
     assert best["feasible"] is True
     config = load_frozen_baseline(method)
-    assert best["gains"] == {"type": method, "kp": list(config.kp), "kd": list(config.kd)}
+    assert best["gains"] == {"type": baseline_method(method), "kp": list(config.kp), "kd": list(config.kd)}
     for expectations in (FIXTURE_EXPECTATIONS, TASK_1A_EXPECTATIONS):
         assert load_expectations(expectations).gains[method] == frozen_baseline_digest(method), expectations.name
 

@@ -37,6 +37,7 @@ __all__ = [
     "BaselineExpectations",
     "ReplaySnapshot",
     "Tolerances",
+    "baseline_method",
     "build_expectations",
     "compare_snapshots",
     "frozen_baseline_digest",
@@ -49,9 +50,21 @@ __all__ = [
 
 FROZEN_BASELINES: Final[dict[str, str]] = {
     "pd": "configs/controllers/task_1a_pd.toml",
+    "pd_v2": "configs/controllers/task_1a_pd_v2.toml",
     "computed_torque": "configs/controllers/task_1a_computed_torque.toml",
 }
-"""Repository-relative frozen gain files of the task 1-a baselines, by tracker method."""
+"""Repository-relative frozen gain files of the task 1-a baselines, by baseline name.
+
+A name is the tracker method (``pd``, ``computed_torque``) optionally followed by
+a study version suffix (``pd_v2`` = the robustness-constrained PD study, M3-015);
+version 1 files stay immutable development evidence.
+"""
+
+
+def baseline_method(name: str) -> str:
+    """Tracker method of a baseline name (``pd_v2`` -> ``pd``)."""
+    return name.split("_v", 1)[0]
+
 
 EXPECTATIONS_SCHEMA_VERSION: Final = 1
 
@@ -70,8 +83,8 @@ def load_frozen_baseline(method: str) -> TrackerConfig:
     """Load the frozen gains of ``method`` and check that the file declares that tracker type."""
     file = frozen_baseline_file(method)
     config = load_config(file, TrackerConfig)
-    if config.type != method:
-        msg = f"{file.name} declares tracker type {config.type!r}, expected {method!r}"
+    if config.type != baseline_method(method):
+        msg = f"{file.name} declares tracker type {config.type!r}, expected {baseline_method(method)!r}"
         raise ValueError(msg)
     return config
 
@@ -141,9 +154,9 @@ class BaselineExpectations:
         if set(self.gains) != set(self.runs):
             msg = f"gains {sorted(self.gains)} and runs {sorted(self.runs)} must cover the same methods"
             raise ValueError(msg)
-        for method, run in self.runs.items():
-            if run.method != f"replay+{method}":
-                msg = f"run {method!r} holds a snapshot of method {run.method!r}"
+        for name, run in self.runs.items():
+            if run.method != f"replay+{baseline_method(name)}":
+                msg = f"run {name!r} holds a snapshot of method {run.method!r}"
                 raise ValueError(msg)
 
 
