@@ -480,9 +480,13 @@ qualification.
 Task 1-a uses a seeded sampler and pruner. The objective is median movement
 joint RMSE across development scenarios. A trial is infeasible and receives a
 documented penalty if it diverges, violates configured state/torque limits,
-terminates early, or fails the configured final-dwell constraint. All objective
-components are logged separately; the scalar objective is never the only saved
-result.
+terminates early, fails the configured final-dwell constraint, exceeds the
+protocol's saturation bound, or cannot be trained. Scenarios are evaluated in
+protocol order and stop at the first infeasible one (the objective is already
+decided); the running objective is reported to the pruner after every
+feasible scenario. All objective components — per-scenario termination,
+movement RMSE, dwell criteria, saturation, boundary jump, and the reason —
+are logged separately; the scalar objective is never the only saved result.
 
 Development/tuning scenarios and seeds are separate from confirmatory scenarios
 and seeds. The selected recipe is frozen before confirmatory evaluation. Reusing
