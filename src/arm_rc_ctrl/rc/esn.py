@@ -34,7 +34,7 @@ from arm_rc_ctrl.validation import require_finite
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-__all__ = ["EsnConfig", "EsnModel", "ReadoutConfig", "ReservoirConfig", "require_single_thread"]
+__all__ = ["EsnConfig", "EsnModel", "ReadoutConfig", "ReservoirConfig", "ensure_single_thread", "require_single_thread"]
 
 type Solver = Literal["auto", "cholesky", "dual_cholesky", "conjugate_gradient", "conjugate_gradient_implicit"]
 _SOLVERS: Final = ("auto", "cholesky", "dual_cholesky", "conjugate_gradient", "conjugate_gradient_implicit")
@@ -104,6 +104,17 @@ def require_single_thread() -> None:
     if os.environ.get("OMP_NUM_THREADS") != "1":
         msg = "set OMP_NUM_THREADS=1 before importing rclib: reservoir computations must stay bitwise reproducible"
         raise RuntimeError(msg)
+
+
+def ensure_single_thread() -> None:
+    """Pin OpenMP to one thread for this process (command-line boundary), or fail if it is pinned otherwise.
+
+    Commands call this before importing ``rclib`` and before collecting provenance,
+    so a plain shell reproduces the documented results without exporting anything;
+    an explicit different value is an error rather than silently overridden.
+    """
+    os.environ.setdefault("OMP_NUM_THREADS", "1")
+    require_single_thread()
 
 
 def _reseed_c_library(seed: int) -> None:

@@ -57,6 +57,7 @@ __all__ = [
     "RunPointerRecord",
     "RunSummary",
     "load_run",
+    "record_run_pointer",
     "write_run",
 ]
 
@@ -424,3 +425,41 @@ def load_run(store: StorageRoot, pointer: RunPointerRecord) -> LoadedRun:
         msg = "pointer record disagrees with run.json"
         raise ValueError(msg)
     return LoadedRun(pointer=pointer, summary=summary, arrays=arrays, directory=directory)
+
+
+def record_run_pointer(records_root: Path, pointer: RunPointerRecord) -> Path:
+    """Track a curated run in Git: write its pointer record under ``data/records/runs`` and catalog it.
+
+    Idempotent for a pointer already recorded identically; a different record
+    or catalog entry under the same run ID is an error (records are immutable).
+    """
+    from arm_rc_ctrl.data.records import (
+        Catalog,
+        catalog_path,
+        load_catalog,
+        load_record,
+        record_path,
+        write_catalog,
+        write_record,
+    )
+
+    path = record_path(records_root, pointer.artifact)
+    if path.exists():
+        existing = load_record(path, RunPointerRecord)
+        if existing != pointer:
+            msg = f"{path} already exists and differs from this run; run records are immutable"
+            raise FileExistsError(msg)
+    else:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        write_record(path, pointer)
+    relative = path.relative_to(records_root).as_posix()
+    catalog_file = catalog_path(records_root)
+    catalog = load_catalog(catalog_file)
+    expected = Catalog(catalog.schema_version, ()).with_record(pointer.artifact, relative).artifacts[0]
+    entry = catalog.find(pointer.artifact.artifact_id)
+    if entry is None:
+        write_catalog(catalog_file, catalog.with_record(pointer.artifact, relative))
+    elif entry != expected:
+        msg = f"catalog entry {pointer.artifact.artifact_id} disagrees with the run record"
+        raise ValueError(msg)
+    return path

@@ -128,8 +128,12 @@ def test_anchor_needs_feasible_neighbours() -> None:
     assert len(selection.region) == 7
     # a lone feasible cell surrounded by failures is never the anchor
     lonely = [_variant(cell, tracker, success=cell == Cell(0.3, 4.0)) for cell in grid for tracker in protocol.trackers]
-    with pytest.raises(ValueError, match="no feasible cell has only feasible grid neighbours"):
+    with pytest.raises(ValueError, match="no feasible interior cell has four feasible grid neighbours"):
         select_anchor(protocol, summarize_cells(protocol, lonely))
+    # a fully feasible boundary column never yields an anchor: boundary cells have fewer than four neighbours
+    column = [_variant(cell, tracker, success=cell.q_scale == 0.2) for cell in grid for tracker in protocol.trackers]
+    with pytest.raises(ValueError, match="no feasible interior cell"):
+        select_anchor(protocol, summarize_cells(protocol, column))
     # the highest fraction wins over the lowest RMSE when neighbours are feasible
     mixed = [
         _variant(
@@ -138,8 +142,8 @@ def test_anchor_needs_feasible_neighbours() -> None:
         for cell in grid
         for tracker in protocol.trackers
     ]
-    selection = select_anchor(protocol, summarize_cells(protocol, mixed))
-    assert (selection.q_scale, selection.dq_scale) != (0.3, 4.0)
+    with pytest.raises(ValueError, match="no feasible interior cell"):
+        select_anchor(protocol, summarize_cells(protocol, mixed))  # the only interior cell is now below threshold
 
 
 def test_protocol_file_paths_resolve_next_to_the_file(tmp_path: Path) -> None:

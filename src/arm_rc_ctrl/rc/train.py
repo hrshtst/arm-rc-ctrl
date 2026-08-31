@@ -36,7 +36,7 @@ from arm_rc_ctrl.provenance import (
     require_clean_for_confirmatory,
     validate_utc_timestamp,
 )
-from arm_rc_ctrl.rc.esn import EsnConfig, EsnModel
+from arm_rc_ctrl.rc.esn import EsnConfig, EsnModel, ensure_single_thread
 from arm_rc_ctrl.rc.recipe import DatasetSource, ModelRecipe, create_recipe, write_recipe
 from arm_rc_ctrl.rc.teacher_forcing import InputTransform, TransformPolicy
 from arm_rc_ctrl.rc.training import FitReport
@@ -269,6 +269,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--exploratory", action="store_true", help="allow a dirty worktree (result is not confirmatory)"
     )
     args = parser.parse_args(argv)
+    ensure_single_thread()  # before rclib is imported and provenance is collected
     if Path(args.report).exists():
         msg = f"refusing to overwrite {args.report}"
         raise FileExistsError(msg)

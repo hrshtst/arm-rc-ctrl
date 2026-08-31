@@ -110,12 +110,14 @@ class PairedSuite:
         if pd_names != [m.name for m in ct.metrics]:
             msg = "the pairs compare different metric sets"
             raise ValueError(msg)
-        if not self.effects:
-            effects = tuple(
-                EffectDecomposition(a.name, a.unit, a.replay, a.rc, b.replay, b.rc)
-                for a, b in zip(pd.metrics, ct.metrics, strict=True)
-            )
-            object.__setattr__(self, "effects", effects)
+        effects = tuple(
+            EffectDecomposition(a.name, a.unit, a.replay, a.rc, b.replay, b.rc)
+            for a, b in zip(pd.metrics, ct.metrics, strict=True)
+        )
+        if self.effects and self.effects != effects:
+            msg = "stored effect decompositions do not match the paired reports they were derived from"
+            raise ValueError(msg)
+        object.__setattr__(self, "effects", effects)
 
 
 def load_paired_suite(path: Path) -> PairedSuite:

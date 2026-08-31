@@ -33,10 +33,13 @@ from arm_rc_ctrl.data.records import ProcessedDatasetRecord, load_record, verify
 from arm_rc_ctrl.data.samples import load_samples
 from arm_rc_ctrl.experiments.closed_loop import ClosedLoopResult, load_nominal_config, run_nominal
 from arm_rc_ctrl.experiments.replay import ReplayResult, run_replay
+from arm_rc_ctrl.experiments.run_record import record_run_pointer
 from arm_rc_ctrl.metrics.report import RunReport
 from arm_rc_ctrl.provenance import command_line
+from arm_rc_ctrl.rc.esn import ensure_single_thread
 from arm_rc_ctrl.rc.recipe import load_recipe
 from arm_rc_ctrl.rc.runtime import load_training_samples
+from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import load_scenario
 from arm_rc_ctrl.storage import open_storage
 
@@ -123,8 +126,11 @@ class PairedReport:
         if not self.recipe.strip():
             msg = "recipe must name the model recipe of the RC run"
             raise ValueError(msg)
-        if not self.metrics:
-            object.__setattr__(self, "metrics", compare_reports(rc, replay))
+        computed = compare_reports(rc, replay)
+        if self.metrics and self.metrics != computed:
+            msg = "stored metric comparisons do not match the reports they were derived from"
+            raise ValueError(msg)
+        object.__setattr__(self, "metrics", computed)
 
 
 def _scalar(report: RunReport, path: tuple[str, ...]) -> float | None:
@@ -293,7 +299,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--report", type=Path, required=True, help="paired report JSON to write (must not exist)")
     parser.add_argument("--markdown", type=Path, default=None, help="optional Markdown table to write (must not exist)")
     parser.add_argument("--exploratory", action="store_true", help="allow a dirty worktree")
+    parser.add_argument(
+        "--no-pointer", action="store_true", help="do not track the run under data/records/runs (exploratory scratch)"
+    )
     args = parser.parse_args(argv)
+    ensure_single_thread()  # before rclib is imported and provenance is collected
     for target in (args.report, args.markdown):
         if target is not None and Path(target).exists():
             msg = f"refusing to overwrite {target}"
@@ -322,10 +332,16 @@ def main(argv: Sequence[str] | None = None) -> int:
         now=datetime.now(tz=UTC),
         command=command_line("arm_rc_ctrl.experiments.paired", sys.argv[1:] if argv is None else argv),
     )
+    records_root = repository_root() if args.records_root is None else Path(args.records_root)
+    pointers: list[str] = []
+    if not args.no_pointer:
+        pointers = [
+            record_run_pointer(records_root, pointer).relative_to(records_root).as_posix()
+            for pointer in (result.rc.pointer, result.replay.pointer)
+        ]
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
-    Path(args.report).write_text(
-        json.dumps(to_mapping(result.paired), indent=2, sort_keys=True, allow_nan=False) + "\n", encoding="utf-8"
-    )
+    text = json.dumps(to_mapping(result.paired), indent=2, sort_keys=True, allow_nan=False)
+    Path(args.report).write_text(text + "\n", encoding="utf-8")
     if args.markdown is not None:
         Path(args.markdown).write_text(paired_to_markdown(result.paired), encoding="utf-8")
     rmse = next(m for m in result.paired.metrics if m.name == "joint_rmse")
@@ -333,6 +349,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         json.dumps(
             {
                 "rc_run": result.paired.rc.run_id,
+                "pointers": pointers,
                 "replay_run": result.paired.replay.run_id,
                 "rc_termination": result.paired.rc.termination_kind,
                 "rc_success": result.paired.rc.success,

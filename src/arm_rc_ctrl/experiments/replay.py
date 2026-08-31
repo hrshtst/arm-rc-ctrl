@@ -37,7 +37,15 @@ from arm_rc_ctrl.data.phases import intervals_from_phases
 from arm_rc_ctrl.data.records import ProcessedDatasetRecord, load_record, verify_payload
 from arm_rc_ctrl.data.samples import SampleSet, load_samples
 from arm_rc_ctrl.experiments.disturbances import ForcePulse
-from arm_rc_ctrl.experiments.run_record import LoadedRun, RunArrays, RunPointerRecord, RunSummary, load_run, write_run
+from arm_rc_ctrl.experiments.run_record import (
+    LoadedRun,
+    RunArrays,
+    RunPointerRecord,
+    RunSummary,
+    load_run,
+    record_run_pointer,
+    write_run,
+)
 from arm_rc_ctrl.experiments.simulation import simulate
 from arm_rc_ctrl.experiments.termination import (
     Outcome,
@@ -47,6 +55,7 @@ from arm_rc_ctrl.metrics.dwell import dwell_metrics
 from arm_rc_ctrl.metrics.joint import JointAnglePolicy
 from arm_rc_ctrl.metrics.report import RunReport, build_report, report_to_json
 from arm_rc_ctrl.provenance import ArtifactReference, collect_provenance, command_line, require_clean_for_confirmatory
+from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import ScenarioConfig, load_scenario
 from arm_rc_ctrl.storage import StorageRoot, open_storage
 
@@ -202,6 +211,10 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--dataset", type=Path, required=True, help="processed dataset record (TOML)")
     parser.add_argument("--controller", type=Path, required=True, help="tracker TOML (configs/controllers/*.toml)")
     parser.add_argument("--exploratory", action="store_true", help="allow a dirty worktree")
+    parser.add_argument("--records-root", type=Path, default=None, help="repository root for the run pointer record")
+    parser.add_argument(
+        "--no-pointer", action="store_true", help="do not track the run under data/records/runs (exploratory scratch)"
+    )
     parser.add_argument("--report", type=Path, default=None, help="write the report JSON here")
     args = parser.parse_args(argv)
     store = open_storage()
@@ -220,12 +233,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         now=datetime.now(UTC),
         command=command_line("arm_rc_ctrl.experiments.replay", argv if argv is not None else sys.argv[1:]),
     )
+    records_root = repository_root() if args.records_root is None else Path(args.records_root)
+    pointer_file = None if args.no_pointer else record_run_pointer(records_root, result.pointer)
     text = report_to_json(result.report)
     if args.report is not None:
         Path(args.report).write_text(text + "\n", encoding="utf-8")
     summary = {
         "run_id": result.pointer.artifact.artifact_id,
         "run_dir": result.directory.relative_to(store.root).as_posix(),
+        "pointer": None if pointer_file is None else pointer_file.relative_to(records_root).as_posix(),
         "termination": result.summary.termination.kind,
         "success": result.summary.outcome.success,
     }

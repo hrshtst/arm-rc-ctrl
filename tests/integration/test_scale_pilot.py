@@ -45,7 +45,7 @@ def _protocol_file(directory: Path) -> Path:
     file.write_text(
         f'name = "scale-pilot-fixture"\nscenario = "{SCENARIO.as_posix()}"\nmodel = "{MODEL.as_posix()}"\n'
         'trackers = ["pd", "computed_torque"]\n'
-        "[grid]\nq_scales = [0.3, 0.5]\ndq_scales = [4.0, 8.0]\n"
+        "[grid]\nq_scales = [0.2, 0.3, 0.5]\ndq_scales = [4.0, 8.0, 16.0]\n"
         "[variants]\nridge_alphas = [1e-2]\nreservoir_seeds = [31]\n"
         "[estimator]\nvelocity_cutoff_hz = 20.0\nacceleration_cutoff_hz = 20.0\n"
         "[selection]\nmin_feasible_fraction = 0.5\n"
@@ -76,17 +76,16 @@ def test_pilot_sweeps_cells_and_selects_an_anchor(prepared: tuple[StorageRoot, P
     dataset = load_record(record_file, ProcessedDatasetRecord)
     samples = load_samples(verify_payload(store, dataset.artifact))
     report = run_scale_pilot(protocol, protocol_file, dataset, samples, exploratory=True, now=FIXED_TIME)
-    assert len(report.variants) == 2 * 2 * 1 * 1 * 2
+    assert len(report.variants) == 3 * 3 * 1 * 1 * 2
     assert {v.tracker for v in report.variants} == {"pd", "computed_torque"}
-    assert len(report.cells) == 4
+    assert len(report.cells) == 9
     assert all(c.variants == 2 for c in report.cells)
     assert report.selection is not None
-    assert report.selection.q_scale in protocol.grid.q_scales
-    assert report.selection.dq_scale in protocol.grid.dq_scales
+    assert (report.selection.q_scale, report.selection.dq_scale) == (0.3, 8.0)  # the only interior cell
     assert report.trackers["pd"].type == "pd"
     assert report.provenance.seeds == {"reservoir_0": 31}
     markdown = render_markdown(report)
-    assert "| q \\ dq | 4 | 8 |" in markdown
+    assert "| q \\ dq | 4 | 8 | 16 |" in markdown
     assert "## Selection" in markdown
 
 
@@ -114,9 +113,9 @@ def test_command_line_entry_point(
     ]
     assert main(argv) == 0
     printed = json.loads(capsys.readouterr().out)
-    assert printed["variants"] == 8
+    assert printed["variants"] == 18
     report = load_scale_pilot_report(report_file)
-    assert len(report.cells) == 4
+    assert len(report.cells) == 9
     assert str(tmp_path) not in report_file.read_text()
     assert markdown_file.read_text().startswith("# Input-scale pilot `scale-pilot-fixture`")
     with pytest.raises(FileExistsError, match="refusing to overwrite"):
@@ -157,5 +156,5 @@ def test_report_without_a_selection_is_still_written(
     assert printed["selection"] is None
     report = load_scale_pilot_report(report_file)
     assert report.selection is None
-    assert len(report.cells) == 4
+    assert len(report.cells) == 9
     assert "nothing is selected" in markdown_file.read_text()

@@ -13,7 +13,7 @@ from typing import cast
 
 import pytest
 
-from arm_rc_ctrl.config import load_config
+from arm_rc_ctrl.config import load_config, to_mapping
 from arm_rc_ctrl.controllers.tracking import TrackerConfig
 from arm_rc_ctrl.data.preprocess import PreprocessResult, preprocess_demonstration
 from arm_rc_ctrl.data.records import RawDemonstrationRecord, load_record
@@ -328,3 +328,28 @@ def test_suite_command_line(
     assert markdown_file.read_text().startswith("# Paired suite")
     with pytest.raises(FileExistsError, match="refusing to overwrite"):
         suite_main(argv)
+
+
+def test_stored_derived_fields_are_recomputed_and_checked(
+    trained: tuple[StorageRoot, Path, PreprocessResult, ModelRecipe, Path], tmp_path: Path
+) -> None:
+    """A serialized metric table or effect decomposition that disagrees with its reports is rejected on load."""
+    pd = _pair(trained, DEV_PD, 22)
+    ct = _pair(trained, REPO_ROOT / "configs" / "controllers" / "computed_torque.toml", 23)
+    paired_file = tmp_path / "paired.json"
+    paired_file.write_text(json.dumps(to_mapping(pd.paired), sort_keys=True))
+    assert load_paired_report(paired_file) == pd.paired
+    data = json.loads(paired_file.read_text())
+    data["metrics"][0]["rc"] = 999.0
+    paired_file.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="stored metric comparisons do not match"):
+        load_paired_report(paired_file)
+    suite = PairedSuite(pd.paired.scenario, pd.paired.reference_artifact, "recipe.toml", pd.paired, ct.paired)
+    suite_file = tmp_path / "suite.json"
+    suite_file.write_text(json.dumps(to_mapping(suite), sort_keys=True))
+    assert load_paired_suite(suite_file) == suite
+    data = json.loads(suite_file.read_text())
+    data["effects"][0]["rc_pd"] = 999.0
+    suite_file.write_text(json.dumps(data))
+    with pytest.raises(ValueError, match="stored effect decompositions do not match"):
+        load_paired_suite(suite_file)

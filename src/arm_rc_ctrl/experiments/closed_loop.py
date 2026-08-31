@@ -29,14 +29,23 @@ from arm_rc_ctrl.controllers.tracking import TrackerConfig
 from arm_rc_ctrl.data.records import ProcessedDatasetRecord, load_record, verify_payload
 from arm_rc_ctrl.data.samples import SampleSet, load_samples
 from arm_rc_ctrl.experiments.replay import bind_dataset, dwell_outcome
-from arm_rc_ctrl.experiments.run_record import LoadedRun, RunPointerRecord, RunSummary, load_run, write_run
+from arm_rc_ctrl.experiments.run_record import (
+    LoadedRun,
+    RunPointerRecord,
+    RunSummary,
+    load_run,
+    record_run_pointer,
+    write_run,
+)
 from arm_rc_ctrl.experiments.simulation import GENERATOR_CHANNELS, simulate
 from arm_rc_ctrl.experiments.termination import Outcome
 from arm_rc_ctrl.metrics.joint import JointAnglePolicy
 from arm_rc_ctrl.metrics.report import RunReport, build_report, report_to_json
 from arm_rc_ctrl.provenance import ArtifactReference, collect_provenance, command_line, require_clean_for_confirmatory
+from arm_rc_ctrl.rc.esn import ensure_single_thread
 from arm_rc_ctrl.rc.recipe import ModelRecipe, load_recipe
 from arm_rc_ctrl.rc.runtime import generator_from_recipe, load_training_samples
+from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import ScenarioConfig, load_scenario
 from arm_rc_ctrl.storage import StorageRoot, open_storage
 
@@ -206,7 +215,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--report", type=Path, default=None, help="write the metric report JSON here")
     parser.add_argument("--exploratory", action="store_true", help="allow a dirty worktree")
+    parser.add_argument(
+        "--no-pointer", action="store_true", help="do not track the run under data/records/runs (exploratory scratch)"
+    )
     args = parser.parse_args(argv)
+    ensure_single_thread()  # before rclib is imported and provenance is collected
     if args.report is not None and Path(args.report).exists():
         msg = f"refusing to overwrite {args.report}"
         raise FileExistsError(msg)
@@ -233,12 +246,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         now=datetime.now(tz=UTC),
         command=command_line("arm_rc_ctrl.experiments.closed_loop", sys.argv[1:] if argv is None else argv),
     )
+    records_root = repository_root() if args.records_root is None else Path(args.records_root)
+    pointer_file = None if args.no_pointer else record_run_pointer(records_root, result.pointer)
     if args.report is not None:
         Path(args.report).parent.mkdir(parents=True, exist_ok=True)
         Path(args.report).write_text(report_to_json(result.report) + "\n", encoding="utf-8")
     summary = {
         "run_id": result.pointer.artifact.artifact_id,
         "run_dir": result.directory.relative_to(store.root).as_posix(),
+        "pointer": None if pointer_file is None else pointer_file.relative_to(records_root).as_posix(),
         "method": result.summary.method,
         "termination": result.summary.termination.kind,
         "success": result.summary.outcome.success,

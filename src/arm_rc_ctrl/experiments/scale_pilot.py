@@ -44,7 +44,7 @@ from arm_rc_ctrl.provenance import (
     command_line,
     require_clean_for_confirmatory,
 )
-from arm_rc_ctrl.rc.esn import EsnModel
+from arm_rc_ctrl.rc.esn import EsnModel, ensure_single_thread
 from arm_rc_ctrl.rc.generator import RcTargetGenerator
 from arm_rc_ctrl.rc.teacher_forcing import InputEncoder, InputTransform, build_episode
 from arm_rc_ctrl.rc.train import ModelConfig, load_model_config
@@ -332,21 +332,27 @@ def summarize_cells(protocol: ScalePilotProtocol, variants: Sequence[Variant]) -
 
 
 def select_anchor(protocol: ScalePilotProtocol, cells: Sequence[CellOutcome]) -> ScaleSelection:
-    """The feasible cell with the highest fraction (ties: lower median RMSE) whose grid neighbours are feasible."""
+    """The feasible interior cell with the highest fraction (ties: lower median RMSE) and four feasible neighbours.
+
+    Boundary cells have fewer than four in-grid neighbours and are never eligible:
+    an anchor on the edge would say nothing about the region beyond the grid.
+    """
     by_cell = {c.cell: c for c in cells}
     q_axis, dq_axis = protocol.grid.q_scales, protocol.grid.dq_scales
 
-    def neighbours(cell: Cell) -> list[Cell]:
+    def neighbours(cell: Cell) -> list[Cell] | None:
         i, j = q_axis.index(cell.q_scale), dq_axis.index(cell.dq_scale)
-        found: list[Cell] = []
-        for di, dj in ((-1, 0), (1, 0), (0, -1), (0, 1)):
-            if 0 <= i + di < len(q_axis) and 0 <= j + dj < len(dq_axis):
-                found.append(Cell(q_axis[i + di], dq_axis[j + dj]))
-        return found
+        if not (0 < i < len(q_axis) - 1 and 0 < j < len(dq_axis) - 1):
+            return None
+        return [Cell(q_axis[i + di], dq_axis[j + dj]) for di, dj in ((-1, 0), (1, 0), (0, -1), (0, 1))]
 
-    candidates = [c for c in cells if c.feasible and all(by_cell[n].feasible for n in neighbours(c.cell))]
+    candidates: list[CellOutcome] = []
+    for c in cells:
+        around = neighbours(c.cell)
+        if c.feasible and around is not None and all(by_cell[n].feasible for n in around):
+            candidates.append(c)
     if not candidates:
-        msg = "no feasible cell has only feasible grid neighbours; widen the grid or revisit the settings"
+        msg = "no feasible interior cell has four feasible grid neighbours; widen the grid or revisit the settings"
         raise ValueError(msg)
     best = max(
         candidates,
@@ -460,7 +466,9 @@ def render_markdown(report: ScalePilotReport) -> str:
         "",
     ]
     if s is None:
-        lines.append("- no feasible cell has only feasible grid neighbours: nothing is selected (see the grid above)")
+        lines.append(
+            "- no feasible interior cell has four feasible neighbours: nothing is selected (see the grid above)"
+        )
     else:
         lines += [
             (
@@ -482,6 +490,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--markdown", type=Path, default=None, help="optional Markdown summary (must not exist)")
     parser.add_argument("--exploratory", action="store_true", help="allow a dirty worktree")
     args = parser.parse_args(argv)
+    ensure_single_thread()  # before rclib is imported and provenance is collected
     for target in (args.report, args.markdown):
         if target is not None and Path(target).exists():
             msg = f"refusing to overwrite {target}"
@@ -516,7 +525,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
     )
     if report.selection is None:
-        msg = "no feasible cell has only feasible grid neighbours; the report was written but nothing is selected"
+        msg = "no feasible interior cell has four feasible neighbours; the report was written but nothing is selected"
         raise RuntimeError(msg)
     return 0
 
