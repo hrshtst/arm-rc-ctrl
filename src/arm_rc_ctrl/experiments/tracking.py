@@ -30,17 +30,18 @@ from arm_rc_ctrl.config import to_mapping
 from arm_rc_ctrl.data.records import to_toml
 from arm_rc_ctrl.experiments.plots import plot_run
 from arm_rc_ctrl.experiments.run_record import RUN_SUMMARY_FILE
+from arm_rc_ctrl.experiments.scalars import flatten_scalars
 from arm_rc_ctrl.metrics.report import report_to_json
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Mapping
 
     from arm_rc_ctrl.experiments.run_record import LoadedRun
     from arm_rc_ctrl.metrics.report import RunReport
     from arm_rc_ctrl.provenance import ProvenanceRecord
     from arm_rc_ctrl.storage import StorageRoot
 
-__all__ = ["MLFLOW_BUCKET", "RUN_ID_TAG", "TRACKING_URI", "MlflowTracker", "TrackedRun", "flatten_scalars"]
+__all__ = ["MLFLOW_BUCKET", "RUN_ID_TAG", "TRACKING_URI", "MlflowTracker", "TrackedRun"]
 
 MLFLOW_BUCKET: Final = "mlflow"
 TRACKING_URI: Final = f"armrc://{MLFLOW_BUCKET}/tracking"
@@ -55,19 +56,6 @@ _KEY_FORBIDDEN: Final = re.compile(r"[^A-Za-z0-9_.\-/ ]")
 def _key(name: str) -> str:
     """An MLflow-legal key (alphanumerics, ``_ - . /`` and spaces)."""
     return _KEY_FORBIDDEN.sub("_", name)
-
-
-def flatten_scalars(prefix: str, value: object, out: dict[str, object]) -> None:
-    """Flatten nested mappings/sequences into dotted keys; scalars keep their type."""
-    if isinstance(value, dict):
-        for key, item in cast("dict[str, object]", value).items():
-            flatten_scalars(f"{prefix}.{key}" if prefix else str(key), item, out)
-    elif isinstance(value, (list, tuple)):
-        items = cast("Sequence[object]", value)
-        for i, item in enumerate(items):
-            flatten_scalars(f"{prefix}.{i}" if prefix else str(i), item, out)
-    else:
-        out[prefix] = value
 
 
 def _provenance_params(provenance: ProvenanceRecord) -> dict[str, object]:

@@ -507,8 +507,12 @@ Alternative candidates considered:
   `.dvc/config.local`, resolving them to `<storage-root>/dvc-cache` and
   `<storage-root>/dvc-store`. Use `dvc add --to-remote` for large inputs when it
   avoids a repository-local copy. Never commit a machine-specific absolute path.
-- **Optuna:** place local SQLite studies under `armrc://optuna/`. Export selected
-  trials and study summaries to MLflow so the database is not the sole record.
+- **Optuna:** place local SQLite studies under `armrc://optuna/` (one database
+  per study). A study records its identity (protocol digest, seeded sampler,
+  pruner, direction) as user attributes and resumes only when that identity
+  matches; a failing trial aborts the study instead of being recorded as a
+  failure. Export selected trials and study summaries to MLflow so the
+  database is not the sole record.
 - **Git/uv:** Git pins project/submodule revisions; `uv.lock` pins Python
   dependencies. CMake/submodules pin the C++ build inputs.
 

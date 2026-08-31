@@ -19,7 +19,8 @@ from arm_rc_ctrl.data.records import RawDemonstrationRecord, load_record
 from arm_rc_ctrl.experiments import replay
 from arm_rc_ctrl.experiments.closed_loop import EstimatorSpec, run_nominal
 from arm_rc_ctrl.experiments.run_record import record_run_pointer
-from arm_rc_ctrl.experiments.tracking import RUN_ID_TAG, MlflowTracker, flatten_scalars
+from arm_rc_ctrl.experiments.scalars import flatten_scalars
+from arm_rc_ctrl.experiments.tracking import RUN_ID_TAG, MlflowTracker
 from arm_rc_ctrl.metrics.report import report_from_json, report_to_json
 from arm_rc_ctrl.rc.recipe import ModelRecipe, write_recipe
 from arm_rc_ctrl.rc.runtime import load_training_samples

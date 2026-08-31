@@ -16,6 +16,7 @@ dependencies = [
   "mlflow-skinny>=3.1",
   "numpy>=2.0.0",
   # Domain libraries are built from the pinned submodules (see [tool.uv.sources]).
+  "optuna>=4.9.0",
   "rclib",
   "scipy>=1.18.1",
   "skelarm",
