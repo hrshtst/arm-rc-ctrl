@@ -248,6 +248,23 @@ Confirmatory suite: 0 failed run(s) of 260.
 | robustness_dev_v2_recipe_v4.json | esn-task-1a-v4 | rc+computed_torque | force | 4/4 | 0.0427 | 0.08862 |
 | robustness_dev_v2_recipe_v4.json | esn-task-1a-v4 | rc+computed_torque | combined | 6/6 | 0.04296 | 0.08867 |
 
+## Playback
+
+Any curated run can be inspected kinematically with the pinned `skelarm` player
+(`docs/PLAN.md` section 7.5); the exported log is a local, disposable product.
+The nominal paired runs:
+
+| report | tracker | RC run | replay run |
+| --- | --- | --- | --- |
+| paired_nominal_ct.json | computed_torque | run-20260831-2dce459a5acc | run-20260831-86704cde37a8 |
+| paired_nominal_pd.json | pd | run-20260831-3fef7abca22a | run-20260831-e5265c2773a6 |
+
+Play the nominal RC+PD v2 run:
+
+```
+uv run python scripts/play_run.py --run run-20260831-3fef7abca22a --scenario configs/tasks/task_1a.toml
+```
+
 ## Limitations
 
 - Simulation only: all results come from the `skelarm` planar two-link model at 250 Hz with the frozen tracker gains; no hardware, sensor noise, latency, or model mismatch beyond the configured perturbations is represented.

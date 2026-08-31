@@ -26,6 +26,7 @@ def test_report_covers_metrics_distributions_failures_and_paired_comparisons() -
     text = render_report(inputs)
     for heading in (
         "## Summary",
+        "## Playback",
         "## Primary metric",
         "### Joint trajectory RMSE over the movement window (rad)",
         "Per-joint RMSE medians",
@@ -47,6 +48,10 @@ def test_report_covers_metrics_distributions_failures_and_paired_comparisons() -
     assert "| median | q25 | q75 | min | max |" in text
     assert "endpoint p95 (m)" in text
     assert inputs.confirmatory.recipe in text
+    assert "scripts/play_run.py --run run-20260831-3fef7abca22a" in text
+    for name, report in inputs.nominal:
+        assert report.rc.run_id in text, name
+        assert report.replay.run_id in text, name
 
 
 def test_committed_report_is_the_rendered_evidence() -> None:

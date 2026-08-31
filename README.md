@@ -27,7 +27,11 @@ suite once on it (260 runs, all successful); the results report is
 committed records (submodule pins, lock digest, payload digests, dataset
 rebuild, recipe refit, confirmatory rerun into a scratch store, report
 rendering) and fails naming the first missing or mismatched input; the
-clean-checkout audit follows. Recorded results live under
+clean-checkout audit follows. Any curated run can be exported as a
+disposable `skelarm` log and inspected with the pinned player
+(`uv run python scripts/play_run.py --run <run-id> --scenario configs/tasks/task_1a.toml`,
+or `scripts/export_run_sklog.py` for the file; `docs/PLAN.md` section 7.5).
+Recorded results live under
 `docs/experiments/task_1a/` with Git-tracked records under `data/records/`;
 see `docs/TASKS.md` for the ledger.
 

@@ -29,7 +29,7 @@ from typing import TYPE_CHECKING, Any, Final, cast
 
 from arm_rc_ctrl.experiments.esn_stability import StabilityReport, load_stability
 from arm_rc_ctrl.experiments.esn_study import EsnStudyReport, load_report
-from arm_rc_ctrl.experiments.paired import compare_reports
+from arm_rc_ctrl.experiments.paired import PairedReport, compare_reports, load_paired_report
 from arm_rc_ctrl.experiments.perturbations import CLASS_ORDER
 from arm_rc_ctrl.experiments.robustness import ArmRun, RobustnessSuite, load_suite
 
@@ -90,10 +90,12 @@ class ReportInputs:
     searches: tuple[tuple[str, EsnStudyReport], ...]
     stability: tuple[tuple[str, StabilityReport], ...]
     training: tuple[tuple[str, dict[str, object]], ...]
+    nominal: tuple[tuple[str, PairedReport], ...] = ()
 
 
 def load_inputs(docs: Path) -> ReportInputs:
     """Discover the evidence under ``docs`` (exactly one confirmatory suite)."""
+    nominal = [(f.name, load_paired_report(f)) for f in sorted(docs.glob("paired_nominal_*.json"))]
     suites = [(f.name, load_suite(f)) for f in sorted(docs.glob("robustness_*.json"))]
     confirmatory = [(name, s) for name, s in suites if s.label == CONFIRMATORY_LABEL]
     if len(confirmatory) != 1:
@@ -112,6 +114,7 @@ def load_inputs(docs: Path) -> ReportInputs:
         searches=tuple(searches),
         stability=tuple(stability),
         training=tuple(training),
+        nominal=tuple(nominal),
     )
 
 
@@ -345,6 +348,32 @@ def _development(inputs: ReportInputs) -> list[str]:
     return lines
 
 
+def _playback(inputs: ReportInputs) -> list[str]:
+    lines = [
+        "Any curated run can be inspected kinematically with the pinned `skelarm` player",
+        "(`docs/PLAN.md` section 7.5); the exported log is a local, disposable product.",
+        "The nominal paired runs:",
+        "",
+    ]
+    rows: list[list[object]] = [
+        [name, report.tracker, report.rc.run_id, report.replay.run_id] for name, report in inputs.nominal
+    ]
+    lines.extend(_table(["report", "tracker", "RC run", "replay run"], rows))
+    rc_pd = next((r.rc.run_id for _n, r in inputs.nominal if r.tracker == "pd"), None)
+    if rc_pd is not None:
+        lines.extend(
+            [
+                "",
+                "Play the nominal RC+PD v2 run:",
+                "",
+                "```",
+                f"uv run python scripts/play_run.py --run {rc_pd} --scenario configs/tasks/task_1a.toml",
+                "```",
+            ]
+        )
+    return lines
+
+
 def render_report(inputs: ReportInputs, *, plots: Sequence[str] = ()) -> str:
     """The Markdown report."""
     suite = inputs.confirmatory
@@ -383,6 +412,10 @@ def render_report(inputs: ReportInputs, *, plots: Sequence[str] = ()) -> str:
         *_failures(inputs),
         "",
         *_development(inputs),
+        "",
+        "## Playback",
+        "",
+        *_playback(inputs),
         "",
         "## Limitations",
         "",

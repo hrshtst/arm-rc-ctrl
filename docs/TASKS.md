@@ -22,9 +22,9 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** TOOL-001
+- **Next task:** owner decision (M4)
 - **Current milestone:** M4 — later planar experiments, with result-playback tooling queued separately.
-- **Active blockers:** None.
+- **Active blockers:** None; awaiting the owner's decision on M4 and on pushing the local commits.
 - **Latest completed work:** M3 closed 2026-08-31 (all M3 tasks incl. `M3-016`/`M3-017` and `M3-GATE` `DONE`; approved after three review rounds and merged in PR #4); M2 closed 2026-09-02 (PR #3); M1 closed 2026-08-31 (PR #2); M0 closed 2026-08-30 (PR #1); `UP-005` open.
 
 ## Milestone gates
@@ -175,7 +175,7 @@ scientific artifacts.
 
 | ID | Status | Task | Depends on | Acceptance/evidence |
 | --- | --- | --- | --- | --- |
-| TOOL-001 | `TODO` | Export one verified run as a `skelarm.StateLog` and provide a convenience playback command | M3-GATE, UP-006 | Tested library function plus thin `scripts/export_run_sklog.py` and `scripts/play_run.py`; strict run-ID/pointer/payload and scenario validation; atomic `*.sklog.npz` output with overwrite refusal and no absolute paths; geometry, target/tolerance, disturbances, provenance identity, and all usable telemetry retained (applied torque preferred, requested torque fallback); wrapper uses the pinned player, propagates errors, supports headless GIF/MP4 export, and cleans temporary output; repeated exports are semantically equal; the task 1-a report documents the four nominal run IDs and an exact RC+PD v2 playback command; store-dependent regression verifies the canonical run has 501 frames with exact state/telemetry arrays and matching target/tolerance, or skips clearly when its external payload is unavailable |
+| TOOL-001 | `DONE` | Export one verified run as a `skelarm.StateLog` and provide a convenience playback command | M3-GATE, UP-006 | `experiments/playback.py` + thin `scripts/export_run_sklog.py` / `scripts/play_run.py`: `export_run_sklog` resolves the Git-tracked pointer by strict run ID, verifies the payload digest, checks the pointer/file-name identity and the scenario binding (name and recorded target), and writes an atomic `*.sklog.npz` (staged `.tmp.npz` + rename, overwrite refused, `.sklog.npz` suffix enforced, no absolute machine path in the archive) carrying the geometry, the measured state, canonical playback torque `tau` (applied preferred, requested fallback, both originals kept), every other telemetry channel (integer channels as labelled float copies), the task target/tolerance as `extra.playback.task` (UP-006 schema), the disturbances, and the run identity (IDs, digests, commit, `created_at`); repeated exports are semantically equal (timestamps aside); `main_play` exports to a temporary directory, invokes the pinned `third_party/skelarm/tools/player.py` forwarding `--speed/--show-com/--export/--fps`, propagates the exit status, and cleans up; exported logs/videos are gitignored (`*.sklog.npz` outside fixtures, `*.mp4`, `*.gif`); the task 1-a report's Playback section lists the four nominal run IDs with the exact RC+PD v2 command (`report.md` regenerated, lock updated); `tests/integration/test_playback.py` (channels, metadata, semantic equality, refusals incl. misnamed/tampered pointers and corrupted payloads, CLI, wrapper forwarding/cleanup) and store-dependent `tests/regression/test_playback_lock.py` (canonical `run-20260831-3fef7abca22a`: 501 frames, exact arrays, target/tolerance; clear skip without the store); offscreen smoke confirms the pinned player draws the exported target overlay |
 
 ## M4 — Later planar experiments (gated epics)
 
