@@ -23,7 +23,11 @@ suite once on it (260 runs, all successful); the results report is
 `docs/experiments/task_1a/report.md` (regenerate with
 `uv run python -m arm_rc_ctrl.experiments.report_1a --docs docs/experiments/task_1a
 --output docs/experiments/task_1a/report.md --plots docs/experiments/task_1a/plots --force`);
-the reproduction script and audit follow. Recorded results live under
+`uv run python scripts/reproduce_1a.py` re-derives the result from the
+committed records (submodule pins, lock digest, payload digests, dataset
+rebuild, recipe refit, confirmatory rerun into a scratch store, report
+rendering) and fails naming the first missing or mismatched input; the
+clean-checkout audit follows. Recorded results live under
 `docs/experiments/task_1a/` with Git-tracked records under `data/records/`;
 see `docs/TASKS.md` for the ledger.
 
