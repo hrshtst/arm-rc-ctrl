@@ -494,6 +494,10 @@ decided); the running objective is reported to the pruner after every
 feasible scenario. All objective components — per-scenario termination,
 movement RMSE, dwell criteria, saturation, boundary jump, and the reason —
 are logged separately; the scalar objective is never the only saved result.
+Only trials feasible in every development scenario are eligible for selection
+and freezing — a study without one selects nothing — and, because Optuna counts
+queued comparison points towards the sampler's start-up trials, a protocol
+states its start-up count inclusive of them.
 
 Development/tuning scenarios and seeds are separate from confirmatory scenarios
 and seeds. The selected recipe is frozen before confirmatory evaluation. Reusing

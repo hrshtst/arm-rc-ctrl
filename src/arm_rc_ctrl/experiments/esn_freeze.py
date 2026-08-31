@@ -49,8 +49,13 @@ def _check(report: EsnStudyReport, protocol: EsnSearchProtocol) -> None:
             f"protocol {protocol.name!r} ({digest[:12]})"
         )
         raise ValueError(msg)
-    if report.best_point is None:
+    if report.best_point is None or report.summary.best_number is None:
         msg = "the report selects no trial (no feasible completed trial)"
+        raise ValueError(msg)
+    best = next((t for t in report.summary.trials if t.number == report.summary.best_number), None)
+    if best is None or best.flags.get("feasible") is not True:
+        number = report.summary.best_number
+        msg = f"the selected trial {number} is not flagged feasible; only feasible trials can be frozen"
         raise ValueError(msg)
     if len(report.summary.trials) < report.budget:
         stored = len(report.summary.trials)

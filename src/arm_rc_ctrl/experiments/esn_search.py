@@ -272,6 +272,19 @@ class EsnSearchProtocol:
         if self.max_dt_ratio < 1:
             msg = f"max_dt_ratio must be >= 1, got {self.max_dt_ratio!r}"
             raise ValueError(msg)
+        if self.sampler.kind == "tpe" and self.sampler.n_startup_trials <= len(self.comparison):
+            msg = (
+                f"sampler.n_startup_trials ({self.sampler.n_startup_trials}) must exceed the {len(self.comparison)} "
+                "comparison points: Optuna counts every completed trial, queued ones included, towards the start-up"
+            )
+            raise ValueError(msg)
+
+    @property
+    def random_startup_trials(self) -> int:
+        """Genuinely random trials before the sampler starts modelling (the queued comparison points count too)."""
+        if self.sampler.kind != "tpe":
+            return self.budget - len(self.comparison)
+        return self.sampler.n_startup_trials - len(self.comparison)
 
     def base_model(self) -> ModelConfig:
         """Load the base model configuration."""

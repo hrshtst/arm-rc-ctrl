@@ -178,11 +178,19 @@ def run_trials(study: optuna.Study, objective: Callable[[optuna.Trial], float], 
     return remaining
 
 
-def select_best(study: optuna.Study) -> FrozenTrial:
-    """The completed trial with the best value; ties go to the earliest trial."""
-    complete = [t for t in study.trials if t.state == TrialState.COMPLETE and t.value is not None]
+def select_best(study: optuna.Study, *, eligible: Callable[[FrozenTrial], bool] | None = None) -> FrozenTrial:
+    """The eligible completed trial with the best value; ties go to the earliest trial.
+
+    ``eligible`` restricts the selection (e.g. to trials flagged feasible); a
+    completed trial is otherwise eligible whatever its attributes say.
+    """
+    complete = [
+        t
+        for t in study.trials
+        if t.state == TrialState.COMPLETE and t.value is not None and (eligible is None or eligible(t))
+    ]
     if not complete:
-        msg = f"study {study.study_name!r} has no completed trial"
+        msg = f"study {study.study_name!r} has no eligible completed trial"
         raise ValueError(msg)
     sign = 1.0 if study.direction == optuna.study.StudyDirection.MINIMIZE else -1.0
     return min(complete, key=lambda t: (sign * cast("float", t.value), t.number))
@@ -222,6 +230,8 @@ class StudySummary:
     n_pruned: int
     best_number: int | None
     best_value: float | None
+    selection_rule: str = "complete"
+    """Which trials were eligible for ``best``: ``complete`` (any completed trial) or a named restriction."""
 
     def __post_init__(self) -> None:
         """Consistency of the counts with the trials."""
@@ -264,11 +274,24 @@ def _record(trial: FrozenTrial) -> TrialRecord:
     )
 
 
-def summarize(study: optuna.Study) -> StudySummary:
-    """Summarize the study's stored state (queued trials that have not started are not part of it)."""
+def summarize(
+    study: optuna.Study,
+    *,
+    eligible: Callable[[FrozenTrial], bool] | None = None,
+    selection_rule: str = "complete",
+) -> StudySummary:
+    """Summarize the study's stored state (queued trials that have not started are not part of it).
+
+    ``eligible`` and ``selection_rule`` name which completed trials may be
+    selected as ``best`` (see :func:`select_best`).
+    """
     trials = tuple(_record(t) for t in study.trials if t.state != TrialState.WAITING)
-    complete = [t for t in study.trials if t.state == TrialState.COMPLETE and t.value is not None]
-    best = select_best(study) if complete else None
+    candidates = [
+        t
+        for t in study.trials
+        if t.state == TrialState.COMPLETE and t.value is not None and (eligible is None or eligible(t))
+    ]
+    best = select_best(study, eligible=eligible) if candidates else None
     return StudySummary(
         name=study.study_name,
         storage=study_uri(study.study_name),
@@ -279,6 +302,7 @@ def summarize(study: optuna.Study) -> StudySummary:
         n_pruned=sum(1 for t in trials if t.state == "PRUNED"),
         best_number=None if best is None else best.number,
         best_value=None if best is None else cast("float", best.value),
+        selection_rule=selection_rule,
     )
 
 

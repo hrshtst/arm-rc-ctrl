@@ -13,10 +13,12 @@ from pathlib import Path
 from typing import cast
 
 import pytest
+from optuna.trial import FrozenTrial
 
 from arm_rc_ctrl.config import from_mapping
 from arm_rc_ctrl.data.preprocess import PreprocessResult, preprocess_demonstration
 from arm_rc_ctrl.data.records import RawDemonstrationRecord, load_record
+from arm_rc_ctrl.experiments import esn_study
 from arm_rc_ctrl.experiments.esn_objective import TrialEvaluation
 from arm_rc_ctrl.experiments.esn_search import ComparisonPoint, EsnSearchProtocol, TrialPoint, load_esn_search
 from arm_rc_ctrl.experiments.esn_study import (
@@ -158,19 +160,53 @@ def test_study_is_mirrored_as_parent_and_child_runs_and_resumes(
     assert "report.json" in tracker.logged_artifacts(parent)
     assert tracker.metrics(parent)["n_complete"] == 4.0
     assert tracker.metrics(parent)["trials_run"] == 2.0
-    assert second.report.best_point is not None
     best = second.report.summary.best_number
-    assert best is not None
-    assert second.report.best_point.params() == second.study.trials[best].params
+    if second.report.n_feasible:  # only a feasible trial can be selected
+        assert best is not None
+        assert second.report.best_point is not None
+        assert second.report.best_point.params() == second.study.trials[best].params
+        assert second.study.trials[best].user_attrs["feasible"] is True
+    else:
+        assert best is None
+        assert second.report.best_point is None
     assert second.report.n_feasible == sum(1 for t in second.report.summary.trials if t.flags["feasible"])
 
     third = run()
     assert third.report.trials_run == 0
     assert third.child_runs == {}
     assert third.evaluations == ()
+    assert third.report.summary.selection_rule == "feasible"
+    assert all(t.flags["feasible"] for t in third.report.summary.trials if t.number == third.report.summary.best_number)
     report_file = tmp_path / "report.json"
     report_file.write_text(report_to_json(third.report) + "\n", encoding="utf-8")
     assert load_report(report_file) == third.report
+
+
+def never_feasible(_trial: FrozenTrial) -> bool:
+    """A selection rule that admits nothing."""
+    return False
+
+
+def test_only_feasible_trials_can_be_selected(
+    prepared: tuple[StorageRoot, Path, PreprocessResult, EsnSearchProtocol, Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """When no stored trial is feasible the report selects nothing, whatever the objective values say."""
+    store, records, processed, protocol, protocol_file = prepared
+    monkeypatch.setattr(esn_study, "is_feasible", never_feasible)
+    result = run_esn_study(
+        protocol,
+        protocol_file,
+        store=store,
+        dataset_file=processed.record_file,
+        records_root=records,
+        exploratory=True,
+        now=FIXED_TIME,
+    )
+    assert result.report.trials_run == 0
+    assert result.report.summary.n_complete >= 1
+    assert result.report.summary.best_number is None
+    assert result.report.best_point is None
+    assert result.report.summary.selection_rule == "feasible"
 
 
 def test_command_runs_a_bounded_number_of_trials_and_writes_the_report(

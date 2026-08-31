@@ -135,6 +135,14 @@ def test_study_creates_prunes_resumes_and_selects_deterministically(tmp_path: Pa
     best = select_best(resumed)
     complete = [t for t in resumed.trials if t.state.name == "COMPLETE"]
     assert best.value == min(t.value for t in complete if t.value is not None)
+    # An eligibility rule restricts the selection (and is named in the summary).
+    later = select_best(resumed, eligible=lambda t: t.number > best.number)
+    assert later.number > best.number
+    restricted = summarize(resumed, eligible=lambda t: t.number > best.number, selection_rule="later")
+    assert (restricted.best_number, restricted.selection_rule) == (later.number, "later")
+    assert summarize(resumed, eligible=lambda _t: False).best_number is None
+    with pytest.raises(ValueError, match="no eligible completed trial"):
+        select_best(resumed, eligible=lambda _t: False)
     summary = summarize(resumed)
     assert summary.storage == "armrc://optuna/bowl.db"
     assert summary.best_number == best.number
@@ -165,7 +173,7 @@ def test_selection_breaks_ties_by_trial_number_and_needs_a_completed_trial(tmp_p
     """Equal objectives select the earliest trial; pruned-only studies have no selection."""
     store = make_store(tmp_path)
     study = open_study(store, "ties", protocol_sha256=DIGEST, sampler=SAMPLER, pruner=PrunerSpec(kind="none"))
-    with pytest.raises(ValueError, match="no completed trial"):
+    with pytest.raises(ValueError, match="no eligible completed trial"):
         select_best(study)
     study.enqueue_trial({"x": 0.5, "alpha": 0.1, "n": 10})
     study.enqueue_trial({"x": -0.5, "alpha": 0.1, "n": 10})

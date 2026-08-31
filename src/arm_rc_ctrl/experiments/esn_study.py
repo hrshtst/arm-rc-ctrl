@@ -62,13 +62,16 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
     import optuna
+    from optuna.trial import FrozenTrial
 
     from arm_rc_ctrl.storage import StorageRoot
 
 __all__ = [
+    "FEASIBLE_RULE",
     "REPORT_SCHEMA_VERSION",
     "EsnStudyReport",
     "EsnStudyResult",
+    "is_feasible",
     "load_report",
     "main",
     "render_markdown",
@@ -78,6 +81,15 @@ __all__ = [
 
 REPORT_SCHEMA_VERSION: Final = 1
 STUDY_TAG: Final = "armrc.study"
+FEASIBLE_RULE: Final = "feasible"
+"""Selection rule of ESN studies: only trials feasible in every development scenario can be selected."""
+
+
+def is_feasible(trial: FrozenTrial) -> bool:
+    """Whether a stored trial was feasible in every development scenario."""
+    return trial.user_attrs.get("feasible") is True
+
+
 TRIAL_TAG: Final = "armrc.trial"
 
 
@@ -371,10 +383,10 @@ def run_esn_study(
     objective = make_objective(protocol, context, on_evaluation=on_evaluation)
     budget = protocol.budget if max_trials is None else min(protocol.budget, len(finished(study)) + max_trials)
     ran = run_trials(study, objective, budget=budget)
-    summary = summarize(study)
+    summary = summarize(study, eligible=is_feasible, selection_rule=FEASIBLE_RULE)
     best = None
     if summary.best_number is not None:
-        best = point_from_params(protocol.search, select_best(study).params)
+        best = point_from_params(protocol.search, select_best(study, eligible=is_feasible).params)
     n_feasible = sum(1 for t in summary.trials if t.flags.get("feasible") is True)
     report = EsnStudyReport(
         protocol=protocol.name,

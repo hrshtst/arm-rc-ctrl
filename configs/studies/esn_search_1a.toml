@@ -17,7 +17,9 @@ max_dt_ratio = 3.0
 
 [sampler]
 # Study seed: distinct from every confirmatory seed (20260901..20260905) and from the gain-study
-# seeds (20260830, 20260911). The first 24 trials (after the comparison points) are uniform draws.
+# seeds (20260830, 20260911). Optuna counts every completed trial, the four queued comparison
+# points included, towards n_startup_trials: 20 genuinely random draws precede TPE modelling
+# (corrected at the M3 review; the run itself was unaffected).
 kind = "tpe"
 seed = 20260921
 n_startup_trials = 24

@@ -121,6 +121,12 @@ def test_freeze_refuses_foreign_unfinished_or_empty_reports(
     partial = replace(report, summary=replace(report.summary, trials=report.summary.trials[:2], n_complete=2))
     with pytest.raises(ValueError, match="finish it before freezing"):
         frozen_model(partial, protocol, name="x")
+    infeasible_best = replace(report, summary=replace(report.summary, best_number=2, best_value=10.0))
+    with pytest.raises(ValueError, match="not flagged feasible"):
+        frozen_model(infeasible_best, protocol, name="x")
+    missing_best = replace(report, summary=replace(report.summary, best_number=7))
+    with pytest.raises(ValueError, match="not flagged feasible"):
+        frozen_model(missing_best, protocol, name="x")
 
 
 def test_rendered_configurations_load_back(report: EsnStudyReport, protocol: EsnSearchProtocol, tmp_path: Path) -> None:
