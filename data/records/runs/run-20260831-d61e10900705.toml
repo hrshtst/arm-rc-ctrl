@@ -1,0 +1,38 @@
+method = "rc+pd"
+scenario = "task-1a-reach"
+termination_kind = "completed"
+success = true
+duration_s = 5.0
+n_samples = 501
+arrays_sha256 = "9838fc7f21f5b65ead7088fb36cacb2e9b93c2f6efa3e976095602fe653449b8"
+
+[artifact]
+artifact_id = "run-20260831-d61e10900705"
+kind = "run"
+created_at = "2026-08-31T07:39:15+00:00"
+license = "LicenseRef-Private"
+access = "private"
+notes = "RC target generator from recipe 'esn-task-1a-v3' tracked by pd; priming until 1.0 s; boundary jump 0.0471 rad."
+schema_version = 1
+
+[artifact.payload]
+uri = "armrc://runs/run-20260831-d61e10900705/run.json"
+sha256 = "d61e1090070597bb71f5bab8673fe846806a8b442fdd07d2d6c1f5514c957e60"
+size = 7441
+format = "run.json"
+schema_version = 1
+
+[artifact.origin]
+command = "python -m arm_rc_ctrl.experiments.robustness --development configs/evaluations/task_1a_robustness_dev_v2.toml --dataset data/records/processed/processed-20260830-feaf73e6663c.toml --recipe data/records/models/model-20260831-ea83321eeaa5.toml --evaluation configs/evaluations/task_1a_nominal_v3.toml --label development --report docs/experiments/task_1a/robustness_dev_v2_recipe_v3.json --markdown docs/experiments/task_1a/robustness_dev_v2_recipe_v3.md"
+config_sha256 = "454ea4de7eb82a5e222affd426d3817f68ff77d07d075596896b08437b695354"
+project_commit = "2c57244dce8a788780b8ec6a7a80d7d6379fe40b"
+project_dirty = false
+sources = [
+    "processed-20260830-feaf73e6663c",
+]
+run_id = "run-20260831-d61e10900705"
+
+[artifact.origin.dependency_commits]
+rclib = "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b"
+skelarm = "ebb26118864ad158ef2ad36af68027b1a12ade1a"
+rtctrl = "c601076ee60ec712c1cb4a85756a186882df2e1b"
