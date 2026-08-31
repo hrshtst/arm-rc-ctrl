@@ -2,54 +2,54 @@
   "checks": [
     {
       "detail": "2 build identities verified; submodules ['rclib', 'rtctrl', 'skelarm'] and uv.lock match the evidence",
-      "elapsed_s": 0.2579717220214661,
+      "elapsed_s": 0.39313775300979614,
       "name": "environment",
       "ok": true
     },
     {
       "detail": "external storage root resolved",
-      "elapsed_s": 0.00697973498608917,
+      "elapsed_s": 0.006565326009877026,
       "name": "storage",
       "ok": true
     },
     {
       "detail": "recipe esn-task-1a-v4, dataset processed-20260830-feaf73e6663c, raw raw-20260830-b5adde395f1c, 260 run pointers",
-      "elapsed_s": 0.07730572801665403,
+      "elapsed_s": 0.05943559200386517,
       "name": "records",
       "ok": true
     },
     {
       "detail": "raw, processed, and 260 run payloads verified against their recorded digests",
-      "elapsed_s": 0.10865812498377636,
+      "elapsed_s": 0.10633796200272627,
       "name": "payloads",
       "ok": true
     },
     {
       "detail": "processed dataset rebuilt with digest feaf73e6663c (identical)",
-      "elapsed_s": 0.20429999599582516,
+      "elapsed_s": 0.3158439380058553,
       "name": "data",
       "ok": true
     },
     {
       "detail": "recipe refitted; fit RMSE 0.00173564 rad reproduced",
-      "elapsed_s": 0.0752475849876646,
+      "elapsed_s": 0.07572213400271721,
       "name": "model",
       "ok": true
     },
     {
       "detail": "260 runs re-evaluated; largest deviation 0.000e+00 (tolerance 0.000e+00)",
-      "elapsed_s": 129.95949558800203,
+      "elapsed_s": 145.59599752898794,
       "name": "evaluation",
       "ok": true
     },
     {
       "detail": "report re-rendered identically from the committed evidence",
-      "elapsed_s": 0.42742217201157473,
+      "elapsed_s": 0.43969937798101455,
       "name": "report",
       "ok": true
     }
   ],
-  "elapsed_s": 131.11747982699308,
+  "elapsed_s": 146.99292516399873,
   "environment": {
     "OMP_NUM_THREADS": "1",
     "machine": "x86_64",
@@ -59,15 +59,17 @@
   },
   "inputs": {
     "confirmatory_report": "robustness_confirmatory_v2_recipe_v4.json",
+    "evidence_project_commit": "19b9af3f5540f95cb594eb19b9ab6fa4e32b9fac",
     "lock_sha256": "ff69c024ff5fc381434e4758ca5ee10dc6923362b813785608a8171a097b5825",
     "processed": "data/records/processed/processed-20260830-feaf73e6663c.toml",
-    "project_commit": "19b9af3f5540f95cb594eb19b9ab6fa4e32b9fac",
     "raw": "raw-20260830-b5adde395f1c",
     "recipe": "data/records/models/model-20260831-1b9477aaa246.toml",
+    "reproduction_project_commit": "c9cb57403c1ee34d328e0a122199a7501a11f2f6",
+    "reproduction_project_dirty": "False",
     "storage_root": "<configured external root>"
   },
   "max_deviation": 0.0,
   "ok": true,
   "schema_version": 1,
-  "started_at": "2026-08-31T09:01:08.440591+00:00"
+  "started_at": "2026-08-31T10:04:42.725035+00:00"
 }
