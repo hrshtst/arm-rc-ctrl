@@ -1,0 +1,38 @@
+method = "replay+computed_torque"
+scenario = "task-1a-reach"
+termination_kind = "completed"
+success = true
+duration_s = 5.0
+n_samples = 501
+arrays_sha256 = "9f5c9f8af4c455ec5f6da7cf98bb27d57d79f49936b5caadea463812759f20c7"
+
+[artifact]
+artifact_id = "run-20260831-77a366075da0"
+kind = "run"
+created_at = "2026-08-31T08:09:03+00:00"
+license = "LicenseRef-Private"
+access = "private"
+notes = "Direct replay of processed-20260830-feaf73e6663c with computed_torque."
+schema_version = 1
+
+[artifact.payload]
+uri = "armrc://runs/run-20260831-77a366075da0/run.json"
+sha256 = "77a366075da02a2a1aa272f233353d5cf34fc35868d8c8465d89ec4327eec298"
+size = 5328
+format = "run.json"
+schema_version = 1
+
+[artifact.origin]
+command = "python -m arm_rc_ctrl.experiments.robustness --confirmatory configs/evaluations/task_1a_confirmatory_v2.toml --dataset data/records/processed/processed-20260830-feaf73e6663c.toml --recipe data/records/models/model-20260831-1b9477aaa246.toml --evaluation configs/evaluations/task_1a_nominal_v4.toml --label confirmatory --report docs/experiments/task_1a/robustness_confirmatory_v2_recipe_v4.json --markdown docs/experiments/task_1a/robustness_confirmatory_v2_recipe_v4.md"
+config_sha256 = "37c4a10ed271307de905103c8f94d9d84b0875a449494b9893215cadcfbe01d0"
+project_commit = "19b9af3f5540f95cb594eb19b9ab6fa4e32b9fac"
+project_dirty = false
+sources = [
+    "processed-20260830-feaf73e6663c",
+]
+run_id = "run-20260831-77a366075da0"
+
+[artifact.origin.dependency_commits]
+rclib = "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b"
+skelarm = "ebb26118864ad158ef2ad36af68027b1a12ade1a"
+rtctrl = "c601076ee60ec712c1cb4a85756a186882df2e1b"

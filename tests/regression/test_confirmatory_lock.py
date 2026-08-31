@@ -15,6 +15,7 @@ import pytest
 from arm_rc_ctrl.data.records import ProcessedDatasetRecord, load_catalog, load_record
 from arm_rc_ctrl.experiments.baselines import load_frozen_baseline
 from arm_rc_ctrl.experiments.confirmatory import check_against_pilot, load_confirmatory
+from arm_rc_ctrl.experiments.esn_search import load_esn_search
 from arm_rc_ctrl.experiments.perturbation_pilot import (
     load_pilot_report,
     load_protocol,
@@ -22,6 +23,8 @@ from arm_rc_ctrl.experiments.perturbation_pilot import (
     select_levels,
     summarize_levels,
 )
+from arm_rc_ctrl.experiments.perturbations import load_development_robustness
+from arm_rc_ctrl.experiments.tuning import DevelopmentScenarios
 from arm_rc_ctrl.experiments.tuning import load_protocol as load_tuning_protocol
 from arm_rc_ctrl.repo import repository_root
 
@@ -30,6 +33,10 @@ pytestmark = pytest.mark.regression
 REPO_ROOT = repository_root()
 GAIN_STUDY = REPO_ROOT / "configs" / "studies" / "baseline_gains_1a.toml"
 GAIN_STUDY_V2 = REPO_ROOT / "configs" / "studies" / "baseline_gains_1a_v2.toml"
+ESN_SEARCH = REPO_ROOT / "configs" / "studies" / "esn_search_1a.toml"
+ESN_SEARCH_V2 = REPO_ROOT / "configs" / "studies" / "esn_search_1a_v2.toml"
+ROBUSTNESS_DEV = REPO_ROOT / "configs" / "evaluations" / "task_1a_robustness_dev_v1.toml"
+ROBUSTNESS_DEV_V2 = REPO_ROOT / "configs" / "evaluations" / "task_1a_robustness_dev_v2.toml"
 
 
 @dataclass(frozen=True)
@@ -41,6 +48,8 @@ class LockVersion:
     pilot_report: Path
     pilot_markdown: Path
     gain_studies: tuple[Path, ...]
+    esn_studies: tuple[Path, ...] = ()
+    development_levels: tuple[Path, ...] = ()
 
 
 VERSIONS = {
@@ -57,6 +66,8 @@ VERSIONS = {
         REPO_ROOT / "docs" / "experiments" / "task_1a" / "perturbation_pilot_v2.json",
         REPO_ROOT / "docs" / "experiments" / "task_1a" / "perturbation_pilot_v2.md",
         (GAIN_STUDY, GAIN_STUDY_V2),
+        (ESN_SEARCH, ESN_SEARCH_V2),
+        (ROBUSTNESS_DEV, ROBUSTNESS_DEV_V2),
     ),
 }
 
@@ -121,12 +132,26 @@ def test_locked_levels_sit_at_the_pilot_safety_boundary(version: LockVersion) ->
 def test_confirmatory_seeds_and_levels_are_separate_from_development(version: LockVersion) -> None:
     """No confirmatory seed is a development seed; no development offset coincides with a locked level."""
     protocol = load_confirmatory(version.confirmatory)
-    for study_file in version.gain_studies:
-        study = load_tuning_protocol(study_file)
-        protocol.forbid_seeds([study.sampler_seed], f"the baseline gain study {study_file.name}")
-        norms = [float(np.linalg.norm(offset)) for offset in study.development.initial_posture_offsets]
+    developments: list[tuple[str, int, DevelopmentScenarios]] = [
+        (f"the baseline gain study {f.name}", (s := load_tuning_protocol(f)).sampler_seed, s.development)
+        for f in version.gain_studies
+    ]
+    developments.extend(
+        (f"the ESN search {f.name}", (e := load_esn_search(f)).sampler.seed, e.development) for f in version.esn_studies
+    )
+    for label, seed, development in developments:
+        protocol.forbid_seeds([seed], label)
+        norms = [float(np.linalg.norm(offset)) for offset in development.initial_posture_offsets]
         for level in (protocol.posture.small_magnitude_rad, protocol.posture.large_magnitude_rad):
-            assert not any(math.isclose(norm, level, rel_tol=1e-9) for norm in norms), (study_file.name, level)
-        for pulse in study.development.force_pulses:
-            assert pulse.start_s != protocol.force.start_s, study_file.name  # development pulses use other timing
-            assert pulse.direction_deg not in protocol.force.directions_deg, study_file.name
+            assert not any(math.isclose(norm, level, rel_tol=1e-9) for norm in norms), (label, level)
+        for pulse in development.force_pulses:
+            assert pulse.start_s != protocol.force.start_s, label  # development pulses use other timing
+            assert pulse.direction_deg not in protocol.force.directions_deg, label
+    for levels_file in version.development_levels:
+        levels = load_development_robustness(levels_file)
+        protocol.forbid_seeds(levels.seeds, f"the development robustness levels {levels_file.name}")
+        for magnitude in (levels.posture.small_magnitude_rad, levels.posture.large_magnitude_rad):
+            assert magnitude not in (protocol.posture.small_magnitude_rad, protocol.posture.large_magnitude_rad)
+        assert levels.force.start_s != protocol.force.start_s
+        assert not set(levels.force.directions_deg) & set(protocol.force.directions_deg)
+        assert levels.force.magnitude_n < protocol.force.magnitude_n

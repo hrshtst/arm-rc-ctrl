@@ -1,0 +1,143 @@
+# ESN hyperparameter search protocol v1 for task 1-a (docs/PLAN.md section 10; docs/TASKS.md M3-003).
+# Development only: the seeded sampler and pruner, the search bounds, the comparison points, and
+# the development scenarios below never touch a confirmatory seed, level, timing, or direction
+# (configs/evaluations/task_1a_confirmatory_v2.toml; enforced by tests/regression). The base
+# model fixes what is not tuned: the input transform selected by the recorded input-scale pilot
+# (q 0.3 rad, dq 12 rad/s) and the Cholesky ridge solver. The frozen PD v2 tracker is not tuned.
+# The washout is the demonstration's prime phase (a recipe invariant), so it is not a parameter.
+# Ridge regularization spans 1e-3 .. 1 (log), covering 3e-2 .. 3e-1 where the input-scale pilot
+# found the best cells; the four comparison points evaluate the development anchor at
+# alpha = 1e-2 (the M2 value, kept as the reference) and at 3e-2, 1e-1, 3e-1 before any sampling.
+name = "esn-search-1a"
+scenario = "../tasks/task_1a.toml"
+model = "../models/esn_task_1a_v2.toml"
+tracker = "pd_v2"
+budget = 120
+max_dt_ratio = 3.0
+
+[sampler]
+# Study seed: distinct from every confirmatory seed (20260901..20260905) and from the gain-study
+# seeds (20260830, 20260911). Optuna counts every completed trial, the four queued comparison
+# points included, towards n_startup_trials: 20 genuinely random draws precede TPE modelling
+# (corrected at the M3 review; the run itself was unaffected).
+kind = "tpe"
+seed = 20260921
+n_startup_trials = 24
+
+[pruner]
+# Median pruning on the running objective reported after every development scenario, once
+# twelve trials have completed; the first two reported scenarios are never pruned.
+kind = "median"
+n_startup_trials = 12
+n_warmup_steps = 2
+
+[objective]
+# Median movement-window joint RMSE (rad) over all development scenarios; an infeasible trial
+# (divergence, limit violation, early termination, missed dwell criterion, saturation bound)
+# receives the penalty instead. Every component is stored with the trial.
+kind = "median_move_joint_rmse"
+infeasible_penalty = 10.0
+
+[feasibility]
+max_saturation_fraction = 0.05
+
+[search]
+n_neurons = { low = 100, high = 800, step = 50 }
+spectral_radius = { low = 0.3, high = 1.4 }
+sparsity = { low = 0.5, high = 0.98 }
+leak_rate = { low = 0.05, high = 1.0, log = true }
+input_scaling = { low = 0.1, high = 2.0, log = true }
+seed = { low = 1, high = 1000 }
+alpha = { low = 1e-3, high = 1.0, log = true }
+velocity_cutoff_hz = { low = 5.0, high = 50.0, log = true }
+acceleration_cutoff_hz = { low = 5.0, high = 50.0, log = true }
+
+# Comparison points: the development anchor (configs/models/esn_task_1a_v2.toml with the nominal
+# estimator cutoffs) at the M2 ridge value and at the three stronger values.
+[[comparison]]
+label = "anchor-alpha-1e-2"
+point = { n_neurons = 200, spectral_radius = 0.9, sparsity = 0.9, leak_rate = 0.3, input_scaling = 0.5, seed = 31, alpha = 1e-2, velocity_cutoff_hz = 20.0, acceleration_cutoff_hz = 20.0 }
+
+[[comparison]]
+label = "anchor-alpha-3e-2"
+point = { n_neurons = 200, spectral_radius = 0.9, sparsity = 0.9, leak_rate = 0.3, input_scaling = 0.5, seed = 31, alpha = 3e-2, velocity_cutoff_hz = 20.0, acceleration_cutoff_hz = 20.0 }
+
+[[comparison]]
+label = "anchor-alpha-1e-1"
+point = { n_neurons = 200, spectral_radius = 0.9, sparsity = 0.9, leak_rate = 0.3, input_scaling = 0.5, seed = 31, alpha = 1e-1, velocity_cutoff_hz = 20.0, acceleration_cutoff_hz = 20.0 }
+
+[[comparison]]
+label = "anchor-alpha-3e-1"
+point = { n_neurons = 200, spectral_radius = 0.9, sparsity = 0.9, leak_rate = 0.3, input_scaling = 0.5, seed = 31, alpha = 3e-1, velocity_cutoff_hz = 20.0, acceleration_cutoff_hz = 20.0 }
+
+[development]
+# Initial-posture offsets (rad): the nominal posture first, then eight unit directions at 0.04
+# and 0.08 rad (norms distinct from the confirmatory 0.05 and 0.10 rad classes).
+initial_posture_offsets = [
+    [0.0, 0.0],
+    [0.04, 0.0],
+    [-0.04, 0.0],
+    [0.0, 0.04],
+    [0.0, -0.04],
+    [0.028284271247, 0.028284271247],
+    [-0.028284271247, -0.028284271247],
+    [0.028284271247, -0.028284271247],
+    [-0.028284271247, 0.028284271247],
+    [0.08, 0.0],
+    [-0.08, 0.0],
+    [0.0, 0.08],
+    [0.0, -0.08],
+    [0.056568542495, 0.056568542495],
+    [-0.056568542495, -0.056568542495],
+    [0.056568542495, -0.056568542495],
+    [-0.056568542495, 0.056568542495],
+]
+# Endpoint force pulses (N) at the nominal posture during the movement: 6 N and 9 N at t = 2.5 s
+# in the four diagonal directions (the confirmatory pulse is 12 N at t = 2.0 s along the axes).
+[[development.force_pulses]]
+start_s = 2.5
+duration_s = 0.2
+magnitude_n = 6.0
+direction_deg = 45.0
+
+[[development.force_pulses]]
+start_s = 2.5
+duration_s = 0.2
+magnitude_n = 6.0
+direction_deg = 135.0
+
+[[development.force_pulses]]
+start_s = 2.5
+duration_s = 0.2
+magnitude_n = 6.0
+direction_deg = 225.0
+
+[[development.force_pulses]]
+start_s = 2.5
+duration_s = 0.2
+magnitude_n = 6.0
+direction_deg = 315.0
+
+[[development.force_pulses]]
+start_s = 2.5
+duration_s = 0.2
+magnitude_n = 9.0
+direction_deg = 45.0
+
+[[development.force_pulses]]
+start_s = 2.5
+duration_s = 0.2
+magnitude_n = 9.0
+direction_deg = 135.0
+
+[[development.force_pulses]]
+start_s = 2.5
+duration_s = 0.2
+magnitude_n = 9.0
+direction_deg = 225.0
+
+[[development.force_pulses]]
+start_s = 2.5
+duration_s = 0.2
+magnitude_n = 9.0
+direction_deg = 315.0

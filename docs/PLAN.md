@@ -452,7 +452,14 @@ Evaluate in this order:
 Perturbation grids, force timing, directions, magnitudes, and random seeds are
 versioned configuration. A pilot using the frozen direct-replay baseline selects
 nontrivial but safe levels. After the confirmatory suite is declared, those
-values and seeds are locked and may not be used for tuning.
+values and seeds are locked and may not be used for tuning. The scenarios are
+a pure function of a protocol's levels and seeds (stable IDs; random posture
+directions from an independent seeded stream per class), so every method runs
+identical scenarios; the suite persists every run, keeps failures in the
+per-class aggregation, and takes paired RC-minus-replay effects over the
+scenarios where both runs of a pair succeeded, reporting the failed pairs next
+to them. Development levels and seeds (`configs/evaluations/*_robustness_dev_*.toml`)
+exercise the suite on a frozen recipe before the one-shot confirmatory run.
 
 ### 9.3 Later-task metrics
 
@@ -466,18 +473,36 @@ values and seeds are locked and may not be used for tuning.
 
 ## 10. Hyperparameter tuning
 
-[Optuna](https://optuna.org/) manages algorithmic ESN tuning. The initial search
-space includes reservoir size, spectral radius, sparsity, leak rate, input
-scaling, reservoir seed, ridge regularization, washout duration, and derivative
-filter time constants. Low-level tracker gains are excluded from ESN studies
-after baseline qualification.
+[Optuna](https://optuna.org/) manages algorithmic ESN tuning. The versioned
+search protocol (`configs/studies/esn_search_*.toml`) bounds reservoir size,
+spectral radius, sparsity, leak rate, input scaling, reservoir seed, ridge
+regularization, and the derivative-filter cutoffs of the causal estimator; the
+washout is the demonstration's prime phase (a recipe invariant, section 5.1)
+rather than a tuned duration, and the input transform stays the pilot-selected
+recipe value. Labelled comparison points (the development anchor at the M2
+ridge value 1e-2 and at 3e-2, 1e-1, 3e-1) are evaluated before sampling.
+Low-level tracker gains are excluded from ESN studies after baseline
+qualification.
 
 Task 1-a uses a seeded sampler and pruner. The objective is median movement
 joint RMSE across development scenarios. A trial is infeasible and receives a
 documented penalty if it diverges, violates configured state/torque limits,
-terminates early, or fails the configured final-dwell constraint. All objective
-components are logged separately; the scalar objective is never the only saved
-result.
+terminates early, fails the configured final-dwell constraint, exceeds the
+protocol's saturation bound, or cannot be trained. Scenarios are evaluated in
+protocol order and stop at the first infeasible one (the objective is already
+decided); the running objective is reported to the pruner after every
+feasible scenario. All objective components — per-scenario termination,
+movement RMSE, dwell criteria, saturation, boundary jump, and the reason —
+are logged separately; the scalar objective is never the only saved result.
+Only trials feasible in every development scenario are eligible for selection
+and freezing — a study without one selects nothing — and, because Optuna counts
+queued comparison points towards the sampler's start-up trials, a protocol
+states its start-up count inclusive of them. Before a selection is frozen, a
+reservoir-seed sensitivity panel re-evaluates the leading feasible trials with
+a predefined list of seeds (everything else unchanged) and records how many
+seeds stay feasible and the spread of their objectives; a frozen recipe must
+also pass the held-out development robustness suite, otherwise the previous
+recipe is retained and the failure documented.
 
 Development/tuning scenarios and seeds are separate from confirmatory scenarios
 and seeds. The selected recipe is frozen before confirmatory evaluation. Reusing
@@ -494,16 +519,29 @@ Alternative candidates considered:
 
 ## 11. Experiment and data management
 
-- **MLflow:** use a file-backed store under `armrc://mlflow/`. Log resolved
-  parameters, scalar metrics, plots, reports, model recipes, provenance, and
-  Optuna study summaries. A tracking server remains optional.
+- **MLflow:** use a local store under `armrc://mlflow/` (a SQLite tracking
+  database plus an artifact directory; MLflow's plain file store is in
+  maintenance mode). Every curated run command logs there by default (the
+  `--no-mlflow` opt-out is for scratch only): resolved parameters, dependency
+  revisions and build identities, payload digests, seeds, scalar metrics,
+  plots, reports, model recipes, provenance, and Optuna study summaries. A
+  study is mirrored as one parent run (protocol, digest, dataset and tracker
+  identities, provenance, summary, selection) with one child run per trial
+  (point, objective, every component as its own metric, the running objective
+  as a series, the reason, the full evaluation as an artifact), idempotent per
+  trial across resumes. The Git pointer record and run directory stay
+  authoritative; a tracking server remains optional.
 - **DVC:** Git stores only `.dvc` metafiles plus the domain artifact records.
   Configure the cache and default local remote per machine in ignored
   `.dvc/config.local`, resolving them to `<storage-root>/dvc-cache` and
   `<storage-root>/dvc-store`. Use `dvc add --to-remote` for large inputs when it
   avoids a repository-local copy. Never commit a machine-specific absolute path.
-- **Optuna:** place local SQLite studies under `armrc://optuna/`. Export selected
-  trials and study summaries to MLflow so the database is not the sole record.
+- **Optuna:** place local SQLite studies under `armrc://optuna/` (one database
+  per study). A study records its identity (protocol digest, seeded sampler,
+  pruner, direction) as user attributes and resumes only when that identity
+  matches; a failing trial aborts the study instead of being recorded as a
+  failure. Export selected trials and study summaries to MLflow so the
+  database is not the sole record.
 - **Git/uv:** Git pins project/submodule revisions; `uv.lock` pins Python
   dependencies. CMake/submodules pin the C++ build inputs.
 

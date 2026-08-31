@@ -1,0 +1,38 @@
+method = "replay+pd"
+scenario = "task-1a-reach"
+termination_kind = "completed"
+success = true
+duration_s = 5.0
+n_samples = 501
+arrays_sha256 = "3622b8e14c785e039238f92ace97bfb16eb8719e3bca55be95bf610f743313fd"
+
+[artifact]
+artifact_id = "run-20260831-e58cc0422077"
+kind = "run"
+created_at = "2026-08-31T05:17:51+00:00"
+license = "LicenseRef-Private"
+access = "private"
+notes = "Direct replay of processed-20260830-feaf73e6663c with pd."
+schema_version = 1
+
+[artifact.payload]
+uri = "armrc://runs/run-20260831-e58cc0422077/run.json"
+sha256 = "e58cc04220775be02941a77fa9402e9f672440340b4cf81a8639a0fbf168ad60"
+size = 5296
+format = "run.json"
+schema_version = 1
+
+[artifact.origin]
+command = "python -m arm_rc_ctrl.experiments.robustness --development configs/evaluations/task_1a_robustness_dev_v1.toml --dataset data/records/processed/processed-20260830-feaf73e6663c.toml --recipe data/records/models/model-20260831-ea83321eeaa5.toml --evaluation configs/evaluations/task_1a_nominal_v3.toml --label development --report docs/experiments/task_1a/robustness_dev_v1.json --markdown docs/experiments/task_1a/robustness_dev_v1.md"
+config_sha256 = "e9a9f295e0c21c970e42cfd41c361c5b2214d7e14d1c3837e76bcb16483e4975"
+project_commit = "e1e4f4e78765a1bdf7052ec87b55f1e37b971655"
+project_dirty = false
+sources = [
+    "processed-20260830-feaf73e6663c",
+]
+run_id = "run-20260831-e58cc0422077"
+
+[artifact.origin.dependency_commits]
+rclib = "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b"
+skelarm = "ebb26118864ad158ef2ad36af68027b1a12ade1a"
+rtctrl = "c601076ee60ec712c1cb4a85756a186882df2e1b"

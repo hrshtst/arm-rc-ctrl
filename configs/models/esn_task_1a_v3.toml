@@ -1,0 +1,26 @@
+# Task ESN model configuration (docs/TASKS.md M3-006): the point selected by the recorded ESN search
+# docs/experiments/task_1a/esn_search.json (protocol configs/studies/esn_search_1a.toml, digest a2da8583b8e7; trial 13 of
+# 120 stored / budget 120, 1 feasible; objective
+# 0.02165268757558386 rad median movement-window joint RMSE over the development scenarios; dataset processed-20260830-feaf73e6663c).
+# Input transform and readout solver stay as in esn_task_1a_v2.toml; tracker pd_v2 is not tuned.
+name = "esn-task-1a-v3"
+
+[esn.reservoir]
+n_neurons = 200
+spectral_radius = 1.0919869800080664
+sparsity = 0.654914582763362
+leak_rate = 0.05869162144717609
+input_scaling = 0.13930936236831867
+seed = 774
+include_bias = true
+
+[esn.readout]
+alpha = 0.015036411476169492
+solver = "cholesky"
+include_bias = true
+tolerance = 1e-10
+
+[input_transform]
+policy = "fixed_scale"
+q_scale = 0.3
+dq_scale = 12.0

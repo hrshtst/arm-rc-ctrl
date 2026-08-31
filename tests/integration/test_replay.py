@@ -237,6 +237,7 @@ def test_command_line_entry_point(
                 "--controller",
                 str(PD),
                 "--exploratory",
+                "--no-mlflow",
                 "--no-pointer",
                 "--report",
                 str(report_file),

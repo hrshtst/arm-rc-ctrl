@@ -1,0 +1,22 @@
+# Held-out development robustness levels for task 1-a, version 2 (docs/TASKS.md M3-016). Version 1
+# (task_1a_robustness_dev_v1.toml) shares its 9 N diagonal pulses with the ESN search's development
+# scenarios; v2 holds everything out of both the search and the confirmatory lock: posture norms
+# 0.045/0.09 rad with fresh seeds, 7.5 N pulses at t = 2.7 s along 30/120/210/300 deg (the search uses
+# 6/9 N at 2.5 s on the diagonals; the confirmatory pulse is 12 N at 2.0 s along the axes). Seeds are
+# distinct from every confirmatory seed (20260901..20260905), study seed (20260830, 20260911,
+# 20260921, 20260922), and v1 (20261001, 20261002). tests/regression/test_confirmatory_lock.py
+# keeps them disjoint from the lock.
+name = "task-1a-robustness-dev-v2"
+scenario = "../tasks/task_1a.toml"
+seeds = [20261003, 20261004]
+
+[posture]
+small_magnitude_rad = 0.045
+large_magnitude_rad = 0.09
+draws_per_seed = 3
+
+[force]
+magnitude_n = 7.5
+start_s = 2.7
+duration_s = 0.2
+directions_deg = [30.0, 120.0, 210.0, 300.0]

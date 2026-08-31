@@ -39,6 +39,7 @@ from arm_rc_ctrl.experiments.run_record import (
 )
 from arm_rc_ctrl.experiments.simulation import GENERATOR_CHANNELS, simulate
 from arm_rc_ctrl.experiments.termination import Outcome
+from arm_rc_ctrl.experiments.tracking import MlflowTracker
 from arm_rc_ctrl.metrics.joint import JointAnglePolicy
 from arm_rc_ctrl.metrics.report import RunReport, build_report, report_to_json
 from arm_rc_ctrl.provenance import ArtifactReference, collect_provenance, command_line, require_clean_for_confirmatory
@@ -218,6 +219,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--no-pointer", action="store_true", help="do not track the run under data/records/runs (exploratory scratch)"
     )
+    parser.add_argument("--no-mlflow", action="store_true", help="skip the mandatory MLflow logging (scratch only)")
+    parser.add_argument("--experiment", default=None, help="MLflow experiment name (default: the scenario name)")
     args = parser.parse_args(argv)
     ensure_single_thread()  # before rclib is imported and provenance is collected
     if args.report is not None and Path(args.report).exists():
@@ -248,6 +251,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     records_root = repository_root() if args.records_root is None else Path(args.records_root)
     pointer_file = None if args.no_pointer else record_run_pointer(records_root, result.pointer)
+    tracked = None
+    if not args.no_mlflow:
+        experiment = scenario.name if args.experiment is None else str(args.experiment)
+        tracked = MlflowTracker(store).log_run(
+            result.run, result.report, experiment=experiment, recipe=recipe, pointer_file=pointer_file
+        )
     if args.report is not None:
         Path(args.report).parent.mkdir(parents=True, exist_ok=True)
         Path(args.report).write_text(report_to_json(result.report) + "\n", encoding="utf-8")
@@ -260,6 +269,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "success": result.summary.outcome.success,
         "boundary_jump_rad": result.boundary_jump,
         "joint_rmse": None if result.report.joint_rmse is None else result.report.joint_rmse.aggregate,
+        "mlflow_run_id": None if tracked is None else tracked.mlflow_run_id,
     }
     print(json.dumps(summary, indent=2))
     return 0

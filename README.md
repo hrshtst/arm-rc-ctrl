@@ -16,17 +16,50 @@ libraries are pinned Git submodules:
 
 Pinned commits are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
-**Status:** milestones M0 and M1 are closed; M2 (the task 1-a RC vertical
-slice) is implemented and under review. Recorded results live under
+**Status:** milestones M0–M2 are closed; M3 (tuning and robustness) has
+tuned and frozen the task 1-a ESN recipe (v4, from the recorded search v2
+and its seed-sensitivity panel) and run the locked confirmatory robustness
+suite once on it (260 runs, all successful); the results report is
+`docs/experiments/task_1a/report.md` (regenerate with
+`uv run python -m arm_rc_ctrl.experiments.report_1a --docs docs/experiments/task_1a
+--output docs/experiments/task_1a/report.md --plots docs/experiments/task_1a/plots --force`);
+`uv run python scripts/reproduce_1a.py` re-derives the result from the
+committed records (submodule pins, lock digest, payload digests, dataset
+rebuild, recipe refit, confirmatory rerun into a scratch store, report
+rendering) and fails naming the first missing or mismatched input; the
+clean-checkout audit follows. Recorded results live under
 `docs/experiments/task_1a/` with Git-tracked records under `data/records/`;
 see `docs/TASKS.md` for the ledger.
 
 The reservoir-computing commands (`python -m arm_rc_ctrl.rc.train`,
 `arm_rc_ctrl.experiments.closed_loop`, `arm_rc_ctrl.experiments.paired`,
-`arm_rc_ctrl.experiments.scale_pilot`) pin `OMP_NUM_THREADS=1` for their own
+`arm_rc_ctrl.experiments.scale_pilot`, `arm_rc_ctrl.experiments.esn_study`)
+pin `OMP_NUM_THREADS=1` for their own
 process so results are bitwise reproducible; when driving `arm_rc_ctrl.rc`
 from an interactive interpreter, export `OMP_NUM_THREADS=1` first (a
 different explicit value is rejected).
+
+The run commands (`arm_rc_ctrl.experiments.replay`, `closed_loop`, `paired`)
+also log every run to the MLflow store under `armrc://mlflow/tracking/` in the
+external storage root (a SQLite database plus artifact directory; the
+`--experiment` name defaults to the scenario) and print the MLflow run ID.
+`--no-mlflow` skips this for scratch runs only; inspect the store with
+`uv run mlflow ui --backend-store-uri sqlite:///<storage-root>/mlflow/tracking/mlflow.db`.
+An ESN search (`arm_rc_ctrl.experiments.esn_study --protocol configs/studies/esn_search_1a.toml
+--dataset … --report …`) keeps its Optuna study under `armrc://optuna/<name>.db`,
+resumes when re-run with the same protocol (`--max-trials` bounds one
+invocation), and mirrors the study as one MLflow parent run with a child run
+per trial. Only trials feasible in every development scenario can be
+selected; `arm_rc_ctrl.experiments.esn_stability` re-evaluates a study's
+leading trials over a reservoir-seed panel, and `arm_rc_ctrl.experiments.esn_freeze`
+turns the selection into versioned model and evaluation configurations.
+The paired robustness suite (`arm_rc_ctrl.experiments.robustness --development
+configs/evaluations/task_1a_robustness_dev_v1.toml` or `--confirmatory
+configs/evaluations/task_1a_confirmatory_v2.toml`, plus `--dataset`, `--recipe`,
+`--evaluation`, `--label`, `--report`) runs every arm (RC and direct replay under
+each frozen tracker) on identical generated scenarios — the five classes of
+PLAN section 9.2 — as persisted run records, and reports per-class outcomes with
+failures counted and paired RC-minus-replay effects.
 
 ## Requirements
 
