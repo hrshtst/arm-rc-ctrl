@@ -466,11 +466,16 @@ values and seeds are locked and may not be used for tuning.
 
 ## 10. Hyperparameter tuning
 
-[Optuna](https://optuna.org/) manages algorithmic ESN tuning. The initial search
-space includes reservoir size, spectral radius, sparsity, leak rate, input
-scaling, reservoir seed, ridge regularization, washout duration, and derivative
-filter time constants. Low-level tracker gains are excluded from ESN studies
-after baseline qualification.
+[Optuna](https://optuna.org/) manages algorithmic ESN tuning. The versioned
+search protocol (`configs/studies/esn_search_*.toml`) bounds reservoir size,
+spectral radius, sparsity, leak rate, input scaling, reservoir seed, ridge
+regularization, and the derivative-filter cutoffs of the causal estimator; the
+washout is the demonstration's prime phase (a recipe invariant, section 5.1)
+rather than a tuned duration, and the input transform stays the pilot-selected
+recipe value. Labelled comparison points (the development anchor at the M2
+ridge value 1e-2 and at 3e-2, 1e-1, 3e-1) are evaluated before sampling.
+Low-level tracker gains are excluded from ESN studies after baseline
+qualification.
 
 Task 1-a uses a seeded sampler and pruner. The objective is median movement
 joint RMSE across development scenarios. A trial is infeasible and receives a
