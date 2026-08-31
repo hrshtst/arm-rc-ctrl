@@ -139,3 +139,5 @@ def test_command_writes_a_summary_and_reports_failure_status(
     assert "- Outcome: FAIL" in note
     assert "| storage | FAILED |" in note
     assert "Steps not run after the first failure: records, payloads, data, model, evaluation, report." in note
+    assert str(tmp_path) not in note  # records never carry machine-specific paths
+    assert "- Command: `python -m arm_rc_ctrl.experiments.reproduce_1a --classes nominal --scratch scratch" in note

@@ -27,7 +27,9 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import platform
+import re
 import shutil
 import sys
 import tempfile
@@ -54,7 +56,8 @@ from arm_rc_ctrl.experiments.perturbations import CLASS_ORDER, PerturbationClass
 from arm_rc_ctrl.experiments.report_1a import PLOT_FILES, load_inputs, render_report
 from arm_rc_ctrl.experiments.robustness import RobustnessSuite, load_suite, run_robustness
 from arm_rc_ctrl.experiments.run_record import RunPointerRecord
-from arm_rc_ctrl.provenance import sha256_file
+from arm_rc_ctrl.provenance import command_line, sha256_file
+from arm_rc_ctrl.rc.esn import ensure_single_thread
 from arm_rc_ctrl.rc.recipe import load_recipe
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import load_scenario
@@ -157,6 +160,14 @@ def compare_suites(committed: RobustnessSuite, rebuilt: RobustnessSuite) -> tupl
             for x, y in zip(a.joint_rmse.per_joint, b.joint_rmse.per_joint, strict=True):
                 worst = max(worst, abs(x - y))
     return worst, differences
+
+
+_ABSOLUTE_PATH: Final = re.compile(r"(?<![\w./])/(?:[^\s'\"`|,;)]+/)*[^\s'\"`|,;)]+")
+
+
+def _sanitize(text: str) -> str:
+    """Replace absolute paths in a message by their basename (records never carry machine-specific paths)."""
+    return _ABSOLUTE_PATH.sub(lambda m: Path(m.group(0)).name or "/", text)
 
 
 def _fresh(path: Path) -> Path:
@@ -356,8 +367,9 @@ class _Reproducer:
         try:
             detail = action()
         except (ReproductionError, StorageError, FileNotFoundError, ValueError, RuntimeError) as exc:
-            return Check(name, ok=False, detail=f"{type(exc).__name__}: {exc}", elapsed_s=time.perf_counter() - t0)
-        return Check(name, ok=True, detail=detail, elapsed_s=time.perf_counter() - t0)
+            detail = _sanitize(f"{type(exc).__name__}: {exc}")
+            return Check(name, ok=False, detail=detail, elapsed_s=time.perf_counter() - t0)
+        return Check(name, ok=True, detail=_sanitize(detail), elapsed_s=time.perf_counter() - t0)
 
 
 def _environment() -> dict[str, str]:
@@ -366,6 +378,7 @@ def _environment() -> dict[str, str]:
         "platform": platform.platform(),
         "machine": platform.machine(),
         "processor": platform.processor(),
+        "OMP_NUM_THREADS": os.environ.get("OMP_NUM_THREADS", ""),
     }
 
 
@@ -450,6 +463,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="allow a dirty worktree for the data, model, and report steps (the confirmatory rerun then fails)",
     )
     args = parser.parse_args(argv)
+    ensure_single_thread()  # before rclib is imported and provenance is collected
     scratch = Path(tempfile.mkdtemp(prefix="arm-rc-ctrl-reproduce-")) if args.scratch is None else Path(args.scratch)
     result = reproduce(
         scratch=scratch,
@@ -464,7 +478,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     if args.summary is not None:
         Path(args.summary).write_text(text + "\n", encoding="utf-8")
     if args.audit is not None:
-        invoked = "python scripts/reproduce_1a.py " + " ".join(sys.argv[1:] if argv is None else argv)
+        invoked = command_line("arm_rc_ctrl.experiments.reproduce_1a", sys.argv[1:] if argv is None else argv)
         Path(args.audit).write_text(audit_markdown(result, command=invoked), encoding="utf-8")
     print(text)
     return 0 if result.ok else 1
