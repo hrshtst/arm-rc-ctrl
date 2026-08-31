@@ -33,9 +33,10 @@ from arm_rc_ctrl.data.phases import intervals_from_phases
 from arm_rc_ctrl.data.records import ProcessedDatasetRecord, load_record, verify_payload
 from arm_rc_ctrl.data.samples import load_samples
 from arm_rc_ctrl.experiments.baselines import load_frozen_baseline
-from arm_rc_ctrl.experiments.esn_search import suggest_point
+from arm_rc_ctrl.experiments.esn_search import TrialPoint, suggest_point  # TrialPoint: loaded from JSON
 from arm_rc_ctrl.experiments.replay import bind_dataset, dwell_outcome
 from arm_rc_ctrl.experiments.simulation import GENERATOR_CHANNELS, simulate
+from arm_rc_ctrl.experiments.tuning import DevelopmentPulse  # loaded from JSON
 from arm_rc_ctrl.metrics.joint import JointAnglePolicy, joint_rmse
 from arm_rc_ctrl.rc.generator import RcTargetGenerator
 from arm_rc_ctrl.rc.recipe import DatasetSource, create_recipe
@@ -50,10 +51,9 @@ if TYPE_CHECKING:
 
     from arm_rc_ctrl.controllers.tracking import TrackerConfig
     from arm_rc_ctrl.data.samples import SampleSet
-    from arm_rc_ctrl.experiments.esn_search import EsnSearchProtocol, TrialPoint
+    from arm_rc_ctrl.experiments.esn_search import EsnSearchProtocol
     from arm_rc_ctrl.experiments.run_record import RunArrays
     from arm_rc_ctrl.experiments.termination import Termination
-    from arm_rc_ctrl.experiments.tuning import DevelopmentPulse
     from arm_rc_ctrl.rc.esn import EsnModel
     from arm_rc_ctrl.rc.recipe import ModelRecipe
     from arm_rc_ctrl.rc.train import ModelConfig

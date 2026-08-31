@@ -44,6 +44,7 @@ __all__ = [
     "StudyMismatchError",
     "StudySummary",
     "TrialRecord",
+    "finished",
     "open_study",
     "run_trials",
     "select_best",
@@ -264,8 +265,8 @@ def _record(trial: FrozenTrial) -> TrialRecord:
 
 
 def summarize(study: optuna.Study) -> StudySummary:
-    """Summarize the study's stored state."""
-    trials = tuple(_record(t) for t in study.trials)
+    """Summarize the study's stored state (queued trials that have not started are not part of it)."""
+    trials = tuple(_record(t) for t in study.trials if t.state != TrialState.WAITING)
     complete = [t for t in study.trials if t.state == TrialState.COMPLETE and t.value is not None]
     best = select_best(study) if complete else None
     return StudySummary(

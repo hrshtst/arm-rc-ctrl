@@ -508,9 +508,13 @@ Alternative candidates considered:
   maintenance mode). Every curated run command logs there by default (the
   `--no-mlflow` opt-out is for scratch only): resolved parameters, dependency
   revisions and build identities, payload digests, seeds, scalar metrics,
-  plots, reports, model recipes, provenance, and Optuna study summaries. The
-  Git pointer record and run directory stay authoritative; a tracking server
-  remains optional.
+  plots, reports, model recipes, provenance, and Optuna study summaries. A
+  study is mirrored as one parent run (protocol, digest, dataset and tracker
+  identities, provenance, summary, selection) with one child run per trial
+  (point, objective, every component as its own metric, the running objective
+  as a series, the reason, the full evaluation as an artifact), idempotent per
+  trial across resumes. The Git pointer record and run directory stay
+  authoritative; a tracking server remains optional.
 - **DVC:** Git stores only `.dvc` metafiles plus the domain artifact records.
   Configure the cache and default local remote per machine in ignored
   `.dvc/config.local`, resolving them to `<storage-root>/dvc-cache` and

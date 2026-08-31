@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, cast
 
 os.environ.setdefault("MLFLOW_DISABLE_TELEMETRY", "true")  # research data stays local (set before mlflow is imported)
+os.environ.setdefault("MLFLOW_ENABLE_ARTIFACTS_PROGRESS_BAR", "false")
 
 from mlflow.entities import Metric, Param, RunTag
 from mlflow.tracking import MlflowClient
@@ -34,7 +35,7 @@ from arm_rc_ctrl.experiments.scalars import flatten_scalars
 from arm_rc_ctrl.metrics.report import report_to_json
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Mapping, Sequence
 
     from arm_rc_ctrl.experiments.run_record import LoadedRun
     from arm_rc_ctrl.metrics.report import RunReport
@@ -208,6 +209,40 @@ class MlflowTracker:
                 if file.is_file():
                     self._client.log_artifact(mlflow_run_id, str(file))
             self._client.log_artifacts(mlflow_run_id, str(plots), artifact_path="plots")
+
+    def find_by_tags(self, experiment_id: str, tags: Mapping[str, str]) -> str | None:
+        """The run in ``experiment_id`` carrying every tag in ``tags``, if any."""
+        clauses = " and ".join(f"tags.`{key}` = '{value}'" for key, value in tags.items())
+        hits = self._client.search_runs([experiment_id], filter_string=clauses, max_results=1)
+        return str(hits[0].info.run_id) if hits else None
+
+    def start_run(self, experiment_id: str, *, name: str, tags: Mapping[str, str], params: Mapping[str, object]) -> str:
+        """Create a run with tags and parameters; it stays RUNNING until :meth:`finish`."""
+        created = self._client.create_run(experiment_id, run_name=name, tags=dict(tags))
+        run_id = str(created.info.run_id)
+        self._client.log_batch(
+            run_id, params=[Param(_key(key), str(value)[:_PARAM_LIMIT]) for key, value in params.items()]
+        )
+        return run_id
+
+    def log_metrics(self, run_id: str, metrics: Mapping[str, float], *, step: int = 0) -> None:
+        """Log scalar metrics at ``step``."""
+        self._client.log_batch(run_id, metrics=[Metric(_key(k), float(v), 0, step) for k, v in metrics.items()])
+
+    def log_series(self, run_id: str, name: str, values: Sequence[float]) -> None:
+        """Log ``values`` as one metric with steps ``0..len-1``."""
+        self._client.log_batch(run_id, metrics=[Metric(_key(name), float(v), 0, i) for i, v in enumerate(values)])
+
+    def log_text(self, run_id: str, name: str, text: str) -> None:
+        """Log ``text`` as the artifact ``name``."""
+        with tempfile.TemporaryDirectory(prefix="armrc-mlflow-") as scratch:
+            path = Path(scratch) / name
+            path.write_text(text, encoding="utf-8")
+            self._client.log_artifact(run_id, str(path))
+
+    def finish(self, run_id: str) -> None:
+        """Mark a run finished."""
+        self._client.set_terminated(run_id, status="FINISHED")
 
     def logged_artifacts(self, mlflow_run_id: str) -> list[str]:
         """Artifact paths of a logged run (top level and ``plots/``)."""

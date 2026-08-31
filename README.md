@@ -24,7 +24,8 @@ see `docs/TASKS.md` for the ledger.
 
 The reservoir-computing commands (`python -m arm_rc_ctrl.rc.train`,
 `arm_rc_ctrl.experiments.closed_loop`, `arm_rc_ctrl.experiments.paired`,
-`arm_rc_ctrl.experiments.scale_pilot`) pin `OMP_NUM_THREADS=1` for their own
+`arm_rc_ctrl.experiments.scale_pilot`, `arm_rc_ctrl.experiments.esn_study`)
+pin `OMP_NUM_THREADS=1` for their own
 process so results are bitwise reproducible; when driving `arm_rc_ctrl.rc`
 from an interactive interpreter, export `OMP_NUM_THREADS=1` first (a
 different explicit value is rejected).
@@ -35,6 +36,11 @@ external storage root (a SQLite database plus artifact directory; the
 `--experiment` name defaults to the scenario) and print the MLflow run ID.
 `--no-mlflow` skips this for scratch runs only; inspect the store with
 `uv run mlflow ui --backend-store-uri sqlite:///<storage-root>/mlflow/tracking/mlflow.db`.
+An ESN search (`arm_rc_ctrl.experiments.esn_study --protocol configs/studies/esn_search_1a.toml
+--dataset … --report …`) keeps its Optuna study under `armrc://optuna/<name>.db`,
+resumes when re-run with the same protocol (`--max-trials` bounds one
+invocation), and mirrors the study as one MLflow parent run with a child run
+per trial.
 
 ## Requirements
 
