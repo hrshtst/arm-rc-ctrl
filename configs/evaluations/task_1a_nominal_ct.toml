@@ -1,0 +1,10 @@
+# Nominal RC closed-loop evaluation of task 1-a with the frozen computed-torque tracker
+# (docs/TASKS.md M2-016/M2-017): identical to task_1a_nominal.toml except for the tracker,
+# so paired RC/replay reports under both trackers separate generator from tracker effects.
+name = "task-1a-nominal-ct"
+tracker = "../controllers/task_1a_computed_torque.toml"
+
+[estimator]
+velocity_cutoff_hz = 20.0
+acceleration_cutoff_hz = 20.0
+max_dt_ratio = 3.0

@@ -163,3 +163,30 @@ def test_command_line_entry_point(
     assert report.run_id == printed["run_id"]
     with pytest.raises(FileExistsError, match="refusing to overwrite"):
         main(argv)
+
+
+def test_nominal_ct_config_and_run(trained: tuple[StorageRoot, Path, PreprocessResult, ModelRecipe, Path]) -> None:
+    """The computed-torque evaluation config differs from the PD one only by the tracker."""
+    pd_config = load_nominal_config(NOMINAL)
+    ct_config = load_nominal_config(REPO_ROOT / "configs" / "evaluations" / "task_1a_nominal_ct.toml")
+    assert ct_config.tracker == REPO_ROOT / "configs" / "controllers" / "task_1a_computed_torque.toml"
+    assert ct_config.estimator == pd_config.estimator
+    store, records, processed, recipe, _ = trained
+    scenario = load_scenario(SCENARIO)
+    result = run_nominal(
+        scenario,
+        SCENARIO,
+        processed.record,
+        processed.samples,
+        recipe,
+        load_config(REPO_ROOT / "configs" / "controllers" / "computed_torque.toml", TrackerConfig),
+        store=store,
+        estimator=ct_config.estimator.config(scenario.timing.dt),
+        training_samples=load_training_samples(recipe, store, records_root=records),
+        exploratory=True,
+        now=FIXED_TIME,
+    )
+    assert result.summary.method == "rc+computed_torque"
+    assert result.summary.termination.kind == "completed"
+    assert result.report.method == "rc+computed_torque"
+    assert result.summary.provenance.config["tracker"]["type"] == "computed_torque"  # type: ignore[index]

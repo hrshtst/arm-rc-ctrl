@@ -281,3 +281,110 @@ def test_registered_builder_constructs_the_adapter_through_skelarm(
     with pytest.raises(ValueError, match="controller params are missing"):
         build_controller({"type": CONTROLLER_TYPE, "recipe": str(recipe_file)}, skeleton=skeleton, task=task)
     cast("Any", None)  # keep the typing import used
+
+
+# --- M2-016: the same generated reference/derivative contract under computed torque ---------------
+
+
+def test_computed_torque_adapter_uses_the_same_generated_contract(
+    generator_and_scenario: tuple[RcTargetGenerator, ScenarioConfig, SampleSet],
+) -> None:
+    """With the frozen computed-torque gains the tracker consumes the generator's q/dq/ddq unchanged."""
+    generator, scenario, _ = generator_and_scenario
+    gains = load_frozen_baseline("computed_torque")
+    assert gains.type == "computed_torque"
+    boundary = scenario.timing.intervals.prime[1]
+    controller = GeneratorTrackingController(generator, gains, scenario.limits.torque, hold_until_s=boundary)
+    assert controller.tracker_config == gains  # frozen gains, not re-tuned
+    log = _simulate(controller, scenario, duration_s=boundary + 0.5)
+    assert np.all(np.isfinite(log["tau"]))
+    assert np.all(np.abs(log["tau"]) <= np.asarray(scenario.limits.torque) + 1e-12)
+    # the tracker's reference channels are exactly the generator's desired state, derivatives included
+    assert np.array_equal(log["q_ref"], log["q_desired"])
+    assert np.array_equal(log["dq_ref"], log["dq_desired"])
+    assert np.array_equal(log["ddq_ref"], log["ddq_desired"])
+    generating = log["phase"][:, 0] == Phase.GENERATE
+    assert generating.sum() > 10
+    assert log["ddq_desired"][generating].any()  # the feedforward term receives non-trivial accelerations
+    # computed torque differs from PD on the same generated targets: the dynamics feedforward acts
+    pd = GeneratorTrackingController(
+        generator, load_frozen_baseline("pd_v2"), scenario.limits.torque, hold_until_s=boundary
+    )
+    pd_log = _simulate(pd, scenario, duration_s=boundary + 0.5)
+    assert np.array_equal(
+        pd_log["q_desired"][: int(boundary / scenario.timing.dt)],
+        log["q_desired"][: int(boundary / scenario.timing.dt)],
+    )
+    assert not np.allclose(pd_log["tau_requested"], log["tau_requested"])
+
+
+def test_registered_builder_accepts_the_computed_torque_tracker(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The registry builder takes the frozen computed-torque config and reports the rc+computed_torque method."""
+    root = tmp_path / "store"
+    root.mkdir()
+    store = StorageRoot(root, repositories=(REPO_ROOT,))
+    raw = load_record(FIXTURE_RAW_RECORD, RawDemonstrationRecord)
+    store.path(raw.artifact.payload.uri, mode="write").write_bytes(FIXTURE_RAW_LOG.read_bytes())
+    records = tmp_path / "repo"
+    (records / "data" / "records" / "processed").mkdir(parents=True)
+    processed = preprocess_demonstration(
+        FIXTURE_RAW_RECORD,
+        FIXTURE_SCENARIO,
+        PREPROCESS,
+        store=store,
+        records_root=records,
+        exploratory=True,
+        now=datetime(2026, 9, 1, 8, 30, 0, tzinfo=UTC),
+    )
+    record = processed.record
+    assert record.normalization is not None
+    small = EsnConfig(
+        reservoir=ReservoirConfig(
+            n_neurons=30, spectral_radius=0.9, sparsity=0.8, leak_rate=0.5, input_scaling=0.5, seed=2
+        ),
+        readout=ReadoutConfig(alpha=1e-3),
+    )
+    recipe, _ = create_recipe(
+        "fixture-ct",
+        small,
+        sources=[
+            DatasetSource(
+                record.artifact.artifact_id,
+                record.artifact.payload.sha256,
+                processed.record_file.relative_to(records).as_posix(),
+            )
+        ],
+        samples={record.artifact.artifact_id: processed.samples},
+        dof=record.dof,
+        task_code_dim=record.task_code_dim,
+        preprocessing=record.preprocessing,
+        transform=InputTransform.derive("training_std", record.normalization),
+        rclib=RCLIB,
+    )
+    recipe_file = tmp_path / "recipe.toml"
+    write_recipe(recipe_file, recipe)
+    monkeypatch.setenv("ARM_RC_CTRL_STORAGE_ROOT", str(root))
+    register_with_skelarm()
+    scenario = load_scenario(FIXTURE_SCENARIO)
+    skeleton = build_skeleton(scenario)
+    params: dict[str, Any] = {
+        "type": CONTROLLER_TYPE,
+        "recipe": str(recipe_file),
+        "tracker": str(REPO_ROOT / "configs" / "controllers" / "task_1a_computed_torque.toml"),
+        "torque_limits": list(scenario.limits.torque),
+        "hold_until_s": scenario.timing.intervals.prime[1],
+        "records_root": str(records),
+    }
+    controller = build_controller(
+        params,
+        skeleton=skeleton,
+        task=Task(type="reaching", target=np.asarray(scenario.task.target)),
+        dt=scenario.timing.dt,
+    )
+    assert isinstance(controller, GeneratorTrackingController)
+    assert controller.tracker_config == load_frozen_baseline("computed_torque")
+    assert controller.tracker_config.method == "computed_torque"
+    controller.reset(skeleton)
+    assert np.all(np.isfinite(controller.control(0.0, skeleton)))
