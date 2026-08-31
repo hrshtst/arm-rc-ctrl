@@ -1,0 +1,21 @@
+# Development robustness levels for task 1-a, version 1 (docs/PLAN.md section 9.2; docs/TASKS.md
+# M3-009). These run the paired robustness suite on a frozen recipe *before* the one-shot
+# confirmatory suite, using development seeds and levels only: posture norms 0.04/0.08 rad (the
+# gain-study and ESN-search development levels; the confirmatory classes are 0.05/0.10 rad), 9 N
+# pulses at t = 2.5 s along the diagonals (the confirmatory pulse is 12 N at t = 2.0 s along the
+# axes), and seeds distinct from every confirmatory seed (20260901..20260905) and study seed
+# (20260830, 20260911, 20260921). tests/regression/test_confirmatory_lock.py keeps them disjoint.
+name = "task-1a-robustness-dev-v1"
+scenario = "../tasks/task_1a.toml"
+seeds = [20261001, 20261002]
+
+[posture]
+small_magnitude_rad = 0.04
+large_magnitude_rad = 0.08
+draws_per_seed = 3
+
+[force]
+magnitude_n = 9.0
+start_s = 2.5
+duration_s = 0.2
+directions_deg = [45.0, 135.0, 225.0, 315.0]

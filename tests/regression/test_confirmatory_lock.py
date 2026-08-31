@@ -23,6 +23,7 @@ from arm_rc_ctrl.experiments.perturbation_pilot import (
     select_levels,
     summarize_levels,
 )
+from arm_rc_ctrl.experiments.perturbations import load_development_robustness
 from arm_rc_ctrl.experiments.tuning import DevelopmentScenarios
 from arm_rc_ctrl.experiments.tuning import load_protocol as load_tuning_protocol
 from arm_rc_ctrl.repo import repository_root
@@ -33,6 +34,7 @@ REPO_ROOT = repository_root()
 GAIN_STUDY = REPO_ROOT / "configs" / "studies" / "baseline_gains_1a.toml"
 GAIN_STUDY_V2 = REPO_ROOT / "configs" / "studies" / "baseline_gains_1a_v2.toml"
 ESN_SEARCH = REPO_ROOT / "configs" / "studies" / "esn_search_1a.toml"
+ROBUSTNESS_DEV = REPO_ROOT / "configs" / "evaluations" / "task_1a_robustness_dev_v1.toml"
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,7 @@ class LockVersion:
     pilot_markdown: Path
     gain_studies: tuple[Path, ...]
     esn_studies: tuple[Path, ...] = ()
+    development_levels: tuple[Path, ...] = ()
 
 
 VERSIONS = {
@@ -62,6 +65,7 @@ VERSIONS = {
         REPO_ROOT / "docs" / "experiments" / "task_1a" / "perturbation_pilot_v2.md",
         (GAIN_STUDY, GAIN_STUDY_V2),
         (ESN_SEARCH,),
+        (ROBUSTNESS_DEV,),
     ),
 }
 
@@ -141,3 +145,11 @@ def test_confirmatory_seeds_and_levels_are_separate_from_development(version: Lo
         for pulse in development.force_pulses:
             assert pulse.start_s != protocol.force.start_s, label  # development pulses use other timing
             assert pulse.direction_deg not in protocol.force.directions_deg, label
+    for levels_file in version.development_levels:
+        levels = load_development_robustness(levels_file)
+        protocol.forbid_seeds(levels.seeds, f"the development robustness levels {levels_file.name}")
+        for magnitude in (levels.posture.small_magnitude_rad, levels.posture.large_magnitude_rad):
+            assert magnitude not in (protocol.posture.small_magnitude_rad, protocol.posture.large_magnitude_rad)
+        assert levels.force.start_s != protocol.force.start_s
+        assert not set(levels.force.directions_deg) & set(protocol.force.directions_deg)
+        assert levels.force.magnitude_n < protocol.force.magnitude_n

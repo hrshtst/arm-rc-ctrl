@@ -452,7 +452,14 @@ Evaluate in this order:
 Perturbation grids, force timing, directions, magnitudes, and random seeds are
 versioned configuration. A pilot using the frozen direct-replay baseline selects
 nontrivial but safe levels. After the confirmatory suite is declared, those
-values and seeds are locked and may not be used for tuning.
+values and seeds are locked and may not be used for tuning. The scenarios are
+a pure function of a protocol's levels and seeds (stable IDs; random posture
+directions from an independent seeded stream per class), so every method runs
+identical scenarios; the suite persists every run, keeps failures in the
+per-class aggregation, and takes paired RC-minus-replay effects over the
+scenarios where both runs of a pair succeeded, reporting the failed pairs next
+to them. Development levels and seeds (`configs/evaluations/*_robustness_dev_*.toml`)
+exercise the suite on a frozen recipe before the one-shot confirmatory run.
 
 ### 9.3 Later-task metrics
 

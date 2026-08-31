@@ -41,6 +41,13 @@ An ESN search (`arm_rc_ctrl.experiments.esn_study --protocol configs/studies/esn
 resumes when re-run with the same protocol (`--max-trials` bounds one
 invocation), and mirrors the study as one MLflow parent run with a child run
 per trial.
+The paired robustness suite (`arm_rc_ctrl.experiments.robustness --development
+configs/evaluations/task_1a_robustness_dev_v1.toml` or `--confirmatory
+configs/evaluations/task_1a_confirmatory_v2.toml`, plus `--dataset`, `--recipe`,
+`--evaluation`, `--label`, `--report`) runs every arm (RC and direct replay under
+each frozen tracker) on identical generated scenarios — the five classes of
+PLAN section 9.2 — as persisted run records, and reports per-class outcomes with
+failures counted and paired RC-minus-replay effects.
 
 ## Requirements
 

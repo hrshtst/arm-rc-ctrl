@@ -26,10 +26,13 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Final, Literal
+from pathlib import Path
+from typing import TYPE_CHECKING, Final, Literal, Protocol
 
 import numpy as np
 
+from arm_rc_ctrl.config import load_config
+from arm_rc_ctrl.experiments.confirmatory import ForcePulseLevels, PostureLevels
 from arm_rc_ctrl.experiments.disturbances import ForcePulse
 
 if TYPE_CHECKING:
@@ -37,20 +40,40 @@ if TYPE_CHECKING:
 
     from numpy.typing import NDArray
 
-    from arm_rc_ctrl.experiments.confirmatory import ConfirmatoryProtocol, ForcePulseLevels, PostureLevels
 
 __all__ = [
     "CLASS_ORDER",
+    "DevelopmentRobustness",
     "PerturbationClass",
+    "RobustnessLevels",
     "RobustnessScenario",
     "check_offsets",
     "force_scenarios",
+    "load_development_robustness",
     "posture_grid",
     "posture_random",
     "robustness_scenarios",
 ]
 
 type PerturbationClass = Literal["nominal", "posture_small", "posture_large", "force", "combined"]
+
+
+class RobustnessLevels(Protocol):
+    """What a protocol must provide: seeds and the posture/force levels (locked or development)."""
+
+    @property
+    def name(self) -> str: ...  # noqa: D102 - protocol member
+
+    @property
+    def seeds(self) -> tuple[int, ...]: ...  # noqa: D102 - protocol member
+
+    @property
+    def posture(self) -> PostureLevels: ...  # noqa: D102 - protocol member
+
+    @property
+    def force(self) -> ForcePulseLevels: ...  # noqa: D102 - protocol member
+
+
 CLASS_ORDER: Final[tuple[PerturbationClass, ...]] = ("nominal", "posture_small", "posture_large", "force", "combined")
 _CLASS_STREAM: Final = {"posture_small": 2, "posture_large": 3}
 """Sub-seed of each random posture class (the protocol class number), so classes draw independent streams."""
@@ -64,20 +87,37 @@ class RobustnessScenario:
     kind: PerturbationClass
     offset: tuple[float, ...]
     """Joint-space offset (rad) added to the demonstrated initial posture (zeros when unperturbed)."""
-    pulse: ForcePulse | None = None
     seed: int | None = None
     draw: int | None = None
     magnitude_rad: float | None = None
+    force_magnitude_n: float | None = None
+    """Endpoint force pulse (polar description; ``None`` without a pulse)."""
+    force_start_s: float | None = None
+    force_duration_s: float | None = None
     direction_deg: float | None = None
 
     def __post_init__(self) -> None:
-        """The ID is non-empty and the offset finite."""
+        """The ID is non-empty, the offset finite, and the pulse description complete or absent."""
         if not self.scenario_id.strip():
             msg = "scenario_id must not be empty"
             raise ValueError(msg)
         if not all(math.isfinite(v) for v in self.offset):
             msg = f"offset must be finite, got {self.offset}"
             raise ValueError(msg)
+        parts = (self.force_magnitude_n, self.force_start_s, self.force_duration_s, self.direction_deg)
+        if any(v is None for v in parts) and any(v is not None for v in parts[:3]):
+            msg = "a force pulse needs magnitude, start, duration, and direction"
+            raise ValueError(msg)
+        self.pulse  # noqa: B018 - validates the pulse description through ForcePulse
+
+    @property
+    def pulse(self) -> ForcePulse | None:
+        """The endpoint force pulse of this scenario, if any."""
+        if self.force_magnitude_n is None or self.force_start_s is None or self.force_duration_s is None:
+            return None
+        return ForcePulse.from_polar(
+            self.force_start_s, self.force_duration_s, self.force_magnitude_n, self.direction_deg or 0.0
+        )
 
     def initial_q(self, nominal: Sequence[float]) -> tuple[float, ...]:
         """The perturbed initial posture."""
@@ -164,7 +204,9 @@ def force_scenarios(levels: ForcePulseLevels, dof: int) -> tuple[RobustnessScena
             f"force-{levels.magnitude_n:g}N-{direction:03.0f}deg",
             "force",
             zeros,
-            pulse=ForcePulse.from_polar(levels.start_s, levels.duration_s, levels.magnitude_n, direction),
+            force_magnitude_n=levels.magnitude_n,
+            force_start_s=levels.start_s,
+            force_duration_s=levels.duration_s,
             direction_deg=direction,
         )
         for direction in levels.directions_deg
@@ -172,7 +214,7 @@ def force_scenarios(levels: ForcePulseLevels, dof: int) -> tuple[RobustnessScena
 
 
 def robustness_scenarios(
-    protocol: ConfirmatoryProtocol,
+    protocol: RobustnessLevels,
     *,
     nominal: Sequence[float],
     lower: Sequence[float] | None = None,
@@ -189,10 +231,12 @@ def robustness_scenarios(
             f"combined-{s.seed}-{s.draw:02d}-{f.direction_deg:03.0f}deg",
             "combined",
             s.offset,
-            pulse=f.pulse,
             seed=s.seed,
             draw=s.draw,
             magnitude_rad=s.magnitude_rad,
+            force_magnitude_n=f.force_magnitude_n,
+            force_start_s=f.force_start_s,
+            force_duration_s=f.force_duration_s,
             direction_deg=f.direction_deg,
         )
         for s, f in ((s, forces[i % len(forces)]) for i, s in enumerate(small))
@@ -216,3 +260,28 @@ def robustness_scenarios(
         msg = "scenario IDs must be unique"
         raise ValueError(msg)
     return scenarios
+
+
+@dataclass(frozen=True)
+class DevelopmentRobustness:
+    """Development-only robustness levels and seeds (never the locked confirmatory ones)."""
+
+    name: str
+    scenario: Path
+    seeds: tuple[int, ...]
+    posture: PostureLevels
+    force: ForcePulseLevels
+
+    def __post_init__(self) -> None:
+        """Name and seeds are valid."""
+        if not self.name.strip():
+            msg = "name must not be empty"
+            raise ValueError(msg)
+        if not self.seeds or len(set(self.seeds)) != len(self.seeds) or any(s < 0 for s in self.seeds):
+            msg = f"seeds must be a non-empty list of distinct non-negative integers, got {self.seeds}"
+            raise ValueError(msg)
+
+
+def load_development_robustness(path: Path) -> DevelopmentRobustness:
+    """Load and validate development robustness levels."""
+    return load_config(path, DevelopmentRobustness)
