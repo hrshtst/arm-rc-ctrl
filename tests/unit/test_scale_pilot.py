@@ -63,10 +63,10 @@ def test_committed_protocol_is_the_development_sweep() -> None:
     """The committed protocol sweeps around the anchor with both frozen trackers and development settings only."""
     protocol = load_protocol(PROTOCOL)
     assert protocol.trackers == ("pd_v2", "computed_torque")
-    assert 0.3 in protocol.grid.q_scales
-    assert 4.0 in protocol.grid.dq_scales
+    assert protocol.grid.q_scales == (0.1, 0.15, 0.2, 0.3, 0.5)
+    assert protocol.grid.dq_scales == (4.0, 6.0, 8.0, 12.0, 16.0)
     assert protocol.variants.reservoir_seeds == (31, 32)
-    assert protocol.variants.ridge_alphas == (1e-3, 1e-2, 1e-1)
+    assert protocol.variants.ridge_alphas == (1e-2, 3e-2, 1e-1, 3e-1)
     assert protocol.selection.min_feasible_fraction == 0.75
     assert protocol.model.name == "esn_task_1a.toml"
 
