@@ -24,7 +24,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 - **Next task:** M3-010
 - **Current milestone:** M3 — tuning and robustness.
-- **Active blockers:** None.
+- **Active blockers:** Owner decision before the one-shot confirmatory suite (M3-010): run it on recipe v3 (ESN search v1 found a single feasible trial of 120; the development robustness suite passes 23/23 under PD v2 and 21/23 under computed torque), or first version a larger-budget ESN search (v2, ~1 min per 100 trials) and freeze a v4 recipe.
 - **Latest completed work:** M2 closed 2026-09-02 (all M2 tasks, `M3-015`, and `M2-GATE` `DONE`; PR #3 approved after two review rounds); M1 closed 2026-08-31 (PR #2); M0 closed 2026-08-30 (PR #1); `UP-005` open. Before M3 confirmatory execution the ESN study (`M3-003`) should include the input-scale pilot's finding that ridge ≥ 3e-2 outperforms the anchor's 1e-2.
 
 ## Milestone gates
