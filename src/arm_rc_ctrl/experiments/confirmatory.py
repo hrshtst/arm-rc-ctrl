@@ -32,9 +32,9 @@ class PostureLevels:
     """Initial-posture perturbation classes 2 and 3 of the robustness protocol."""
 
     small_magnitude_rad: float
-    """Per-joint bound of the small perturbation box drawn with a confirmatory seed."""
+    """Euclidean norm (rad) of the small joint-space offsets drawn with a confirmatory seed."""
     large_magnitude_rad: float
-    """Per-joint bound of the larger held-out perturbation box."""
+    """Euclidean norm (rad) of the larger held-out joint-space offsets."""
     draws_per_seed: int
     """Number of random postures drawn per confirmatory seed and level."""
 
