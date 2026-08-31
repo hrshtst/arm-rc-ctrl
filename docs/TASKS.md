@@ -25,7 +25,7 @@ are complete. Do not mark research software complete merely because it runs once
 - **Next task:** M3-013
 - **Current milestone:** M3 — tuning and robustness.
 - **Active blockers:** M3-013 needs the owner's clean-checkout reproduction run and sign-off; M3-014 is the owner's review.
-- **Latest completed work:** M2 closed 2026-09-02 (all M2 tasks, `M3-015`, and `M2-GATE` `DONE`; PR #3 approved after two review rounds); M1 closed 2026-08-31 (PR #2); M0 closed 2026-08-30 (PR #1); `UP-005` open. Before M3 confirmatory execution the ESN study (`M3-003`) should include the input-scale pilot's finding that ridge ≥ 3e-2 outperforms the anchor's 1e-2.
+- **Latest completed work:** M3 implemented through the machine reproduction audit (2026-08-31, branch `m3-tuning-robustness`, local commits): mandatory MLflow logging, Optuna studies, ESN search v1 → review-directed v2 (902/1000 feasible), seed panel, recipe v4 frozen, robustness generators and paired suite, the locked confirmatory suite run once on v4 (260/260), the report, and `scripts/reproduce_1a.py` (PASS, zero deviation); `M3-013` awaits the owner's clean-checkout run and sign-off, `M3-014` the owner's review. M2 closed 2026-09-02 (PR #3), M1 2026-08-31 (PR #2), M0 2026-08-30 (PR #1); `UP-005` open.
 
 ## Milestone gates
 
