@@ -22,10 +22,10 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M2-GATE` — nominal recorded runs with the v1 recipe, then review and close the M2 gate.
+- **Next task:** `M2-GATE` — review and close the M2 gate (all M2 tasks and `M3-015` are `DONE`; nominal evidence recorded).
 - **Current milestone:** M2 — task 1-a RC vertical slice.
 - **Active blockers:** None — the 2026-09-01 M2 closed-loop decisions: fixed physical input scales as a recipe-level transform (the M1 dataset is unchanged), `M3-015` before `M2-011` with the PD-first slice retained, and PLAN §5.2 aligned with `rclib`'s state-only readout.
-- **Latest completed work:** M1 closed 2026-08-31 (all M1 tasks and `M1-GATE` `DONE`; PR #2 approved after three review rounds); M0 closed 2026-08-30 (PR #1); `UP-005` open; `M3-015` scheduled before confirmatory execution.
+- **Latest completed work:** M2 implementation complete on branch `m2-rc-vertical-slice` (2026-09-02): `M2-001`–`M2-018` and `M3-015` `DONE`; the v1 recipe `model-20260831-4999bfe0e0ec` (fit RMSE 2.2e-4 rad) and the paired nominal evaluations under PD v2 and computed torque (`docs/experiments/task_1a/paired_nominal_*.{json,md}`, `paired_suite_nominal.{json,md}`) all complete with every dwell criterion met and no saturation; RC movement RMSE 0.126 rad (PD v2) / 0.163 rad (computed torque) versus 2.5e-4 / 1.5e-5 rad for direct replay — the generator effect dominates, the tracker effect is small. M1 closed 2026-08-31 (PR #2); `UP-005` open.
 
 ## Milestone gates
 
