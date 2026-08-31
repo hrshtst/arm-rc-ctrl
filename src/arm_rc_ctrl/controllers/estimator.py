@@ -35,7 +35,9 @@ __all__ = ["CausalDerivativeEstimator", "DerivativeEstimate", "EstimatorConfig",
 
 
 class EstimatorError(ValueError):
-    """The sample interval violates the estimator contract."""
+    """The sample interval violates the estimator contract (a ``stale_time`` failure when it ends a run)."""
+
+    category = "stale_time"
 
 
 @dataclass(frozen=True)

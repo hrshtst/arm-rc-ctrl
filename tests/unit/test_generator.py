@@ -129,14 +129,17 @@ def test_invalid_predictions_are_rejected(
     generator = _generator(trained, (np.array([-1.0, -1.0]), np.array([1.0, 1.0])))
     generator.reset(_state(0.0, samples.q[0], samples.dq[0]))
     monkeypatch.setattr(model, "step", _returning(np.array([np.nan, 0.0])))
-    with pytest.raises(GeneratorError, match="invalid target"):
+    with pytest.raises(GeneratorError, match="non-finite target") as non_finite:
         generator.step(_state(0.0, samples.q[0], samples.dq[0]))
+    assert non_finite.value.category == "non_finite"
     monkeypatch.setattr(model, "step", _returning(np.array([0.0, 0.0, 0.0])))
-    with pytest.raises(GeneratorError, match="invalid target"):
+    with pytest.raises(GeneratorError, match=r"target of shape \(3,\)") as shape:
         generator.step(_state(DT, samples.q[0], samples.dq[0]))
+    assert shape.value.category == "shape"
     monkeypatch.setattr(model, "step", _returning(np.array([1.5, 0.0])))
-    with pytest.raises(GeneratorError, match="leaves the joint bounds"):
+    with pytest.raises(GeneratorError, match="leaves the joint bounds") as bounds:
         generator.step(_state(2 * DT, samples.q[0], samples.dq[0]))
+    assert bounds.value.category == "bounds"
     monkeypatch.undo()
 
 

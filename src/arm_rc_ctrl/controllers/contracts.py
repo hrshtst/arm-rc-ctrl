@@ -31,7 +31,16 @@ __all__ = [
 
 
 class GeneratorError(RuntimeError):
-    """A target generator was used outside its contract or produced an invalid target."""
+    """A target generator was used outside its contract or produced an invalid target.
+
+    ``category`` names the failure class the simulation records when the error
+    ends a run: ``non_finite``, ``shape``, ``bounds``, ``stale_time``, or
+    ``model_exception`` (the default for anything else).
+    """
+
+    def __init__(self, message: str, *, category: str = "model_exception") -> None:
+        super().__init__(message)
+        self.category = category
 
 
 def as_joint_vector(values: ArrayLike, name: str, *, dof: int | None = None) -> NDArray[np.float64]:
@@ -180,10 +189,10 @@ class TargetGeneratorBase(ABC):
             raise GeneratorError(msg)
         if state.t <= self._last_t and self._steps > 0:
             msg = f"time must advance: {state.t} s after {self._last_t} s"
-            raise GeneratorError(msg)
+            raise GeneratorError(msg, category="stale_time")
         if state.t < self._last_t:
             msg = f"time must not go backwards: {state.t} s before the reset time {self._last_t} s"
-            raise GeneratorError(msg)
+            raise GeneratorError(msg, category="stale_time")
         return self._task_code(task_code)
 
     def prime(self, state: RobotState, task_code: NDArray[np.float64] | None = None) -> None:
@@ -203,10 +212,10 @@ class TargetGeneratorBase(ABC):
         target = self._step(state, code)
         if not isinstance(target, DesiredJointState):  # pyright: ignore[reportUnnecessaryIsInstance]
             msg = f"the generator returned {type(target).__name__}, expected DesiredJointState"
-            raise GeneratorError(msg)
+            raise GeneratorError(msg, category="shape")
         if target.dof != self._dof:
             msg = f"the generator returned {target.dof} joints, expected {self._dof}"
-            raise GeneratorError(msg)
+            raise GeneratorError(msg, category="shape")
         self._last_t = state.t
         self._steps += 1
         return target
@@ -220,7 +229,7 @@ class TargetGeneratorBase(ABC):
             msg = (
                 f"task_code must be a finite one-dimensional float64 vector, got shape {code.shape} dtype {code.dtype}"
             )
-            raise GeneratorError(msg)
+            raise GeneratorError(msg, category="shape")
         return code
 
     @abstractmethod

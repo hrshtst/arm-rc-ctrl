@@ -15,14 +15,22 @@ instead of a crash, so a run record always exists.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Final, Protocol
+from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
 import numpy as np
 from numpy.typing import NDArray
 from skelarm import Skeleton, compute_forward_kinematics, compute_jacobian, integrate_with_limits
 
 from arm_rc_ctrl.experiments.run_record import RunArrays
-from arm_rc_ctrl.experiments.termination import Termination, completed, invalid_output, invalid_state, limit_violation
+from arm_rc_ctrl.experiments.termination import (
+    FAILURE_KINDS,
+    FailureKind,
+    Termination,
+    completed,
+    invalid_output,
+    invalid_state,
+    limit_violation,
+)
 from arm_rc_ctrl.scenario import ScenarioConfig, build_skeleton
 
 if TYPE_CHECKING:
@@ -149,14 +157,11 @@ def simulate(
         termination = check_state(scenario, skeleton, t, step)
         if termination is not None:
             break
-        try:
-            tau = np.asarray(controller.control(t, skeleton), dtype=np.float64)
-        except Exception as exc:  # noqa: BLE001 - any command failure must end the run safely
-            termination = invalid_output(t, step, f"{type(exc).__name__}: {exc}")
+        command = _command(controller, scenario, skeleton, t, step)
+        if isinstance(command, Termination):
+            termination = command
             break
-        if tau.shape != (scenario.dof,) or not np.all(np.isfinite(tau)):
-            termination = invalid_output(t, step, f"controller returned an invalid torque {tau.tolist()}")
-            break
+        tau = command
         _append_sample(rows, channels, controller.last, skeleton, t)
         if force is not None:
             external = force.at(t)
@@ -175,6 +180,29 @@ def simulate(
         msg = f"the initial state already violates the scenario: {termination.detail}"
         raise ValueError(msg)
     return _stack(rows), termination
+
+
+def _command(
+    controller: TelemetryController, scenario: ScenarioConfig, skeleton: Skeleton, t: float, step: int
+) -> NDArray[np.float64] | Termination:
+    """The controller's torque for this sample, or the structured termination its failure warrants."""
+    try:
+        tau = np.asarray(controller.control(t, skeleton), dtype=np.float64)
+    except Exception as exc:  # noqa: BLE001 - any command failure must end the run safely
+        return invalid_output(t, step, f"{type(exc).__name__}: {exc}", _failure_of(exc))
+    if tau.shape != (scenario.dof,):
+        return invalid_output(t, step, f"controller returned a torque of shape {tau.shape}", "shape")
+    if not np.all(np.isfinite(tau)):
+        return invalid_output(t, step, f"controller returned a non-finite torque {tau.tolist()}", "non_finite")
+    return tau
+
+
+def _failure_of(exc: BaseException) -> FailureKind:
+    """The failure category an exception declares (``model_exception`` unless it says otherwise)."""
+    category = getattr(exc, "category", None)
+    if isinstance(category, str) and category in FAILURE_KINDS:
+        return cast("FailureKind", category)
+    return "model_exception"
 
 
 def _row_names(channels: ChannelMap, *, force: bool) -> list[str]:

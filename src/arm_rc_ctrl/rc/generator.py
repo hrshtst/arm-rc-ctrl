@@ -93,7 +93,7 @@ class RcTargetGenerator(TargetGeneratorBase):
         code = task_code if self._encoder.task_code_dim else None
         if self._encoder.task_code_dim and task_code.shape[0] != self._encoder.task_code_dim:
             msg = f"task_code must have {self._encoder.task_code_dim} entries, got {task_code.shape[0]}"
-            raise GeneratorError(msg)
+            raise GeneratorError(msg, category="shape")
         return self._encoder.encode(state.q, state.dq, code)
 
     def _telemetry(self, u: NDArray[np.float64], prediction: NDArray[np.float64], mode: float) -> None:
@@ -119,14 +119,17 @@ class RcTargetGenerator(TargetGeneratorBase):
     def _step(self, state: RobotState, task_code: NDArray[np.float64]) -> DesiredJointState:
         u = self._encode(state, task_code)
         prediction = np.asarray(self._model.step(u), dtype=np.float64)
-        if prediction.shape != (self._encoder.dof,) or not np.all(np.isfinite(prediction)):
-            msg = f"the ESN produced an invalid target {prediction.tolist()} at t = {state.t} s"
-            raise GeneratorError(msg)
+        if prediction.shape != (self._encoder.dof,):
+            msg = f"the ESN produced a target of shape {prediction.shape}, expected ({self._encoder.dof},)"
+            raise GeneratorError(msg, category="shape")
+        if not np.all(np.isfinite(prediction)):
+            msg = f"the ESN produced a non-finite target {prediction.tolist()} at t = {state.t} s"
+            raise GeneratorError(msg, category="non_finite")
         if self._bounds is not None:
             lower, upper = self._bounds
             if np.any(prediction < lower) or np.any(prediction > upper):
                 msg = f"the ESN target {prediction.tolist()} leaves the joint bounds at t = {state.t} s"
-                raise GeneratorError(msg)
+                raise GeneratorError(msg, category="bounds")
         estimate = self._estimator.update(state.t, prediction)
         self._telemetry(u, prediction, 1.0)
         return DesiredJointState(prediction, estimate.dq, estimate.ddq)
