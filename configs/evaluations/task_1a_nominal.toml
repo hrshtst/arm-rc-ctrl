@@ -1,0 +1,13 @@
+# Nominal RC closed-loop evaluation of task 1-a (docs/PLAN.md section 5.3; docs/TASKS.md M2-012).
+# The RC target generator rebuilt from a model recipe drives the frozen PD v2 tracker; the
+# controller holds the demonstrated initial posture while priming for the scenario's prime
+# interval, then generates. Scenario, dataset, and recipe are given to the command.
+name = "task-1a-nominal"
+tracker = "../controllers/task_1a_pd_v2.toml"
+
+[estimator]
+# Causal desired-derivative estimator (PLAN section 5.4): first-order cutoffs (Hz) and the
+# largest accepted control interval relative to the scenario's period.
+velocity_cutoff_hz = 20.0
+acceleration_cutoff_hz = 20.0
+max_dt_ratio = 3.0

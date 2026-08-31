@@ -25,11 +25,10 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Final, cast
+from typing import Any, cast
 
 import numpy as np
 from numpy.typing import NDArray
-from skelarm import Skeleton, compute_forward_kinematics, compute_jacobian, integrate_with_limits
 
 from arm_rc_ctrl.config import load_config, to_mapping
 from arm_rc_ctrl.controllers.reference import DemonstrationReference
@@ -39,25 +38,19 @@ from arm_rc_ctrl.data.records import ProcessedDatasetRecord, load_record, verify
 from arm_rc_ctrl.data.samples import SampleSet, load_samples
 from arm_rc_ctrl.experiments.disturbances import ForcePulse
 from arm_rc_ctrl.experiments.run_record import LoadedRun, RunArrays, RunPointerRecord, RunSummary, load_run, write_run
+from arm_rc_ctrl.experiments.simulation import simulate
 from arm_rc_ctrl.experiments.termination import (
     Outcome,
     Termination,
-    completed,
-    invalid_output,
-    invalid_state,
-    limit_violation,
 )
 from arm_rc_ctrl.metrics.dwell import dwell_metrics
 from arm_rc_ctrl.metrics.joint import JointAnglePolicy
 from arm_rc_ctrl.metrics.report import RunReport, build_report, report_to_json
 from arm_rc_ctrl.provenance import ArtifactReference, collect_provenance, command_line, require_clean_for_confirmatory
-from arm_rc_ctrl.scenario import ScenarioConfig, build_skeleton, load_scenario
+from arm_rc_ctrl.scenario import ScenarioConfig, load_scenario
 from arm_rc_ctrl.storage import StorageRoot, open_storage
 
 __all__ = ["ReplayResult", "bind_dataset", "dwell_outcome", "main", "run_replay", "simulate_tracking"]
-
-_DIVERGENCE_BOUND: Final = 1e3
-"""Joint angles or velocities beyond this magnitude are treated as divergence (rad, rad/s)."""
 
 
 @dataclass(frozen=True)
@@ -69,26 +62,6 @@ class ReplayResult:
     directory: Path
     run: LoadedRun
     report: RunReport
-
-
-def _endpoint(skeleton: Skeleton) -> NDArray[np.float64]:
-    tip = skeleton.links[-1]
-    return np.array([tip.xe, tip.ye], dtype=np.float64)
-
-
-def _check_state(scenario: ScenarioConfig, skeleton: Skeleton, t: float, step: int) -> Termination | None:
-    q, dq = skeleton.q, skeleton.dq
-    if not (np.all(np.isfinite(q)) and np.all(np.isfinite(dq))):
-        return invalid_state(t, step, "measured q or dq is not finite")
-    if np.max(np.abs(q)) > _DIVERGENCE_BOUND or np.max(np.abs(dq)) > _DIVERGENCE_BOUND:
-        return invalid_state(t, step, f"state magnitude exceeds {_DIVERGENCE_BOUND}")
-    for j, (v, bound) in enumerate(zip(dq, scenario.limits.velocity, strict=True)):
-        if abs(float(v)) > bound:
-            return limit_violation(t, step, "joint_velocity", float(v), bound, joint=j)
-    radius = float(np.hypot(*_endpoint(skeleton)))
-    if radius > scenario.limits.endpoint_radius:
-        return limit_violation(t, step, "endpoint", radius, scenario.limits.endpoint_radius)
-    return None
 
 
 def simulate_tracking(
@@ -105,82 +78,8 @@ def simulate_tracking(
     A ``force`` pulse acts on the endpoint through the Jacobian transpose in addition
     to the tracker's (limited) torque and is logged in the ``ext_force`` array.
     """
-    dt = scenario.timing.dt
-    steps = round(duration_s / dt)
-    if steps < 1:
-        msg = f"duration {duration_s} s is shorter than one control period {dt} s"
-        raise ValueError(msg)
-    posture = np.asarray(scenario.task.initial_q if initial_q is None else initial_q, dtype=np.float64)
-    skeleton = build_skeleton(scenario, posture)
     controller = LimitedTracker(reference, tracker, scenario.limits.torque)
-    controller.reset(skeleton)
-    lower = np.array([link.q_min for link in scenario.robot.links])
-    upper = np.array([link.q_max for link in scenario.robot.links])
-    gravity = np.asarray(scenario.robot.gravity, dtype=np.float64)
-
-    rows: dict[str, list[NDArray[np.float64]]] = {
-        name: []
-        for name in (
-            "t",
-            "q",
-            "dq",
-            "tip",
-            "q_desired",
-            "dq_desired",
-            "ddq_desired",
-            "tracking_error",
-            "tau_requested",
-            "tau_applied",
-            "saturation",
-            *(("ext_force",) if force is not None else ()),
-        )
-    }
-    termination: Termination | None = None
-    t = 0.0
-    for step in range(steps + 1):
-        termination = _check_state(scenario, skeleton, t, step)
-        if termination is not None:
-            break
-        tau = controller.control(t, skeleton)
-        if not np.all(np.isfinite(tau)):
-            termination = invalid_output(t, step, "tracker returned a non-finite torque")
-            break
-        last = controller.last
-        rows["t"].append(np.array([t]))
-        rows["q"].append(skeleton.q.copy())
-        rows["dq"].append(skeleton.dq.copy())
-        rows["tip"].append(_endpoint(skeleton))
-        rows["q_desired"].append(last["q_ref"])
-        rows["dq_desired"].append(last["dq_ref"])
-        rows["ddq_desired"].append(last["ddq_ref"])
-        rows["tracking_error"].append(last["error"])
-        rows["tau_requested"].append(last["tau_requested"])
-        rows["tau_applied"].append(last["tau_applied"])
-        rows["saturation"].append(np.array([float(np.any(last["saturation"] > 0))]))
-        if force is not None:
-            external = force.at(t)
-            rows["ext_force"].append(external)
-            tau = tau + compute_jacobian(skeleton).T @ external
-        if step == steps:
-            termination = completed(t, step)
-            break
-        integrate_with_limits(skeleton, tau, dt, lower, upper, gravity)
-        compute_forward_kinematics(skeleton)
-        t = (step + 1) * dt
-    if termination is None:  # pragma: no cover - the loop always terminates
-        msg = "simulation loop ended without a termination"
-        raise RuntimeError(msg)
-    n = len(rows["t"])
-    if n == 0:
-        msg = f"the initial state already violates the scenario: {termination.detail}"
-        raise ValueError(msg)
-    stacked: dict[str, NDArray[Any]] = {name: np.vstack(values) for name, values in rows.items() if name != "t"}
-    stacked["t"] = np.concatenate(rows["t"])
-    stacked["saturation"] = stacked["saturation"].ravel().astype(np.int64)
-    stacked["dq_desired_raw"] = stacked["dq_desired"]
-    stacked["ddq_desired_raw"] = stacked["ddq_desired"]
-    stacked["task_code"] = np.zeros((n, 0), dtype=np.float64)
-    return RunArrays(stacked), termination
+    return simulate(scenario, controller, duration_s=duration_s, initial_q=initial_q, force=force)
 
 
 def dwell_outcome(

@@ -54,6 +54,8 @@ def _arrays(*, applied: bool = True) -> RunArrays:
     if applied:
         arrays["tau_applied"] = arrays["tau_requested"] * 0.9
         arrays["ext_force"] = np.column_stack([np.zeros(N), np.where(t < 0.05, -2.0, 0.0)])
+        arrays["phase"] = (t >= 0.05).astype(np.int64)
+        arrays["esn_state_norm"] = np.linspace(0.0, 1.0, N)
     return RunArrays(arrays)
 
 

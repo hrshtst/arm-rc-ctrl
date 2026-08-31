@@ -80,8 +80,8 @@ REQUIRED_ARRAYS: Final[tuple[str, ...]] = (
     "task_code",
     "saturation",
 )
-OPTIONAL_ARRAYS: Final[tuple[str, ...]] = ("tau_applied", "ext_force")
-"""Applied (post-limit) torque and the external endpoint force (N) when a disturbance acted."""
+OPTIONAL_ARRAYS: Final[tuple[str, ...]] = ("tau_applied", "ext_force", "phase", "esn_state_norm")
+"""Applied torque, external endpoint force (N) under a disturbance, hold/generate phase, and ESN state norm."""
 _JOINT_ARRAYS: Final = (
     "q",
     "dq",
@@ -116,7 +116,7 @@ class RunArrays:
             raise ValueError(msg)
         frozen: dict[str, NDArray[Any]] = {}
         for name, array in self.arrays.items():
-            wanted = np.int64 if name == "saturation" else np.float64
+            wanted = np.int64 if name in ("saturation", "phase") else np.float64
             if array.dtype != np.dtype(wanted):
                 msg = f"{name} must be {np.dtype(wanted)}, got {array.dtype}"
                 raise TypeError(msg)
@@ -136,6 +136,7 @@ class RunArrays:
         code_dim = frozen["task_code"].shape[1] if frozen["task_code"].ndim == 2 else -1  # noqa: PLR2004
         expected: dict[str, tuple[int, ...]] = dict.fromkeys(_JOINT_ARRAYS, (n, dof))
         expected.update({"tip": (n, _PLANE), "ext_force": (n, _PLANE), "task_code": (n, code_dim), "saturation": (n,)})
+        expected.update({"phase": (n,), "esn_state_norm": (n,)})
         for name, array in frozen.items():
             if name != "t" and array.shape != expected[name]:
                 msg = f"{name} must have shape {expected[name]}, got {array.shape}"
