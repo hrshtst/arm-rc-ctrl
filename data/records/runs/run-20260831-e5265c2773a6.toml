@@ -1,0 +1,38 @@
+method = "replay+pd"
+scenario = "task-1a-reach"
+termination_kind = "completed"
+success = true
+duration_s = 5.0
+n_samples = 501
+arrays_sha256 = "a14dea025fcb6259278b81c36094f86b02db2976582d90c8c4ea2b48c76a8199"
+
+[artifact]
+artifact_id = "run-20260831-e5265c2773a6"
+kind = "run"
+created_at = "2026-08-31T03:58:41+00:00"
+license = "LicenseRef-Private"
+access = "private"
+notes = "Direct replay of processed-20260830-feaf73e6663c with pd."
+schema_version = 1
+
+[artifact.payload]
+uri = "armrc://runs/run-20260831-e5265c2773a6/run.json"
+sha256 = "e5265c2773a64b04d2ac1a561fa1af023d0dd9e7f4b519dd4a105814db137334"
+size = 5265
+format = "run.json"
+schema_version = 1
+
+[artifact.origin]
+command = "python -m arm_rc_ctrl.experiments.paired --config configs/evaluations/task_1a_nominal.toml --scenario configs/tasks/task_1a.toml --dataset data/records/processed/processed-20260830-feaf73e6663c.toml --recipe data/records/models/model-20260831-038a9b2c8432.toml --report docs/experiments/task_1a/paired_nominal_pd.json --markdown docs/experiments/task_1a/paired_nominal_pd.md"
+config_sha256 = "0b3fd8523325d7c74890b5b6a678d9482e2f846ee108106821286a82447eb52a"
+project_commit = "b65a707d3775017659b0e3759627a5664218db90"
+project_dirty = false
+sources = [
+    "processed-20260830-feaf73e6663c",
+]
+run_id = "run-20260831-e5265c2773a6"
+
+[artifact.origin.dependency_commits]
+rclib = "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b"
+skelarm = "ebb26118864ad158ef2ad36af68027b1a12ade1a"
+rtctrl = "c601076ee60ec712c1cb4a85756a186882df2e1b"
