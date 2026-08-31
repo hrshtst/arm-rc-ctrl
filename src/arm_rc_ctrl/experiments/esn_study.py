@@ -113,6 +113,26 @@ class EsnStudyReport:
     mlflow_parent_run: str | None = None
     schema_version: int = field(default=REPORT_SCHEMA_VERSION)
 
+    def __post_init__(self) -> None:
+        """The selection is re-derived from the stored trials: the feasible count and the best feasible trial."""
+        feasible = [t for t in self.summary.trials if t.flags.get("feasible") is True]
+        if self.n_feasible != len(feasible):
+            msg = f"n_feasible {self.n_feasible} does not match the {len(feasible)} trials flagged feasible"
+            raise ValueError(msg)
+        eligible = [t for t in feasible if t.state == "COMPLETE" and t.value is not None]
+        if not eligible:
+            if self.summary.best_number is not None or self.best_point is not None:
+                msg = "a study without a feasible completed trial selects nothing"
+                raise ValueError(msg)
+            return
+        best = min(eligible, key=lambda t: (cast("float", t.value), t.number))
+        if self.summary.best_number != best.number or self.summary.best_value != best.value:
+            msg = f"the report does not select the best feasible trial ({best.number}, {best.value!r})"
+            raise ValueError(msg)
+        if self.best_point is None or {k: float(v) for k, v in self.best_point.params().items()} != best.params:
+            msg = f"best_point does not equal the parameters of trial {best.number}"
+            raise ValueError(msg)
+
 
 @dataclass(frozen=True)
 class EsnStudyResult:

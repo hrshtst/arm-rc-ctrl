@@ -208,6 +208,8 @@ def test_panel_records_every_seed_and_summarizes_feasible_outcomes(
         run_stability(
             replace(
                 report,
+                n_feasible=0,
+                best_point=None,
                 summary=replace(
                     report.summary, trials=report.summary.trials[2:], n_complete=1, best_number=None, best_value=None
                 ),

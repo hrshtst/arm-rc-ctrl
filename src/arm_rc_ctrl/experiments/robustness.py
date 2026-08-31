@@ -36,7 +36,7 @@ from typing import TYPE_CHECKING, Final, Literal, cast
 from arm_rc_ctrl.config import from_mapping, to_mapping
 from arm_rc_ctrl.data.records import ProcessedDatasetRecord, load_record, verify_payload
 from arm_rc_ctrl.data.samples import load_samples
-from arm_rc_ctrl.experiments.baselines import load_frozen_baseline
+from arm_rc_ctrl.experiments.baselines import baseline_method, load_frozen_baseline
 from arm_rc_ctrl.experiments.closed_loop import EstimatorSpec, load_nominal_config, run_nominal
 from arm_rc_ctrl.experiments.confirmatory import ConfirmatoryProtocol, load_confirmatory
 from arm_rc_ctrl.experiments.paired import compare_reports
@@ -286,6 +286,24 @@ class RobustnessSuite:
         if len(set(actual)) != len(actual) or set(actual) != expected:
             msg = "every arm must run every scenario exactly once"
             raise ValueError(msg)
+        kinds = {s.scenario_id: s.kind for s in self.scenarios}
+        methods = {a.name: f"{a.generator}+{baseline_method(a.tracker)}" for a in self.arms}
+        for run in self.runs:
+            if run.report.run_id != run.run_id:
+                msg = f"run {run.run_id} carries the report of {run.report.run_id}"
+                raise ValueError(msg)
+            if run.kind != kinds[run.scenario_id]:
+                kind = kinds[run.scenario_id]
+                msg = f"run {run.run_id} is filed under class {run.kind!r} but scenario {run.scenario_id} is {kind!r}"
+                raise ValueError(msg)
+            if run.report.method != methods[run.arm]:
+                msg = (
+                    f"run {run.run_id} reports method {run.report.method!r}, arm {run.arm} expects {methods[run.arm]!r}"
+                )
+                raise ValueError(msg)
+            if run.report.scenario != self.scenario or run.report.reference_artifact != self.reference_artifact:
+                msg = f"run {run.run_id} was evaluated on another scenario or reference than the suite"
+                raise ValueError(msg)
         aggregates = aggregate_runs(self.runs, [a.name for a in self.arms])
         effects = paired_effects(self.runs, self.arms)
         if self.aggregates and self.aggregates != aggregates:
@@ -342,7 +360,11 @@ def run_robustness(
     last simulation, so nothing is written into the repository while runs that
     require a clean worktree are still to come.
     """
-    if label != "development" and (exploratory or not isinstance(protocol, ConfirmatoryProtocol)):
+    confirmatory = isinstance(protocol, ConfirmatoryProtocol)
+    if label == "development" and confirmatory:
+        msg = "the locked confirmatory protocol cannot be run under the development label"
+        raise ValueError(msg)
+    if label != "development" and (exploratory or not confirmatory):
         msg = "a confirmatory suite needs the locked confirmatory protocol and a clean worktree"
         raise ValueError(msg)
     arms = default_arms(list(trackers)) if arms is None else tuple(arms)

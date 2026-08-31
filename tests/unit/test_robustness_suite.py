@@ -27,11 +27,13 @@ from arm_rc_ctrl.provenance import collect_provenance
 ARMS = default_arms(["pd_v2"])
 
 
-def report(run_id: str, *, rmse: float | None, termination: str = "completed", success: bool = True) -> RunReport:
+def report(
+    run_id: str, *, rmse: float | None, termination: str = "completed", success: bool = True, method: str = "rc+pd"
+) -> RunReport:
     """A minimal report with a joint RMSE and no dwell/effort metrics."""
     return RunReport(
         run_id=run_id,
-        method="x",
+        method=method,
         scenario="s",
         reference_artifact="ref",
         termination_kind=termination,
@@ -55,9 +57,9 @@ SCENARIOS = (
 )
 RUNS = (
     ArmRun("rc+pd_v2", "nominal", "nominal", "r1", report("r1", rmse=0.02)),
-    ArmRun("replay+pd_v2", "nominal", "nominal", "r2", report("r2", rmse=0.001)),
+    ArmRun("replay+pd_v2", "nominal", "nominal", "r2", report("r2", rmse=0.001, method="replay+pd")),
     ArmRun("rc+pd_v2", "posture-small-1-00", "posture_small", "r3", report("r3", rmse=0.03)),
-    ArmRun("replay+pd_v2", "posture-small-1-00", "posture_small", "r4", report("r4", rmse=0.002)),
+    ArmRun("replay+pd_v2", "posture-small-1-00", "posture_small", "r4", report("r4", rmse=0.002, method="replay+pd")),
     ArmRun(
         "rc+pd_v2",
         "posture-small-1-01",
@@ -65,7 +67,7 @@ RUNS = (
         "r5",
         report("r5", rmse=None, termination="limit_violation", success=False),
     ),
-    ArmRun("replay+pd_v2", "posture-small-1-01", "posture_small", "r6", report("r6", rmse=0.003)),
+    ArmRun("replay+pd_v2", "posture-small-1-01", "posture_small", "r6", report("r6", rmse=0.003, method="replay+pd")),
 )
 
 
@@ -138,6 +140,22 @@ def test_suite_validates_completeness_and_stored_tables() -> None:
         replace(suite, effects=wrong_effect)
     with pytest.raises(ValueError, match="unique"):
         replace(suite, scenarios=(*SCENARIOS, SCENARIOS[0]), runs=RUNS)
+    # Cross-field identities: run ID, class, method, and scenario/reference of every run.
+    swapped = (replace(RUNS[0], run_id="r9"), *RUNS[1:])
+    with pytest.raises(ValueError, match="carries the report of"):
+        replace(suite, runs=swapped)
+    misfiled = (replace(RUNS[0], kind="force"), *RUNS[1:])
+    with pytest.raises(ValueError, match="filed under class"):
+        replace(suite, runs=misfiled)
+    wrong_method = (replace(RUNS[0], report=report("r1", rmse=0.02, method="replay+pd")), *RUNS[1:])
+    with pytest.raises(ValueError, match="reports method"):
+        replace(suite, runs=wrong_method)
+    other_scenario = (replace(RUNS[0], report=replace(RUNS[0].report, scenario="other")), *RUNS[1:])
+    with pytest.raises(ValueError, match="another scenario or reference"):
+        replace(suite, runs=other_scenario)
+    other_reference = (replace(RUNS[0], report=replace(RUNS[0].report, reference_artifact="x")), *RUNS[1:])
+    with pytest.raises(ValueError, match="another scenario or reference"):
+        replace(suite, runs=other_reference)
     text = suite_to_markdown(suite)
     assert "| rc+pd_v2 | posture_small | 2 | 1 | 1 | limit_violation x1 | 0.03 | 0.03 | n/a | n/a |" in text
     assert "## Failed runs (1)" in text

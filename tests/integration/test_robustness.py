@@ -16,7 +16,7 @@ from arm_rc_ctrl.controllers.tracking import TrackerConfig
 from arm_rc_ctrl.data.preprocess import PreprocessResult, preprocess_demonstration
 from arm_rc_ctrl.data.records import RawDemonstrationRecord, load_record
 from arm_rc_ctrl.experiments.closed_loop import EstimatorSpec
-from arm_rc_ctrl.experiments.confirmatory import ForcePulseLevels, PostureLevels
+from arm_rc_ctrl.experiments.confirmatory import ForcePulseLevels, PostureLevels, load_confirmatory
 from arm_rc_ctrl.experiments.perturbations import DevelopmentRobustness
 from arm_rc_ctrl.experiments.robustness import Arm, load_suite, main, run_robustness, suite_to_json, suite_to_markdown
 from arm_rc_ctrl.rc.recipe import ModelRecipe, write_recipe
@@ -139,6 +139,23 @@ def test_every_arm_runs_identical_scenarios_and_the_suite_round_trips(
     report.write_text(json.dumps(tampered), encoding="utf-8")
     with pytest.raises(ValueError, match="stored aggregates"):
         load_suite(report)
+    with pytest.raises(ValueError, match="cannot be run under the development label"):
+        run_robustness(
+            load_confirmatory(REPO_ROOT / "configs" / "evaluations" / "task_1a_confirmatory_v2.toml"),
+            protocol_file,
+            label="development",
+            scenario=scenario,
+            scenario_file=SCENARIO,
+            dataset=processed.record,
+            reference=processed.samples,
+            recipe=recipe,
+            recipe_file=recipe_file,
+            estimator=EstimatorSpec(20.0, 20.0),
+            trackers={"pd": load_config(DEV_PD, TrackerConfig)},
+            training_samples=load_training_samples(recipe, store, records_root=records),
+            store=store,
+            exploratory=True,
+        )
     with pytest.raises(ValueError, match="needs the locked confirmatory protocol"):
         run_robustness(
             LEVELS,

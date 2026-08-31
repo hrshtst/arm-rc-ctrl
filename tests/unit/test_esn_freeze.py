@@ -116,17 +116,29 @@ def test_freeze_refuses_foreign_unfinished_or_empty_reports(
     """The report must come from the protocol, hold the whole budget, and select a trial."""
     with pytest.raises(ValueError, match="was not produced by protocol"):
         frozen_model(report, replace(protocol, budget=4), name="x")
-    with pytest.raises(ValueError, match="selects no trial"):
-        frozen_model(replace(report, best_point=None), protocol, name="x")
+    with pytest.raises(ValueError, match="best_point does not equal"):
+        replace(report, best_point=None)  # a report with a feasible best cannot drop its point
     partial = replace(report, summary=replace(report.summary, trials=report.summary.trials[:2], n_complete=2))
     with pytest.raises(ValueError, match="finish it before freezing"):
         frozen_model(partial, protocol, name="x")
-    infeasible_best = replace(report, summary=replace(report.summary, best_number=2, best_value=10.0))
-    with pytest.raises(ValueError, match="not flagged feasible"):
-        frozen_model(infeasible_best, protocol, name="x")
-    missing_best = replace(report, summary=replace(report.summary, best_number=7))
-    with pytest.raises(ValueError, match="not flagged feasible"):
-        frozen_model(missing_best, protocol, name="x")
+    # The report itself re-derives its selection: it cannot name an infeasible, missing, or non-optimal trial.
+    with pytest.raises(ValueError, match="does not select the best feasible trial"):
+        replace(report, summary=replace(report.summary, best_number=2, best_value=10.0))
+    with pytest.raises(ValueError, match="does not select the best feasible trial"):
+        replace(report, summary=replace(report.summary, best_number=7))
+    anchor = report.summary.trials[0]
+    with pytest.raises(ValueError, match="does not select the best feasible trial"):
+        replace(report, summary=replace(report.summary, best_number=0, best_value=anchor.value))
+    with pytest.raises(ValueError, match="best_point does not equal"):
+        replace(report, best_point=replace(BEST, seed=1))
+    with pytest.raises(ValueError, match="n_feasible"):
+        replace(report, n_feasible=3)
+    empty = replace(report.summary, trials=report.summary.trials[2:], n_complete=1, best_number=None, best_value=None)
+    with pytest.raises(ValueError, match="selects nothing"):
+        replace(report, summary=empty, n_feasible=0)
+    none_selected = replace(report, summary=empty, n_feasible=0, best_point=None)
+    with pytest.raises(ValueError, match="selects no trial"):
+        frozen_model(none_selected, protocol, name="x")
 
 
 def test_rendered_configurations_load_back(report: EsnStudyReport, protocol: EsnSearchProtocol, tmp_path: Path) -> None:
