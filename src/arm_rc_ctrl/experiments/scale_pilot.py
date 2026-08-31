@@ -220,7 +220,8 @@ class ScalePilotReport:
     rules: SelectionRules
     variants: tuple[Variant, ...]
     cells: tuple[CellOutcome, ...]
-    selection: ScaleSelection
+    selection: ScaleSelection | None
+    """``None`` when no feasible cell has only feasible neighbours; the report is still evidence."""
     provenance: ProvenanceRecord
     schema_version: int = field(default=REPORT_SCHEMA_VERSION)
 
@@ -402,6 +403,10 @@ def run_scale_pilot(
                 )
             )
     cells = summarize_cells(protocol, variants)
+    try:
+        selection: ScaleSelection | None = select_anchor(protocol, cells)
+    except ValueError:
+        selection = None
     return ScalePilotReport(
         protocol=protocol.name,
         scenario_file=_repo_relative(protocol.scenario),
@@ -411,7 +416,7 @@ def run_scale_pilot(
         rules=protocol.selection,
         variants=tuple(variants),
         cells=cells,
-        selection=select_anchor(protocol, cells),
+        selection=selection,
         provenance=provenance,
     )
 
@@ -453,13 +458,18 @@ def render_markdown(report: ScalePilotReport) -> str:
         "",
         "## Selection",
         "",
-        (
-            f"- anchor: q scale {s.q_scale:g} rad, dq scale {s.dq_scale:g} rad/s (highest feasible fraction among "
-            "cells whose grid neighbours are all feasible; ties broken by lower median RMSE)"
-        ),
-        f"- feasible region: {len(s.region)} of {len(report.cells)} cells",
-        "",
     ]
+    if s is None:
+        lines.append("- no feasible cell has only feasible grid neighbours: nothing is selected (see the grid above)")
+    else:
+        lines += [
+            (
+                f"- anchor: q scale {s.q_scale:g} rad, dq scale {s.dq_scale:g} rad/s (highest feasible fraction among "
+                "cells whose grid neighbours are all feasible; ties broken by lower median RMSE)"
+            ),
+            f"- feasible region: {len(s.region)} of {len(report.cells)} cells",
+        ]
+    lines.append("")
     return "\n".join(lines)
 
 
@@ -500,11 +510,14 @@ def main(argv: Sequence[str] | None = None) -> int:
             {
                 "variants": len(report.variants),
                 "feasible_cells": sum(1 for c in report.cells if c.feasible),
-                "selection": to_mapping(report.selection),
+                "selection": None if report.selection is None else to_mapping(report.selection),
             },
             indent=2,
         )
     )
+    if report.selection is None:
+        msg = "no feasible cell has only feasible grid neighbours; the report was written but nothing is selected"
+        raise RuntimeError(msg)
     return 0
 
 

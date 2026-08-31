@@ -18,6 +18,7 @@ import pytest
 from arm_rc_ctrl.data.preprocess import preprocess_demonstration
 from arm_rc_ctrl.data.records import ProcessedDatasetRecord, RawDemonstrationRecord, load_record, verify_payload
 from arm_rc_ctrl.data.samples import load_samples
+from arm_rc_ctrl.experiments import scale_pilot
 from arm_rc_ctrl.experiments.scale_pilot import (
     load_protocol,
     load_scale_pilot_report,
@@ -79,6 +80,7 @@ def test_pilot_sweeps_cells_and_selects_an_anchor(prepared: tuple[StorageRoot, P
     assert {v.tracker for v in report.variants} == {"pd", "computed_torque"}
     assert len(report.cells) == 4
     assert all(c.variants == 2 for c in report.cells)
+    assert report.selection is not None
     assert report.selection.q_scale in protocol.grid.q_scales
     assert report.selection.dq_scale in protocol.grid.dq_scales
     assert report.trackers["pd"].type == "pd"
@@ -119,3 +121,41 @@ def test_command_line_entry_point(
     assert markdown_file.read_text().startswith("# Input-scale pilot `scale-pilot-fixture`")
     with pytest.raises(FileExistsError, match="refusing to overwrite"):
         main(argv)
+
+
+def test_report_without_a_selection_is_still_written(
+    prepared: tuple[StorageRoot, Path, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """When no anchor qualifies, the report and table are still written and the command fails loudly."""
+    store, record_file, protocol_file = prepared
+
+    def no_anchor(*_args: object, **_kwargs: object) -> object:
+        msg = "no feasible cell has only feasible grid neighbours; widen the grid or revisit the settings"
+        raise ValueError(msg)
+
+    monkeypatch.setattr(scale_pilot, "select_anchor", no_anchor)
+    monkeypatch.setenv("ARM_RC_CTRL_STORAGE_ROOT", str(store.root))
+    report_file = tmp_path / "none.json"
+    markdown_file = tmp_path / "none.md"
+    argv = [
+        "--protocol",
+        str(protocol_file),
+        "--dataset",
+        str(record_file),
+        "--report",
+        str(report_file),
+        "--markdown",
+        str(markdown_file),
+        "--exploratory",
+    ]
+    with pytest.raises(RuntimeError, match="report was written but nothing is selected"):
+        main(argv)
+    printed = json.loads(capsys.readouterr().out)
+    assert printed["selection"] is None
+    report = load_scale_pilot_report(report_file)
+    assert report.selection is None
+    assert len(report.cells) == 4
+    assert "nothing is selected" in markdown_file.read_text()
