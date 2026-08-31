@@ -34,7 +34,7 @@ are complete. Do not mark research software complete merely because it runs once
 | M0 | Clean recursive checkout installs and passes documented Python/C++ quality commands | `DONE` |
 | M1 | Demonstration preprocessing and both direct-replay baselines are reproducible | `DONE` |
 | M2 | Task 1-a ESN completes a provenance-complete nominal closed-loop run | `IN PROGRESS` |
-| M3 | Frozen task 1-a model and confirmatory robustness report reproduce with one command | `TODO` |
+| M3 | Frozen task 1-a model and confirmatory robustness report reproduce with one command | `IN PROGRESS` |
 | M4 | Planar tasks 1-b through 3 and 4-DOF scaling have frozen protocols and reports | `TODO` |
 | M5 | Python/C++ parity and `rtctrl` 7-DOF simulation timing/safety acceptance pass | `TODO` |
 | M6 | Offline hardware trial receives safety approval and completes with full telemetry | `TODO` |
@@ -162,7 +162,7 @@ are complete. Do not mark research software complete merely because it runs once
 | M3-012 | `TODO` | Implement `scripts/reproduce_1a.py` orchestration | M1-011, M3-011 | One command resolves external records and rebuilds data, model, evaluation, and report or identifies missing/mismatched payloads |
 | M3-013 | `TODO` | Perform clean-checkout reproduction audit | M3-012 | Human records commands, environment, elapsed time, hashes, and any numerical deviation |
 | M3-014 | `TODO` | Review code, experimental fairness, and documentation alignment | M3-013 | Findings are fixed or tracked with explicit IDs; plan reflects tested behavior |
-| M3-015 | `TODO` | Re-tune and freeze PD gains under a robustness-constrained study version (v2), executed before `M2-011` | M1-028 | New study version keeps the v1 study, pilot, and lock immutable as development evidence; development perturbation directions are distinct from confirmatory seeds; a trial is feasible only with completion, dwell success, velocity/torque compliance, and saturation headroom; nominal tracking RMSE is optimized among robust-feasible trials only; a new gains file, pilot report, and confirmatory lock are produced without editing existing artifacts (M1 review decision, PR #2); the ESN study and the confirmatory suite use the v2 gains |
+| M3-015 | `IN PROGRESS` | Re-tune and freeze PD gains under a robustness-constrained study version (v2), executed before `M2-011` | M1-028 | New study version keeps the v1 study, pilot, and lock immutable as development evidence; development perturbation directions are distinct from confirmatory seeds; a trial is feasible only with completion, dwell success, velocity/torque compliance, and saturation headroom; nominal tracking RMSE is optimized among robust-feasible trials only; a new gains file, pilot report, and confirmatory lock are produced without editing existing artifacts (M1 review decision, PR #2); the ESN study and the confirmatory suite use the v2 gains |
 | M3-GATE | `TODO` | Review and close the M3 gate | M3-014 | Independent reviewer reproduces the selected task 1-a result and accepts provenance/fairness |
 
 ## M4 — Later planar experiments (gated epics)

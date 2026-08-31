@@ -36,6 +36,7 @@ from arm_rc_ctrl.controllers.tracking import TrackerConfig, TrackerType
 from arm_rc_ctrl.data.phases import intervals_from_phases
 from arm_rc_ctrl.data.records import ProcessedDatasetRecord, load_record, verify_payload
 from arm_rc_ctrl.data.samples import SampleSet, load_samples
+from arm_rc_ctrl.experiments.disturbances import ForcePulse
 from arm_rc_ctrl.experiments.replay import bind_dataset, dwell_outcome, simulate_tracking
 from arm_rc_ctrl.metrics.joint import JointAnglePolicy, joint_rmse
 from arm_rc_ctrl.provenance import (
@@ -50,7 +51,9 @@ from arm_rc_ctrl.storage import open_storage
 from arm_rc_ctrl.validation import require_finite
 
 __all__ = [
+    "DevelopmentPulse",
     "DevelopmentScenarios",
+    "Feasibility",
     "GainRange",
     "Objective",
     "SearchSpaces",
@@ -108,7 +111,8 @@ class SearchSpaces:
 class Objective:
     """Scalar objective definition and infeasibility penalty."""
 
-    kind: Literal["median_move_joint_rmse"]
+    kind: Literal["median_move_joint_rmse", "nominal_move_joint_rmse"]
+    """Median over development scenarios, or the nominal (unperturbed) scenario's RMSE among robust-feasible trials."""
     infeasible_penalty: float
 
     def __post_init__(self) -> None:
@@ -119,10 +123,29 @@ class Objective:
 
 
 @dataclass(frozen=True)
+class DevelopmentPulse:
+    """A development-only endpoint force pulse applied at the nominal posture."""
+
+    start_s: float
+    duration_s: float
+    magnitude_n: float
+    direction_deg: float
+
+    def __post_init__(self) -> None:
+        """Validate through the pulse it describes."""
+        self.pulse()
+
+    def pulse(self) -> ForcePulse:
+        """The disturbance to apply."""
+        return ForcePulse.from_polar(self.start_s, self.duration_s, self.magnitude_n, self.direction_deg)
+
+
+@dataclass(frozen=True)
 class DevelopmentScenarios:
-    """Development-only scenario perturbations."""
+    """Development-only scenario perturbations: posture offsets and, optionally, force pulses."""
 
     initial_posture_offsets: tuple[tuple[float, ...], ...]
+    force_pulses: tuple[DevelopmentPulse, ...] = ()
 
     def __post_init__(self) -> None:
         """Require at least one offset with finite entries."""
@@ -131,6 +154,25 @@ class DevelopmentScenarios:
             raise ValueError(msg)
         for i, offset in enumerate(self.initial_posture_offsets):
             require_finite(offset, f"development.initial_posture_offsets[{i}]")
+
+    @property
+    def nominal_first(self) -> bool:
+        """Whether the first offset is the unperturbed posture."""
+        return not any(self.initial_posture_offsets[0])
+
+
+@dataclass(frozen=True)
+class Feasibility:
+    """Robustness constraints every development scenario of a feasible trial must satisfy."""
+
+    max_saturation_fraction: float = 1.0
+    """Largest fraction of control samples with a saturated actuator (1.0 = no headroom requirement)."""
+
+    def __post_init__(self) -> None:
+        """The bound lies in [0, 1]."""
+        if not (0 <= self.max_saturation_fraction <= 1):
+            msg = f"feasibility.max_saturation_fraction must lie in [0, 1], got {self.max_saturation_fraction!r}"
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True)
@@ -144,11 +186,15 @@ class TuningProtocol:
     objective: Objective
     search: SearchSpaces
     development: DevelopmentScenarios
+    feasibility: Feasibility = field(default_factory=Feasibility)
 
     def __post_init__(self) -> None:
-        """Validate name, budget, and seed."""
+        """Validate name, budget, seed, and the objective's requirements."""
         if not self.name.strip():
             msg = "name must not be empty"
+            raise ValueError(msg)
+        if self.objective.kind == "nominal_move_joint_rmse" and not self.development.nominal_first:
+            msg = "the nominal_move_joint_rmse objective needs the unperturbed posture as the first development offset"
             raise ValueError(msg)
         if self.budget < 1:
             msg = f"budget must be >= 1, got {self.budget}"
@@ -174,6 +220,10 @@ class TrialScenario:
     criteria: dict[str, bool]
     """The scenario's success criteria (completion and the versioned dwell criteria)."""
     feasible: bool
+    kind: Literal["posture", "force"] = "posture"
+    saturation_fraction: float | None = None
+    """Fraction of logged control samples with a saturated actuator (``None`` when nothing was logged)."""
+    pulse: DevelopmentPulse | None = None
 
 
 @dataclass(frozen=True)
@@ -241,25 +291,51 @@ def evaluate_gains(
     policy = JointAnglePolicy.limited(scenario.dof)
     duration = float(reference.t[-1])
     components: list[TrialScenario] = []
+    cases: list[tuple[tuple[float, ...], DevelopmentPulse | None]] = []
     for index, offset in enumerate(protocol.development.initial_posture_offsets):
         if len(offset) != scenario.dof:
             msg = f"development offset {index} has {len(offset)} entries, expected {scenario.dof}"
             raise ValueError(msg)
-        initial_q = tuple(float(a + b) for a, b in zip(scenario.task.initial_q, offset, strict=True))
-        arrays, termination = simulate_tracking(scenario, demo, gains, duration_s=duration, initial_q=initial_q)
+        cases.append((tuple(float(a + b) for a, b in zip(scenario.task.initial_q, offset, strict=True)), None))
+    cases.extend((tuple(scenario.task.initial_q), pulse) for pulse in protocol.development.force_pulses)
+    bound = protocol.feasibility.max_saturation_fraction
+    for index, (initial_q, pulse) in enumerate(cases):
+        arrays, termination = simulate_tracking(
+            scenario,
+            demo,
+            gains,
+            duration_s=duration,
+            initial_q=initial_q,
+            force=None if pulse is None else pulse.pulse(),
+        )
         q = cast("NDArray[np.float64]", arrays.arrays["q"])
         n = min(q.shape[0], reference.n_samples)
         rmse: float | None = None
         if termination.is_completed and move[:n].any():
             rmse = joint_rmse(q[:n][move[:n]], reference.q[:n][move[:n]], policy).aggregate
         criteria = dwell_outcome(scenario, reference, arrays, termination)
-        feasible = rmse is not None and all(criteria.values())
-        components.append(TrialScenario(index, initial_q, termination.kind, rmse, criteria, feasible))
+        saturation = float(np.mean(cast("NDArray[np.int64]", arrays.arrays["saturation"]))) if n else None
+        feasible = rmse is not None and all(criteria.values()) and saturation is not None and saturation <= bound
+        components.append(
+            TrialScenario(
+                index,
+                initial_q,
+                termination.kind,
+                rmse,
+                criteria,
+                feasible,
+                kind="posture" if pulse is None else "force",
+                saturation_fraction=saturation,
+                pulse=pulse,
+            )
+        )
     feasible_all = all(c.feasible for c in components)
-    if feasible_all:
-        objective = float(np.median([cast("float", c.move_joint_rmse) for c in components]))
-    else:
+    if not feasible_all:
         objective = protocol.objective.infeasible_penalty
+    elif protocol.objective.kind == "nominal_move_joint_rmse":
+        objective = cast("float", components[0].move_joint_rmse)
+    else:
+        objective = float(np.median([cast("float", c.move_joint_rmse) for c in components]))
     return objective, feasible_all, tuple(components)
 
 
@@ -361,6 +437,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
     Path(args.report).write_text(json.dumps(to_mapping(report), indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    if result.feasible_trials == 0:
+        msg = f"no trial of {protocol.name!r} satisfied every development scenario; report written, nothing frozen"
+        raise RuntimeError(msg)
     Path(args.freeze).write_text(
         freeze_config_toml(
             result.best.gains, study=protocol.name, dataset=report.dataset, best_objective=result.best.objective
