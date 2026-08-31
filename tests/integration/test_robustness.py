@@ -78,6 +78,14 @@ def test_every_arm_runs_identical_scenarios_and_the_suite_round_trips(
     protocol_file = tmp_path / "levels.toml"
     protocol_file.write_text("# fixture levels\n", encoding="utf-8")
     seen: list[tuple[str, str]] = []
+    runs_dir = store.root / "runs"
+
+    def after_all(run: object, _result: object) -> object:
+        # The callback must only run once every simulation has been persisted (a clean-worktree guard).
+        assert len(list(runs_dir.iterdir())) >= 12
+        seen.append((getattr(run, "arm"), getattr(run, "scenario_id")))  # noqa: B009
+        return run
+
     suite = run_robustness(
         LEVELS,
         protocol_file,
@@ -94,7 +102,7 @@ def test_every_arm_runs_identical_scenarios_and_the_suite_round_trips(
         store=store,
         exploratory=True,
         now=FIXED_TIME,
-        on_run=lambda run, _result: (seen.append((run.arm, run.scenario_id)), run)[1],
+        on_run=after_all,  # type: ignore[arg-type]
     )
     assert [a.name for a in suite.arms] == ["rc+pd", "replay+pd"]
     ids = [s.scenario_id for s in suite.scenarios]

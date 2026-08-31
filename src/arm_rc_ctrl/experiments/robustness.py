@@ -336,7 +336,12 @@ def run_robustness(
     command: str = "python -m arm_rc_ctrl.experiments.robustness",
     on_run: Callable[[ArmRun, object], ArmRun] | None = None,
 ) -> RobustnessSuite:
-    """Run every arm on every scenario of ``protocol`` (persisting each run) and assemble the suite."""
+    """Run every arm on every scenario of ``protocol`` (persisting each run) and assemble the suite.
+
+    ``on_run`` (pointer recording, tracking) is applied to every run after the
+    last simulation, so nothing is written into the repository while runs that
+    require a clean worktree are still to come.
+    """
     if label != "development" and (exploratory or not isinstance(protocol, ConfirmatoryProtocol)):
         msg = "a confirmatory suite needs the locked confirmatory protocol and a clean worktree"
         raise ValueError(msg)
@@ -373,7 +378,7 @@ def run_robustness(
     )
     require_clean_for_confirmatory(provenance)
     estimator_config: EstimatorConfig = estimator.config(scenario.timing.dt)
-    runs: list[ArmRun] = []
+    completed: list[tuple[ArmRun, object]] = []
     for robustness in scenarios:
         initial_q = robustness.initial_q(scenario.task.initial_q)
         for arm in arms:
@@ -422,7 +427,10 @@ def run_robustness(
                     arm.name, robustness.scenario_id, robustness.kind, rp.pointer.artifact.artifact_id, rp.report
                 )
                 result = rp
-            runs.append(run if on_run is None else on_run(run, result))
+            completed.append((run, result))
+    # Pointers and tracking are recorded only now: writing into the repository mid-suite would dirty the
+    # worktree that the remaining (non-exploratory) runs must find clean.
+    runs = [run if on_run is None else on_run(run, result) for run, result in completed]
     return RobustnessSuite(
         label=label,
         protocol=protocol.name,
