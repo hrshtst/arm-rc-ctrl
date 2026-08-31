@@ -10,10 +10,10 @@ from typing import Any, cast
 import numpy as np
 import pytest
 
-from arm_rc_ctrl.data.normalization import Normalizer, fit_normalization
+from arm_rc_ctrl.data.normalization import fit_normalization
 from arm_rc_ctrl.data.records import Normalization
 from arm_rc_ctrl.data.samples import PHASE_CODES, SampleSet
-from arm_rc_ctrl.rc.teacher_forcing import Episode, InputEncoder, build_episode
+from arm_rc_ctrl.rc.teacher_forcing import ChannelTransform, Episode, InputEncoder, InputTransform, build_episode
 
 SOURCE = "processed-20260830-555555555555"
 
@@ -52,10 +52,11 @@ def test_rows_pair_each_sample_with_its_successor() -> None:
     assert np.array_equal(episode.t, samples.t[:-1])
     assert np.array_equal(episode.targets, samples.q[1:])  # exact one-step shift, in radians
     assert not np.array_equal(episode.targets, samples.q[:-1])
-    normalizer = encoder.normalizer
-    expected = np.hstack([normalizer.transform("q", samples.q[:-1]), normalizer.transform("dq", samples.dq[:-1])])
+    transform = encoder.transform
+    assert transform.policy == "training_std"
+    expected = np.hstack([transform.transform("q", samples.q[:-1]), transform.transform("dq", samples.dq[:-1])])
     assert np.array_equal(episode.inputs, expected)
-    assert normalizer.inverse("q", episode.inputs[:, :2]) == pytest.approx(samples.q[:-1])
+    assert transform.inverse("q", episode.inputs[:, :2]) == pytest.approx(samples.q[:-1])
     assert episode.source == SOURCE
     assert not episode.inputs.flags.writeable
 
@@ -106,7 +107,7 @@ def test_encoder_validates_statistics_and_shapes() -> None:
     with pytest.raises(ValueError, match="covers 2 joints, expected 3"):
         InputEncoder.from_normalization(full, dof=3, task_code_dim=0)
     with pytest.raises(ValueError, match="dof must be >= 1"):
-        InputEncoder(Normalizer(full), 0, 0)
+        InputEncoder(InputTransform.derive("training_std", full), 0, 0)
     encoder = InputEncoder.from_normalization(full, dof=2, task_code_dim=1)
     with pytest.raises(ValueError, match="task_code must have 1 columns, got 2"):
         encoder.encode_many(samples.q, samples.dq, np.zeros((6, 2)))
@@ -154,6 +155,66 @@ def test_encoder_from_a_processed_record_normalization() -> None:
     """The recorded Normalization (as stored in processed records) builds the same encoder."""
     samples = _samples()
     encoder = _encoder(samples)
-    recorded = Normalization(fitted_on=(SOURCE,), channels=dict(encoder.normalizer.normalization.channels))
+    stats = fit_normalization(
+        samples.arrays(), ("q", "dq"), fitted_on=(SOURCE,), training_rows=np.ones(6, dtype=np.bool_)
+    )
+    recorded = Normalization(fitted_on=(SOURCE,), channels=dict(stats.channels))
     rebuilt = InputEncoder.from_normalization(recorded, dof=2, task_code_dim=0)
     assert np.array_equal(rebuilt.encode_many(samples.q, samples.dq), encoder.encode_many(samples.q, samples.dq))
+
+
+def test_fixed_scale_policy_keeps_training_centers_and_shares_one_scale() -> None:
+    """fixed_scale centers stay the training means; every joint of a channel gets the same physical scale."""
+    samples = _samples()
+    stats = fit_normalization(
+        samples.arrays(), ("q", "dq"), fitted_on=(SOURCE,), training_rows=np.ones(6, dtype=np.bool_)
+    )
+    fixed = InputTransform.derive("fixed_scale", stats, fixed_scales={"q": 0.3, "dq": 4.0})
+    assert fixed.policy == "fixed_scale"
+    assert fixed.derived_from == (SOURCE,)
+    assert fixed.fixed_scales == {"q": 0.3, "dq": 4.0}
+    assert fixed.channels["q"].center == stats.channels["q"].mean
+    assert fixed.channels["q"].scale == (0.3, 0.3)
+    assert fixed.channels["dq"].scale == (4.0, 4.0)
+    assert fixed.dof == 2
+    encoder = InputEncoder(fixed, 2, 0)
+    encoded = encoder.encode(samples.q[3], samples.dq[3])
+    assert encoded == pytest.approx(
+        np.concatenate(
+            [(samples.q[3] - stats.channels["q"].mean) / 0.3, (samples.dq[3] - stats.channels["dq"].mean) / 4.0]
+        )
+    )
+    # re-deriving with the same inputs gives an equal transform (what the runtime binding relies on)
+    assert InputTransform.derive("fixed_scale", stats, fixed_scales={"q": 0.3, "dq": 4.0}) == fixed
+    assert InputTransform.derive("training_std", stats) != fixed
+
+
+def test_transform_validation() -> None:
+    """Policies, channel sets, sources, and scale consistency are validated."""
+    samples = _samples()
+    stats = fit_normalization(
+        samples.arrays(), ("q", "dq"), fitted_on=(SOURCE,), training_rows=np.ones(6, dtype=np.bool_)
+    )
+    good = InputTransform.derive("training_std", stats)
+    with pytest.raises(ValueError, match="policy must be one of"):
+        InputTransform("median", good.derived_from, good.channels)  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="channels must be exactly"):
+        InputTransform("training_std", good.derived_from, {"q": good.channels["q"]})
+    with pytest.raises(ValueError, match="derived_from must list the artifact IDs"):
+        InputTransform("training_std", ("nope",), good.channels)
+    with pytest.raises(ValueError, match="fixed_scale needs fixed_scales"):
+        InputTransform("fixed_scale", good.derived_from, good.channels)
+    with pytest.raises(ValueError, match="scales must all equal"):
+        InputTransform("fixed_scale", good.derived_from, good.channels, {"q": 0.3, "dq": 4.0})
+    with pytest.raises(ValueError, match="only meaningful for the fixed_scale policy"):
+        InputTransform("training_std", good.derived_from, good.channels, {"q": 0.3, "dq": 4.0})
+    with pytest.raises(ValueError, match="fixed_scale needs a scale for channel 'dq'"):
+        InputTransform.derive("fixed_scale", stats, fixed_scales={"q": 0.3})
+    with pytest.raises(ValueError, match=r"fixed_scales\['q'\] must be positive"):
+        InputTransform.derive("fixed_scale", stats, fixed_scales={"q": 0.0, "dq": 4.0})
+    with pytest.raises(ValueError, match="scale positive"):
+        ChannelTransform((0.0, 0.0), (1.0, 0.0))
+    with pytest.raises(ValueError, match="same non-zero length"):
+        ChannelTransform((0.0,), (1.0, 1.0))
+    with pytest.raises(ValueError, match="expects 2 columns"):
+        good.transform("q", np.zeros((3, 3)))

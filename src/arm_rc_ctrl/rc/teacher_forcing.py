@@ -15,17 +15,28 @@ runtime priming interval drives the reservoir before generation starts.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Final
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Final, Literal, cast
 
 import numpy as np
 from numpy.typing import NDArray
 
-from arm_rc_ctrl.data.normalization import Normalizer
-from arm_rc_ctrl.data.records import Normalization
+from arm_rc_ctrl.data.records import Normalization, is_artifact_id
 from arm_rc_ctrl.data.samples import PHASE_CODES, SampleSet
 
-__all__ = ["INPUT_CHANNELS", "Episode", "InputEncoder", "build_episode"]
+if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+__all__ = [
+    "INPUT_CHANNELS",
+    "TRANSFORM_POLICIES",
+    "ChannelTransform",
+    "Episode",
+    "InputEncoder",
+    "InputTransform",
+    "TransformPolicy",
+    "build_episode",
+]
 
 INPUT_CHANNELS: Final[tuple[str, ...]] = ("q", "dq")
 """Joint-state channels that form the normalized part of the ESN input, in order."""
@@ -43,33 +54,145 @@ def _finite_2d(array: NDArray[np.float64], name: str, rows: int | None = None) -
     return values
 
 
+type TransformPolicy = Literal["training_std", "fixed_scale"]
+TRANSFORM_POLICIES: Final[tuple[str, ...]] = ("training_std", "fixed_scale")
+
+
+@dataclass(frozen=True)
+class ChannelTransform:
+    """Per-column affine map ``(value - center) / scale`` of one input channel."""
+
+    center: tuple[float, ...]
+    scale: tuple[float, ...]
+
+    def __post_init__(self) -> None:
+        """Centers and scales are finite, equally long, and scales are positive."""
+        if not self.center or len(self.center) != len(self.scale):
+            msg = f"center and scale must have the same non-zero length, got {len(self.center)} and {len(self.scale)}"
+            raise ValueError(msg)
+        values = (*self.center, *self.scale)
+        if any(not np.isfinite(v) for v in values) or any(s <= 0 for s in self.scale):
+            msg = "center must be finite and scale positive and finite"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
+class InputTransform:
+    """The recipe-level input transform ``ū = (u - center) / scale`` per channel (docs/PLAN.md section 5.1).
+
+    ``training_std`` reproduces the dataset's training-only statistics (centers
+    and scales from ``Normalization``); ``fixed_scale`` keeps the training means
+    as centers but replaces every scale of a channel by one shared physical
+    value, which keeps a barely moving joint from amplifying tracking jitter.
+    ``derived_from`` names the dataset whose statistics supplied the centers.
+    """
+
+    policy: TransformPolicy
+    derived_from: tuple[str, ...]
+    channels: dict[str, ChannelTransform]
+    fixed_scales: dict[str, float] = field(default_factory=dict)
+    """Shared physical scale per channel under ``fixed_scale``; empty under ``training_std``."""
+
+    def __post_init__(self) -> None:
+        """Exactly the input channels are transformed; fixed scales match the policy."""
+        if self.policy not in TRANSFORM_POLICIES:
+            msg = f"policy must be one of {list(TRANSFORM_POLICIES)}, got {self.policy!r}"
+            raise ValueError(msg)
+        if tuple(self.channels) != INPUT_CHANNELS:
+            msg = f"channels must be exactly {INPUT_CHANNELS} in order, got {tuple(self.channels)}"
+            raise ValueError(msg)
+        if not self.derived_from or any(not is_artifact_id(a) for a in self.derived_from):
+            msg = f"derived_from must list the artifact IDs the centers came from, got {self.derived_from}"
+            raise ValueError(msg)
+        if self.policy == "fixed_scale":
+            if tuple(self.fixed_scales) != INPUT_CHANNELS:
+                msg = f"fixed_scale needs fixed_scales for exactly {INPUT_CHANNELS}"
+                raise ValueError(msg)
+            for name, value in self.fixed_scales.items():
+                if not (np.isfinite(value) and value > 0):
+                    msg = f"fixed_scales[{name!r}] must be positive and finite, got {value!r}"
+                    raise ValueError(msg)
+                if any(scale != value for scale in self.channels[name].scale):
+                    msg = f"channel {name!r} scales must all equal fixed_scales[{name!r}] = {value}"
+                    raise ValueError(msg)
+        elif self.fixed_scales:
+            msg = "fixed_scales is only meaningful for the fixed_scale policy"
+            raise ValueError(msg)
+
+    @property
+    def dof(self) -> int:
+        """Number of joints covered by every channel."""
+        return len(self.channels[INPUT_CHANNELS[0]].center)
+
+    @classmethod
+    def derive(
+        cls, policy: TransformPolicy, normalization: Normalization, *, fixed_scales: Mapping[str, float] | None = None
+    ) -> InputTransform:
+        """Derive the transform for ``policy`` from a dataset's recorded normalization statistics."""
+        channels: dict[str, ChannelTransform] = {}
+        for name in INPUT_CHANNELS:
+            stats = normalization.channels.get(name)
+            if stats is None:
+                msg = f"normalization lacks statistics for input channel {name!r}"
+                raise ValueError(msg)
+            if policy == "fixed_scale":
+                if not fixed_scales or name not in fixed_scales:
+                    msg = f"fixed_scale needs a scale for channel {name!r}"
+                    raise ValueError(msg)
+                value = float(fixed_scales[name])
+                if not (np.isfinite(value) and value > 0):
+                    msg = f"fixed_scales[{name!r}] must be positive and finite, got {value!r}"
+                    raise ValueError(msg)
+                scale = tuple(value for _ in stats.mean)
+            else:
+                scale = tuple(stats.scale)
+            channels[name] = ChannelTransform(tuple(stats.mean), scale)
+        fixed: dict[str, float] = {}
+        if policy == "fixed_scale":
+            fixed = {n: float(cast("Mapping[str, float]", fixed_scales)[n]) for n in INPUT_CHANNELS}
+        return cls(policy, normalization.fitted_on, channels, fixed)
+
+    def _params(self, name: str, values: NDArray[np.float64]) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+        channel = self.channels[name]
+        if values.shape[-1] != len(channel.center):
+            msg = f"channel {name!r} expects {len(channel.center)} columns, got shape {values.shape}"
+            raise ValueError(msg)
+        return np.asarray(channel.center, dtype=np.float64), np.asarray(channel.scale, dtype=np.float64)
+
+    def transform(self, name: str, values: NDArray[np.float64]) -> NDArray[np.float64]:
+        """``(values - center) / scale`` for channel ``name``."""
+        center, scale = self._params(name, values)
+        return np.ascontiguousarray((values - center) / scale, dtype=np.float64)
+
+    def inverse(self, name: str, values: NDArray[np.float64]) -> NDArray[np.float64]:
+        """``values * scale + center`` for channel ``name``."""
+        center, scale = self._params(name, values)
+        return np.ascontiguousarray(values * scale + center, dtype=np.float64)
+
+
 @dataclass(frozen=True)
 class InputEncoder:
     """Maps measured joint state (and task code) to the ESN input; shared by training and runtime."""
 
-    normalizer: Normalizer
+    transform: InputTransform
     dof: int
     task_code_dim: int
 
     def __post_init__(self) -> None:
-        """The statistics must cover exactly the input channels at the joint count."""
+        """The transform must cover the input channels at the joint count."""
         if self.dof < 1 or self.task_code_dim < 0:
             msg = f"dof must be >= 1 and task_code_dim >= 0, got {self.dof} and {self.task_code_dim}"
             raise ValueError(msg)
-        channels = self.normalizer.normalization.channels
         for name in INPUT_CHANNELS:
-            stats = channels.get(name)
-            if stats is None:
-                msg = f"normalization lacks statistics for input channel {name!r}"
-                raise ValueError(msg)
-            if len(stats.mean) != self.dof:
-                msg = f"normalization of {name!r} covers {len(stats.mean)} joints, expected {self.dof}"
+            width = len(self.transform.channels[name].center)
+            if width != self.dof:
+                msg = f"transform of {name!r} covers {width} joints, expected {self.dof}"
                 raise ValueError(msg)
 
     @classmethod
     def from_normalization(cls, normalization: Normalization, *, dof: int, task_code_dim: int) -> InputEncoder:
-        """Build the encoder from recorded statistics."""
-        return cls(Normalizer(normalization), dof, task_code_dim)
+        """The ``training_std`` encoder of a dataset's recorded statistics."""
+        return cls(InputTransform.derive("training_std", normalization), dof, task_code_dim)
 
     @property
     def input_dim(self) -> int:
@@ -94,7 +217,7 @@ class InputEncoder:
         if code.shape[1] != self.task_code_dim:
             msg = f"task_code must have {self.task_code_dim} columns, got {code.shape[1]}"
             raise ValueError(msg)
-        columns = [self.normalizer.transform("q", q), self.normalizer.transform("dq", dq), code]
+        columns = [self.transform.transform("q", q), self.transform.transform("dq", dq), code]
         return np.ascontiguousarray(np.hstack(columns), dtype=np.float64)
 
     def encode(

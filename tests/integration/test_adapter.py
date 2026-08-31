@@ -34,6 +34,7 @@ from arm_rc_ctrl.experiments.baselines import load_frozen_baseline
 from arm_rc_ctrl.rc.esn import EsnConfig, ReadoutConfig, ReservoirConfig
 from arm_rc_ctrl.rc.generator import RcTargetGenerator
 from arm_rc_ctrl.rc.recipe import DatasetSource, RclibIdentity, create_recipe, write_recipe
+from arm_rc_ctrl.rc.teacher_forcing import InputTransform
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import ScenarioConfig, build_skeleton, endpoint_positions, load_scenario
 from arm_rc_ctrl.storage import StorageRoot
@@ -90,7 +91,7 @@ def generator_and_scenario() -> tuple[RcTargetGenerator, ScenarioConfig, SampleS
         dof=2,
         task_code_dim=0,
         preprocessing=Preprocessing(scenario.timing.dt, "none", {}, "planned"),
-        normalization=normalization,
+        transform=InputTransform.derive("fixed_scale", normalization, fixed_scales={"q": 0.3, "dq": 4.0}),
         rclib=RCLIB,
     )
     assert recipe.fit.rmse < 1e-3
@@ -247,7 +248,7 @@ def test_registered_builder_constructs_the_adapter_through_skelarm(
         dof=record.dof,
         task_code_dim=record.task_code_dim,
         preprocessing=record.preprocessing,
-        normalization=record.normalization,
+        transform=InputTransform.derive("training_std", record.normalization),
         rclib=RCLIB,
     )
     recipe_file = tmp_path / "recipe.toml"

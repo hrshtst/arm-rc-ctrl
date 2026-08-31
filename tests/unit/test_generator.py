@@ -17,7 +17,7 @@ from arm_rc_ctrl.data.normalization import fit_normalization
 from arm_rc_ctrl.data.samples import SampleSet
 from arm_rc_ctrl.rc.esn import EsnConfig, EsnModel, ReadoutConfig, ReservoirConfig
 from arm_rc_ctrl.rc.generator import RcTargetGenerator
-from arm_rc_ctrl.rc.teacher_forcing import InputEncoder, build_episode
+from arm_rc_ctrl.rc.teacher_forcing import InputEncoder, InputTransform, build_episode
 from arm_rc_ctrl.rc.training import train_readout
 
 DT = 0.01
@@ -48,7 +48,9 @@ def trained() -> tuple[EsnModel, InputEncoder, SampleSet]:
         fitted_on=("processed-20260830-555555555555",),
         training_rows=np.ones(300, dtype=np.bool_),
     )
-    encoder = InputEncoder.from_normalization(normalization, dof=2, task_code_dim=0)
+    encoder = InputEncoder(
+        InputTransform.derive("fixed_scale", normalization, fixed_scales={"q": 0.3, "dq": 4.0}), 2, 0
+    )
     model = EsnModel(ESN, input_dim=4, output_dim=2)
     train_readout(model, [build_episode(samples, encoder, source="processed-20260830-555555555555")])
     return model, encoder, samples

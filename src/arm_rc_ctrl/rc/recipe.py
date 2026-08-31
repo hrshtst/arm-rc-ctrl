@@ -21,10 +21,16 @@ from typing import TYPE_CHECKING, Final
 import tomli_w
 
 from arm_rc_ctrl.config import load_config, to_mapping
-from arm_rc_ctrl.data.records import Normalization, Preprocessing, is_artifact_id, require_relative_posix
+from arm_rc_ctrl.data.records import (
+    Normalization,
+    Preprocessing,
+    ProcessedDatasetRecord,
+    is_artifact_id,
+    require_relative_posix,
+)
 from arm_rc_ctrl.dependencies import submodule_revisions, submodule_version
 from arm_rc_ctrl.rc.esn import EsnConfig, EsnModel
-from arm_rc_ctrl.rc.teacher_forcing import INPUT_CHANNELS, Episode, InputEncoder, build_episode
+from arm_rc_ctrl.rc.teacher_forcing import INPUT_CHANNELS, Episode, InputEncoder, InputTransform, build_episode
 from arm_rc_ctrl.rc.training import FitReport, train_readout
 from arm_rc_ctrl.validation import COMMIT_HEX_LENGTH, SHA256_HEX_LENGTH, is_hex
 
@@ -142,7 +148,8 @@ class ModelRecipe:
     datasets: tuple[DatasetSource, ...]
     """Training episodes, in training order."""
     preprocessing: Preprocessing
-    normalization: Normalization
+    transform: InputTransform
+    """Input transform derived from the datasets' recorded statistics under the recipe's policy."""
     training: TrainingSpec
     rclib: RclibIdentity
     fit: FitReport
@@ -170,7 +177,11 @@ class ModelRecipe:
         if len(self.fit.rmse_per_joint) != self.dof:
             msg = f"fit.rmse_per_joint has {len(self.fit.rmse_per_joint)} joints, expected {self.dof}"
             raise ValueError(msg)
-        self.encoder()  # validates the normalization against the widths
+        unknown = sorted(set(self.transform.derived_from) - set(ids))
+        if unknown:
+            msg = f"transform.derived_from names datasets outside the recipe: {unknown}"
+            raise ValueError(msg)
+        self.encoder()  # validates the transform against the widths
 
     @property
     def input_dim(self) -> int:
@@ -184,7 +195,46 @@ class ModelRecipe:
 
     def encoder(self) -> InputEncoder:
         """The input encoder the episodes and the runtime generator share."""
-        return InputEncoder.from_normalization(self.normalization, dof=self.dof, task_code_dim=self.task_code_dim)
+        return InputEncoder(self.transform, self.dof, self.task_code_dim)
+
+    def check_dataset_record(self, source: DatasetSource, record: ProcessedDatasetRecord) -> None:
+        """Fail unless ``record`` is the dataset the recipe names and was processed the way the recipe expects."""
+        artifact = record.artifact
+        if artifact.artifact_id != source.artifact_id or artifact.payload.sha256 != source.payload_sha256:
+            msg = (
+                f"record {source.record} describes {artifact.artifact_id} ({artifact.payload.sha256[:12]}), "
+                f"not {source.artifact_id} ({source.payload_sha256[:12]})"
+            )
+            raise ValueError(msg)
+        if record.dof != self.dof or record.task_code_dim != self.task_code_dim:
+            msg = (
+                f"dataset {source.artifact_id} has dof {record.dof} and task_code_dim {record.task_code_dim}; "
+                f"the recipe expects {self.dof} and {self.task_code_dim}"
+            )
+            raise ValueError(msg)
+        if record.preprocessing != self.preprocessing:
+            msg = f"dataset {source.artifact_id} was preprocessed differently from the recipe's preprocessing"
+            raise ValueError(msg)
+        if record.normalization is None:
+            msg = f"dataset {source.artifact_id} records no normalization statistics"
+            raise ValueError(msg)
+
+    def check_transform_source(self, normalizations: Mapping[str, Normalization]) -> None:
+        """Fail unless the transform re-derives exactly from the recorded statistics it claims to come from."""
+        if len(self.transform.derived_from) != 1:
+            msg = f"the transform must derive from exactly one dataset, got {self.transform.derived_from}"
+            raise ValueError(msg)
+        (source_id,) = self.transform.derived_from
+        normalization = normalizations.get(source_id)
+        if normalization is None:
+            msg = f"no normalization statistics available for {source_id}, which the transform derives from"
+            raise ValueError(msg)
+        derived = InputTransform.derive(
+            self.transform.policy, normalization, fixed_scales=self.transform.fixed_scales or None
+        )
+        if derived != self.transform:
+            msg = f"the recipe's transform does not derive from the recorded normalization of {source_id}"
+            raise ValueError(msg)
 
     def build_model(self) -> EsnModel:
         """Reconstruct the (unfitted) model from the hyperparameters and seeds."""
@@ -257,14 +307,14 @@ def create_recipe(
     dof: int,
     task_code_dim: int,
     preprocessing: Preprocessing,
-    normalization: Normalization,
+    transform: InputTransform,
     training: TrainingSpec | None = None,
     rclib: RclibIdentity | None = None,
     tolerance: FitTolerance | None = None,
 ) -> tuple[ModelRecipe, EsnModel]:
     """Train the model on ``sources`` and return the recipe that reproduces it, plus the fitted model."""
     spec = TrainingSpec() if training is None else training
-    encoder = InputEncoder.from_normalization(normalization, dof=dof, task_code_dim=task_code_dim)
+    encoder = InputEncoder(transform, dof, task_code_dim)
     missing = [s.artifact_id for s in sources if s.artifact_id not in samples]
     if not sources or missing:
         msg = f"sources must be non-empty and every dataset needs samples; missing {missing}"
@@ -279,7 +329,7 @@ def create_recipe(
         task_code_dim=task_code_dim,
         datasets=tuple(sources),
         preprocessing=preprocessing,
-        normalization=normalization,
+        transform=transform,
         training=spec,
         rclib=RclibIdentity.current() if rclib is None else rclib,
         fit=report,

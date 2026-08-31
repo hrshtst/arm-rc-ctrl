@@ -27,6 +27,7 @@ from arm_rc_ctrl.rc.recipe import (
     load_recipe,
     write_recipe,
 )
+from arm_rc_ctrl.rc.teacher_forcing import InputTransform
 from arm_rc_ctrl.rc.training import predict_episode
 
 ESN = EsnConfig(
@@ -67,7 +68,7 @@ def _create(tmp_path: Path) -> tuple[ModelRecipe, Path, dict[str, SampleSet]]:
         dof=2,
         task_code_dim=0,
         preprocessing=PREPROCESSING,
-        normalization=normalization,
+        transform=InputTransform.derive("fixed_scale", normalization, fixed_scales={"q": 0.3, "dq": 4.0}),
         rclib=RCLIB,
     )
     file = tmp_path / "recipe.toml"
@@ -81,6 +82,8 @@ def test_recipe_round_trips_through_toml_and_refits_exactly(tmp_path: Path) -> N
     assert file.read_text().startswith("# Deterministic model recipe")
     loaded = load_recipe(file)
     assert loaded == made
+    assert loaded.transform.policy == "fixed_scale"
+    assert loaded.transform.fixed_scales == {"q": 0.3, "dq": 4.0}
     assert (loaded.input_dim, loaded.output_dim) == (4, 2)
     assert loaded.fit.episodes == (SOURCE.artifact_id,)
     assert loaded.fit.rmse < 0.05 * loaded.fit.constant_rmse
@@ -126,7 +129,7 @@ def test_missing_or_mismatched_datasets_are_refused(tmp_path: Path) -> None:
             dof=2,
             task_code_dim=0,
             preprocessing=PREPROCESSING,
-            normalization=made.normalization,
+            transform=made.transform,
             rclib=RCLIB,
         )
 
@@ -160,7 +163,11 @@ def test_recipe_validation() -> None:
         samples.arrays(), ("q", "dq"), fitted_on=(SOURCE.artifact_id,), training_rows=np.ones(300, dtype=np.bool_)
     )
     fit = training.FitReport((SOURCE.artifact_id,), 269, 30, (0.1, 0.1), 0.1, 0.5, 0.2)
-    base = ModelRecipe("r", ESN, 2, 0, (SOURCE,), PREPROCESSING, normalization, TrainingSpec(), RCLIB, fit)
+    transform = InputTransform.derive("training_std", normalization)
+    base = ModelRecipe("r", ESN, 2, 0, (SOURCE,), PREPROCESSING, transform, TrainingSpec(), RCLIB, fit)
+    foreign = dataclasses.replace(transform, derived_from=("processed-20260830-666666666666",))
+    with pytest.raises(ValueError, match="derived_from names datasets outside the recipe"):
+        dataclasses.replace(base, transform=foreign)
     with pytest.raises(ValueError, match=r"fit\.episodes .* must equal the dataset order"):
         dataclasses.replace(
             base, datasets=(dataclasses.replace(SOURCE, artifact_id="processed-20260830-666666666666"),)

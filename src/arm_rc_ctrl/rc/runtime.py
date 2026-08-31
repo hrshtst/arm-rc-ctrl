@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from arm_rc_ctrl.controllers.estimator import CausalDerivativeEstimator, EstimatorConfig
-from arm_rc_ctrl.data.records import ProcessedDatasetRecord, load_record, verify_payload
+from arm_rc_ctrl.data.records import Normalization, ProcessedDatasetRecord, load_record, verify_payload
 from arm_rc_ctrl.data.samples import load_samples
 from arm_rc_ctrl.rc.generator import RcTargetGenerator
 from arm_rc_ctrl.repo import repository_root
@@ -31,20 +31,25 @@ __all__ = ["generator_from_recipe", "load_training_samples"]
 def load_training_samples(
     recipe: ModelRecipe, store: StorageRoot, *, records_root: Path | None = None
 ) -> dict[str, SampleSet]:
-    """Resolve every dataset of the recipe through its Git record and the store, verifying identity."""
+    """Resolve every dataset of the recipe through its Git record and the store, binding each to the recipe.
+
+    Every record must carry the recipe's artifact identity, joint and task-code
+    widths, and preprocessing; the recipe's input transform must re-derive from
+    the recorded normalization it claims to come from; every payload must match
+    its record.
+    """
     root = repository_root() if records_root is None else records_root
     samples: dict[str, SampleSet] = {}
+    normalizations: dict[str, Normalization] = {}
     for source in recipe.datasets:
         record = load_record(root / source.record, ProcessedDatasetRecord)
-        if record.artifact.artifact_id != source.artifact_id or record.artifact.payload.sha256 != source.payload_sha256:
-            msg = (
-                f"record {source.record} describes {record.artifact.artifact_id} "
-                f"({record.artifact.payload.sha256[:12]}), not {source.artifact_id} ({source.payload_sha256[:12]})"
-            )
-            raise ValueError(msg)
+        recipe.check_dataset_record(source, record)
         loaded = load_samples(verify_payload(store, record.artifact))
         record.check_samples(loaded)
         samples[source.artifact_id] = loaded
+        if record.normalization is not None:
+            normalizations[source.artifact_id] = record.normalization
+    recipe.check_transform_source(normalizations)
     return samples
 
 

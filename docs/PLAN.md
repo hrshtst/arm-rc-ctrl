@@ -146,10 +146,17 @@ At sample `k`, define the robot feedback and optional task condition as
   u_k = [\bar s_k^\mathsf{T},\; c_k^\mathsf{T}]^\mathsf{T},
 \]
 
-where `q` is joint position, `dq` is joint velocity, the bar denotes
-normalization using training-set statistics, and `c` is a task code. Task 1-a
-has no task-code dimensions because it contains one fixed target. Multi-target
-experiments append a one-hot target identifier.
+where `q` is joint position, `dq` is joint velocity, the bar denotes the model
+recipe's input transform, and `c` is a task code. The transform centers every
+channel on its training-set mean; its scales follow the policy the recipe
+declares: the training-set standard deviations (`training_std`) or one shared
+physical scale per channel (`fixed_scale`, e.g. 0.3 rad for `q` and 4 rad/s
+for `dq`), which keeps a barely moving joint from amplifying tracking jitter
+into the reservoir. The transform is derived from the dataset's stored
+statistics (Section 7.3) and recorded in the recipe; the canonical dataset
+itself is unchanged by the policy. Task 1-a has no task-code dimensions
+because it contains one fixed target. Multi-target experiments append a
+one-hot target identifier.
 
 The initial readout target is the next desired joint position:
 
@@ -170,11 +177,14 @@ For a leaky random sparse reservoir,
 \]
 
 \[
-  \hat q^d_{k+1} = W_{\mathrm{out}}[1;x_{k+1};u_k].
+  \hat q^d_{k+1} = W_{\mathrm{out}}[1;x_{k+1}].
 \]
 
-`rclib` constructs the fixed reservoir. Offline learning fits only the readout
-using ridge regression:
+`rclib` constructs the fixed reservoir, and its readout consumes the reservoir
+state only, with its own bias term. An input pass-through readout
+\(W_{\mathrm{out}}[1;x_{k+1};u_k]\) is a separately named future ablation
+(`readout-input-passthrough`), not the primary formulation. Offline learning
+fits only the readout using ridge regression:
 
 \[
   W_{\mathrm{out}}
