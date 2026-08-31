@@ -1,6 +1,6 @@
 # Implementation Task Ledger
 
-**Last updated:** 2026-08-31
+**Last updated:** 2026-09-01
 
 **Plan:** [PLAN.md](PLAN.md)
 
@@ -22,10 +22,10 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** owner decision
-- **Current milestone:** M4 — later planar experiments.
-- **Active blockers:** None; awaiting the owner's decision on the next step after M3.
-- **Latest completed work:** M3 closed 2026-08-31 (all M3 tasks incl. `M3-016`/`M3-017` and `M3-GATE` `DONE`; approved after three review rounds; branch `m3-tuning-robustness`, not yet pushed); M2 closed 2026-09-02 (PR #3); M1 closed 2026-08-31 (PR #2); M0 closed 2026-08-30 (PR #1); `UP-005` open.
+- **Next task:** `UP-006`, followed by `TOOL-001`; this cross-cutting work may be completed before or alongside M4.
+- **Current milestone:** M4 — later planar experiments, with result-playback tooling queued separately.
+- **Active blockers:** None.
+- **Latest completed work:** M3 closed 2026-08-31 (all M3 tasks incl. `M3-016`/`M3-017` and `M3-GATE` `DONE`; approved after three review rounds and merged in PR #4); M2 closed 2026-09-02 (PR #3); M1 closed 2026-08-31 (PR #2); M0 closed 2026-08-30 (PR #1); `UP-005` open.
 
 ## Milestone gates
 
@@ -167,6 +167,16 @@ are complete. Do not mark research software complete merely because it runs once
 | M3-017 | `DONE` | Regression lock for the M3 curated evidence | M3-009 | `tests/regression/test_curated_runs.py` now discovers `docs/experiments/task_1a/robustness_*.json` like the paired reports: every cited run has a pointer record whose method/scenario match the arm, a catalog entry, a verifiable payload (with the store), and an MLflow run tagged with its ID; the committed Markdown equals the rendered suite. The orphan run `run-20260831-fad4971db23b` (RC+PD v2 nominal, clean, non-exploratory, MLflow `676cbc1de7ba4e70a87a4af8e4e9ce68`) of the aborted first suite attempt is now tracked (`data/records/runs/run-20260831-fad4971db23b.toml`, catalog) and documented here; no report cites it; Preflight hardening before M3-010 (owner review 2): `RobustnessSuite` validates every run's report ID, class, arm method, scenario, and reference (tampering tests); `run_robustness` refuses the locked confirmatory protocol under the development label and any non-clean or non-confirmatory-protocol run under a confirmatory label; `EsnStudyReport` re-derives `n_feasible` and the best feasible `(value, trial)` and `best_point` on load (a report naming a feasible-but-non-optimal, infeasible, or missing trial is rejected); orphan wording corrected |
 | M3-GATE | `DONE` | Review and close the M3 gate | M3-014 | M3 approved and closed by the owner on 2026-08-31 after the three review rounds; gate green at the final head (2040 passed, 1 skipped, 1 xfailed; `pre_commit` and `cpp` sessions successful); branch `m3-tuning-robustness` (37 local commits) awaits the owner's decision on the next step (push/PR and M4); CI on PR #4 (run 33382702386) failed on the Python jobs and exposed three defects fixed before merging: (1) the ESN protocol digest and the study/suite-level provenance configurations hashed the loader's absolute config paths (machine-specific identities; run-level provenance was clean) — `provenance.config_digest` now makes configurations portable (repository paths relative, other absolute paths reduced to basenames) for every record and `protocol_digest` uses it; the six committed JSON reports were migrated once by `scripts/migrate_m3_records.py` (digests, summary identity attribute, provenance config JSON/digest; no measurement, run ID, pointer, scenario, or trial value changed; the external Optuna databases keep their original identity attribute, so resuming search v1/v2 is not possible without it — neither study needs resuming); (2) Optuna SQLite connections were never disposed (Python 3.13 `ResourceWarning`) — `studies.close_study` and a finalizer dispose the engine; (3) `np.linalg.norm` made posture offsets differ by an ulp across CPUs — the generator now accumulates the norm in plain Python, reruns replay the recorded scenarios (`run_robustness(scenarios=…)`, used by `reproduce_1a`), and the confirmatory lock compares offsets within 1e-12; PR #4 (`m3-tuning-robustness` → `main`); hosted CI green at head `dadaffa` (run 33385892681: Python 3.12 and 3.13 gates, pre-commit hooks, C++/CTest); merged with a merge commit on the owner's instruction |
 
+## Cross-cutting result visualization
+
+These tasks make existing results inspectable and do not change the M3 evidence
+or reopen its gate. Playback products are disposable local files, not cataloged
+scientific artifacts.
+
+| ID | Status | Task | Depends on | Acceptance/evidence |
+| --- | --- | --- | --- | --- |
+| TOOL-001 | `TODO` | Export one verified run as a `skelarm.StateLog` and provide a convenience playback command | M3-GATE, UP-006 | Tested library function plus thin `scripts/export_run_sklog.py` and `scripts/play_run.py`; strict run-ID/pointer/payload and scenario validation; atomic `*.sklog.npz` output with overwrite refusal and no absolute paths; geometry, target/tolerance, disturbances, provenance identity, and all usable telemetry retained (applied torque preferred, requested torque fallback); wrapper uses the pinned player, propagates errors, supports headless GIF/MP4 export, and cleans temporary output; repeated exports are semantically equal; the task 1-a report documents the four nominal run IDs and an exact RC+PD v2 playback command; store-dependent regression verifies the canonical run has 501 frames with exact state/telemetry arrays and matching target/tolerance, or skips clearly when its external payload is unavailable |
+
 ## M4 — Later planar experiments (gated epics)
 
 Do not implement these epics directly. After M3, refine the next epic into
@@ -238,6 +248,7 @@ an upstream PR merely to make project-local code cleaner.
 | UP-003 | `TODO` | Track missing generic `skelarm` extension seam | M2-009 | Existing controller/task/log registries are tested first; PR includes generic tests |
 | UP-004 | `TODO` | Track missing generic `rtctrl` bridge/telemetry/safety seam | M5-005 | Existing `Arm`/`Controller` APIs are tested first; PR cannot weaken safety |
 | UP-005 | `TODO` | Fix in-process seed reproducibility of `rclib` `RandomSparseReservoir` (power-iteration start vector uses `Eigen::Random()`/`std::rand`, never re-seeded; `cpp_core/src/reservoirs/RandomSparseReservoir.cpp:39` at pin `a015aca`) | M0-012 | Found 2026-08-29: fresh processes reproduce exactly, repeated construction in one process drifts; documented by strict-xfail `tests/integration/test_smoke_experiment.py::test_in_process_repeat_is_reproducible`. Upstream branch/PR with a regression test, then advance the pin and drop the xfail |
+| UP-006 | `TODO` | Add generic playback-only task metadata support to the `skelarm` player | M3-GATE | A dedicated upstream branch/PR adds tested `extra.playback.task` target/tolerance rendering through the existing task schema, preserves full `source_config.task` precedence, rejects malformed metadata, and does not advertise playback-only logs as rerunnable; after merge, advance the `skelarm` pin and notices in a separate project commit |
 
 ## Definition of done for every implementation task
 

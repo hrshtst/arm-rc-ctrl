@@ -361,6 +361,36 @@ simulation/evaluation run records at least:
 A confirmatory run from a dirty worktree is rejected unless explicitly marked as
 exploratory.
 
+### 7.5 Result inspection and visualization
+
+A verified run can be converted into a disposable `skelarm.StateLog`
+(`*.sklog.npz`) and played with the `skelarm` player. The converter resolves the
+Git-tracked run pointer, verifies the external payload, and preserves the robot
+geometry, target and tolerance, run identity, provenance digests, disturbances,
+and available telemetry. `time` and measured joint position form the playback
+trajectory. Applied torque is the canonical playback torque; requested torque is
+used only when applied torque is unavailable, and both original channels remain
+available when present.
+
+The exported log may contain visualization-only floating-point copies of integer
+channels, but it is not an archival representation of the run. Repeated exports
+must be semantically equivalent, contain no absolute machine paths, and be
+written atomically without overwriting an existing file. Exported logs and
+videos are local, disposable products: they receive no artifact record or
+catalog entry and are ignored by Git.
+
+A thin convenience command exports one run to a temporary location and invokes
+the pinned `third_party/skelarm/tools/player.py`; it forwards playback speed,
+panel, center-of-mass, and GIF/MP4 export options and propagates failures. This
+is kinematic inspection of recorded state, not controller re-execution or
+simulation replay. The first version supports one run at a time; synchronized
+comparisons, editing, and re-simulation are out of scope.
+
+Playback-only task metadata requires a generic `skelarm` enhancement. The player
+must accept target/tolerance metadata without treating a partial scenario as a
+rerunnable source configuration. This change is developed and tested upstream,
+then adopted here with a separate submodule-pin update.
+
 ## 8. Public software interfaces
 
 The exact module layout may evolve, but these behavior contracts remain stable.
@@ -582,6 +612,8 @@ arm-rc-ctrl/
 │   └── theory/
 ├── scripts/
 │   ├── evaluate.py
+│   ├── export_run_sklog.py
+│   ├── play_run.py
 │   ├── preprocess_demo.py
 │   ├── record_demo.py
 │   ├── reproduce_1a.py
@@ -593,6 +625,7 @@ arm-rc-ctrl/
 │   ├── controllers/
 │   ├── data/
 │   ├── experiments/
+│   │   └── playback.py
 │   ├── metrics/
 │   └── rc/
 ├── tests/
