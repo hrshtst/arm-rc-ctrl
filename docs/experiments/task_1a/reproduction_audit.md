@@ -12,7 +12,7 @@
 - OMP_NUM_THREADS: 1
 - machine: x86_64
 - platform: Linux-7.0.0-30-generic-x86_64-with-glibc2.43
-- processor: 
+- processor: -
 - python: 3.12.11
 
 ## Inputs

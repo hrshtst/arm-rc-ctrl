@@ -428,11 +428,11 @@ def audit_markdown(result: Reproduction, *, command: str, auditor: str = "(to be
         "",
         "## Environment",
         "",
-        *[f"- {key}: {value}" for key, value in sorted(result.environment.items())],
+        *[f"- {key}: {value or '-'}" for key, value in sorted(result.environment.items())],
         "",
         "## Inputs",
         "",
-        *[f"- {key}: `{value}`" for key, value in sorted(result.inputs.items())],
+        *[f"- {key}: `{value or '-'}`" for key, value in sorted(result.inputs.items())],
         "",
         "## Steps",
         "",
@@ -443,7 +443,7 @@ def audit_markdown(result: Reproduction, *, command: str, auditor: str = "(to be
     missing = [name for name in STEPS if name not in {c.name for c in result.checks}]
     if missing:
         lines.extend(["", f"Steps not run after the first failure: {', '.join(missing)}."])
-    return "\n".join(lines) + "\n"
+    return "\n".join(line.rstrip() for line in lines) + "\n"
 
 
 def main(argv: Sequence[str] | None = None) -> int:
