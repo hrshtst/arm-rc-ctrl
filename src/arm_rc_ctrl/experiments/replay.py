@@ -51,6 +51,7 @@ from arm_rc_ctrl.experiments.termination import (
     Outcome,
     Termination,
 )
+from arm_rc_ctrl.experiments.tracking import MlflowTracker
 from arm_rc_ctrl.metrics.dwell import dwell_metrics
 from arm_rc_ctrl.metrics.joint import JointAnglePolicy
 from arm_rc_ctrl.metrics.report import RunReport, build_report, report_to_json
@@ -215,6 +216,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--no-pointer", action="store_true", help="do not track the run under data/records/runs (exploratory scratch)"
     )
+    parser.add_argument("--no-mlflow", action="store_true", help="skip the mandatory MLflow logging (scratch only)")
+    parser.add_argument("--experiment", default=None, help="MLflow experiment name (default: the scenario name)")
     parser.add_argument("--report", type=Path, default=None, help="write the report JSON here")
     args = parser.parse_args(argv)
     store = open_storage()
@@ -235,6 +238,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     records_root = repository_root() if args.records_root is None else Path(args.records_root)
     pointer_file = None if args.no_pointer else record_run_pointer(records_root, result.pointer)
+    tracked = None
+    if not args.no_mlflow:
+        experiment = scenario.name if args.experiment is None else str(args.experiment)
+        tracked = MlflowTracker(store).log_run(
+            result.run, result.report, experiment=experiment, pointer_file=pointer_file
+        )
     text = report_to_json(result.report)
     if args.report is not None:
         Path(args.report).write_text(text + "\n", encoding="utf-8")
@@ -244,6 +253,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "pointer": None if pointer_file is None else pointer_file.relative_to(records_root).as_posix(),
         "termination": result.summary.termination.kind,
         "success": result.summary.outcome.success,
+        "mlflow_run_id": None if tracked is None else tracked.mlflow_run_id,
     }
     print(json.dumps(summary, indent=2))
     return 0

@@ -34,6 +34,7 @@ from arm_rc_ctrl.data.samples import load_samples
 from arm_rc_ctrl.experiments.closed_loop import ClosedLoopResult, load_nominal_config, run_nominal
 from arm_rc_ctrl.experiments.replay import ReplayResult, run_replay
 from arm_rc_ctrl.experiments.run_record import record_run_pointer
+from arm_rc_ctrl.experiments.tracking import MlflowTracker
 from arm_rc_ctrl.metrics.report import RunReport
 from arm_rc_ctrl.provenance import command_line
 from arm_rc_ctrl.rc.esn import ensure_single_thread
@@ -302,6 +303,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--no-pointer", action="store_true", help="do not track the run under data/records/runs (exploratory scratch)"
     )
+    parser.add_argument("--no-mlflow", action="store_true", help="skip the mandatory MLflow logging (scratch only)")
+    parser.add_argument("--experiment", default=None, help="MLflow experiment name (default: the scenario name)")
     args = parser.parse_args(argv)
     ensure_single_thread()  # before rclib is imported and provenance is collected
     for target in (args.report, args.markdown):
@@ -333,11 +336,21 @@ def main(argv: Sequence[str] | None = None) -> int:
         command=command_line("arm_rc_ctrl.experiments.paired", sys.argv[1:] if argv is None else argv),
     )
     records_root = repository_root() if args.records_root is None else Path(args.records_root)
-    pointers: list[str] = []
+    pointer_files: list[Path | None] = [None, None]
     if not args.no_pointer:
-        pointers = [
-            record_run_pointer(records_root, pointer).relative_to(records_root).as_posix()
-            for pointer in (result.rc.pointer, result.replay.pointer)
+        pointer_files = [record_run_pointer(records_root, p) for p in (result.rc.pointer, result.replay.pointer)]
+    pointers = [None if p is None else p.relative_to(records_root).as_posix() for p in pointer_files]
+    mlflow_runs: list[str | None] = [None, None]
+    if not args.no_mlflow:
+        experiment = scenario.name if args.experiment is None else str(args.experiment)
+        tracker = MlflowTracker(store)
+        mlflow_runs = [
+            tracker.log_run(
+                result.rc.run, result.rc.report, experiment=experiment, recipe=recipe, pointer_file=pointer_files[0]
+            ).mlflow_run_id,
+            tracker.log_run(
+                result.replay.run, result.replay.report, experiment=experiment, pointer_file=pointer_files[1]
+            ).mlflow_run_id,
         ]
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
     text = json.dumps(to_mapping(result.paired), indent=2, sort_keys=True, allow_nan=False)
@@ -356,6 +369,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "replay_success": result.paired.replay.success,
                 "joint_rmse_rc": rmse.rc,
                 "joint_rmse_replay": rmse.replay,
+                "mlflow_runs": mlflow_runs,
             },
             indent=2,
         )

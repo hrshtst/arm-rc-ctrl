@@ -204,6 +204,7 @@ def test_command_line_writes_json_and_markdown(
         "--markdown",
         str(markdown_file),
         "--exploratory",
+        "--no-mlflow",
     ]
     assert main(argv) == 0
     printed = json.loads(capsys.readouterr().out)
@@ -312,6 +313,7 @@ def test_suite_command_line(
             "--report",
             str(outputs[label]),
             "--exploratory",
+            "--no-mlflow",
         ]
         assert main(argv) == 0
         capsys.readouterr()

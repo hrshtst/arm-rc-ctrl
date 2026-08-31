@@ -153,6 +153,7 @@ def test_command_line_entry_point(
         "--report",
         str(report_file),
         "--exploratory",
+        "--no-mlflow",
     ]
     assert main(argv) == 0
     printed = json.loads(capsys.readouterr().out)

@@ -22,7 +22,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M3-001` — integrate an external-root MLflow backend and mandatory run logger.
+- **Next task:** M3-002
 - **Current milestone:** M3 — tuning and robustness.
 - **Active blockers:** None.
 - **Latest completed work:** M2 closed 2026-09-02 (all M2 tasks, `M3-015`, and `M2-GATE` `DONE`; PR #3 approved after two review rounds); M1 closed 2026-08-31 (PR #2); M0 closed 2026-08-30 (PR #1); `UP-005` open. Before M3 confirmatory execution the ESN study (`M3-003`) should include the input-scale pilot's finding that ridge ≥ 3e-2 outperforms the anchor's 1e-2.
@@ -148,7 +148,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 | ID | Status | Task | Depends on | Acceptance/evidence |
 | --- | --- | --- | --- | --- |
-| M3-001 | `TODO` | Integrate an external-root MLflow backend and mandatory run logger | M0-011, M0-014, M1-019 | Integration test verifies external storage plus config, revisions, hashes, seeds, metrics, recipe, and plots |
+| M3-001 | `DONE` | Integrate an external-root MLflow backend and mandatory run logger | M0-011, M0-014, M1-019 | MLflow store `armrc://mlflow/tracking/` (SQLite database + artifact directory; `mlflow-skinny` with `sqlalchemy`/`alembic`, telemetry disabled) via `experiments/tracking.py`; `replay`/`closed_loop`/`paired` log every run by default (`--no-mlflow` opt-out, `--experiment` name) and print the MLflow run ID; `tests/integration/test_tracking.py` verifies config, submodule revisions, build identities, lock/config/payload/array digests, seeds, metrics, tags, recipe, pointer record, provenance, and plot artifacts in a temporary store, plus idempotency and the CLI path; `experiments/plots.py` renders the tracking figure headlessly |
 | M3-002 | `TODO` | Integrate external-root Optuna SQLite studies with seeded sampler/pruner | M0-014, M2-012 | Small study creates, resumes, prunes, and selects a trial deterministically where supported |
 | M3-003 | `TODO` | Define versioned ESN search space and development-only scenarios | M1-028, M3-002, M3-015 | Config includes all planned parameters, bounds, study seed, budget, and no confirmatory seeds |
 | M3-004 | `TODO` | Implement feasibility checks and documented trial penalty | M2-013, M3-003 | Tests cover divergence, state/torque limits, early termination, dwell failure, and feasible objective |

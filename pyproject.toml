@@ -10,12 +10,16 @@ authors = [{ name = "Hiroshi Atsuta", email = "atsuta@ieee.org" }]
 # rclib's CI and wheels stop at 3.13.
 requires-python = ">=3.12"
 dependencies = [
+  "alembic>=1.19.1",
   "dvc>=3.60",
+  "matplotlib>=3.9",
+  "mlflow-skinny>=3.1",
   "numpy>=2.0.0",
   # Domain libraries are built from the pinned submodules (see [tool.uv.sources]).
   "rclib",
   "scipy>=1.18.1",
   "skelarm",
+  "sqlalchemy>=2.0.52",
   "tomli-w>=1.2.0",
 ]
 classifiers = [

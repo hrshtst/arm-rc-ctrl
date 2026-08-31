@@ -494,9 +494,14 @@ Alternative candidates considered:
 
 ## 11. Experiment and data management
 
-- **MLflow:** use a file-backed store under `armrc://mlflow/`. Log resolved
-  parameters, scalar metrics, plots, reports, model recipes, provenance, and
-  Optuna study summaries. A tracking server remains optional.
+- **MLflow:** use a local store under `armrc://mlflow/` (a SQLite tracking
+  database plus an artifact directory; MLflow's plain file store is in
+  maintenance mode). Every curated run command logs there by default (the
+  `--no-mlflow` opt-out is for scratch only): resolved parameters, dependency
+  revisions and build identities, payload digests, seeds, scalar metrics,
+  plots, reports, model recipes, provenance, and Optuna study summaries. The
+  Git pointer record and run directory stay authoritative; a tracking server
+  remains optional.
 - **DVC:** Git stores only `.dvc` metafiles plus the domain artifact records.
   Configure the cache and default local remote per machine in ignored
   `.dvc/config.local`, resolving them to `<storage-root>/dvc-cache` and

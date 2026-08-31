@@ -16,8 +16,9 @@ libraries are pinned Git submodules:
 
 Pinned commits are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
-**Status:** milestones M0 and M1 are closed; M2 (the task 1-a RC vertical
-slice) is implemented and under review. Recorded results live under
+**Status:** milestones M0–M2 are closed (the task 1-a RC vertical slice
+tracks under PD v2 and computed torque); M3 (tuning and robustness) is in
+progress. Recorded results live under
 `docs/experiments/task_1a/` with Git-tracked records under `data/records/`;
 see `docs/TASKS.md` for the ledger.
 
@@ -27,6 +28,13 @@ The reservoir-computing commands (`python -m arm_rc_ctrl.rc.train`,
 process so results are bitwise reproducible; when driving `arm_rc_ctrl.rc`
 from an interactive interpreter, export `OMP_NUM_THREADS=1` first (a
 different explicit value is rejected).
+
+The run commands (`arm_rc_ctrl.experiments.replay`, `closed_loop`, `paired`)
+also log every run to the MLflow store under `armrc://mlflow/tracking/` in the
+external storage root (a SQLite database plus artifact directory; the
+`--experiment` name defaults to the scenario) and print the MLflow run ID.
+`--no-mlflow` skips this for scratch runs only; inspect the store with
+`uv run mlflow ui --backend-store-uri sqlite:///<storage-root>/mlflow/tracking/mlflow.db`.
 
 ## Requirements
 
