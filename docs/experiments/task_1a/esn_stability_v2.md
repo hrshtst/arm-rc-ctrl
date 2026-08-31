@@ -1,6 +1,6 @@
 # Reservoir-seed sensitivity panel of `esn-search-1a-v2`
 
-- Study report `docs/experiments/task_1a/esn_search_v2.json` (protocol digest `7834cfda9710`),
+- Study report `docs/experiments/task_1a/esn_search_v2.json` (protocol digest `11f2ebf7c990`),
   dataset `processed-20260830-feaf73e6663c`.
 - Panel seeds: 101, 202, 303, 404, 505, 606, 707, 808; commit `d5c2a214512c`.
 

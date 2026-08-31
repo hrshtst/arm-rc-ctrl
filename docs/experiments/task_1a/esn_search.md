@@ -1,6 +1,6 @@
 # ESN search `esn-search-1a`
 
-- Protocol: `configs/studies/esn_search_1a.toml` (digest `255ff4876c5f`), dataset `processed-20260830-feaf73e6663c`,
+- Protocol: `configs/studies/esn_search_1a.toml` (digest `a2da8583b8e7`), dataset `processed-20260830-feaf73e6663c`,
   tracker `pd_v2` (digest `45f6e7a31490`).
 - Budget 120; stored 120 trials (110 complete, 10 pruned); 1 feasible; this invocation ran 120.
 - Provenance: commit `732dc01f3f60`, sampler seed 20260921.
