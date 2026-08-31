@@ -9,6 +9,7 @@ import dataclasses
 import json
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import cast
 
 import pytest
 
@@ -20,12 +21,15 @@ from arm_rc_ctrl.experiments.closed_loop import EstimatorSpec
 from arm_rc_ctrl.experiments.paired import (
     MetricComparison,
     PairedReport,
+    PairedResult,
     compare_reports,
     load_paired_report,
     main,
     paired_to_markdown,
     run_paired_nominal,
 )
+from arm_rc_ctrl.experiments.paired_suite import EffectDecomposition, PairedSuite, load_paired_suite, suite_to_markdown
+from arm_rc_ctrl.experiments.paired_suite import main as suite_main
 from arm_rc_ctrl.metrics.joint import JointAnglePolicy
 from arm_rc_ctrl.metrics.report import build_report
 from arm_rc_ctrl.rc.recipe import ModelRecipe, write_recipe
@@ -212,3 +216,115 @@ def test_command_line_writes_json_and_markdown(
     assert str(tmp_path) not in report_file.read_text()
     with pytest.raises(FileExistsError, match="refusing to overwrite"):
         main(argv)
+
+
+# --- M2-017: the two-tracker suite ---------------------------------------------------------------
+
+
+def _pair(
+    trained: tuple[StorageRoot, Path, PreprocessResult, ModelRecipe, Path], tracker_file: Path, hour: int
+) -> PairedResult:
+    store, records, processed, recipe, _ = trained
+    scenario = load_scenario(SCENARIO)
+    return run_paired_nominal(
+        scenario,
+        SCENARIO,
+        processed.record,
+        processed.samples,
+        recipe,
+        "recipe.toml",
+        load_config(tracker_file, TrackerConfig),
+        store=store,
+        estimator=EstimatorSpec(20.0, 20.0).config(scenario.timing.dt),
+        training_samples=load_training_samples(recipe, store, records_root=records),
+        exploratory=True,
+        now=FIXED_TIME.replace(hour=hour),
+    )
+
+
+def _without_tracker(config: dict[str, object]) -> dict[str, object]:
+    return {k: v for k, v in config.items() if k != "tracker"}
+
+
+def test_suite_separates_generator_and_tracker_effects(
+    trained: tuple[StorageRoot, Path, PreprocessResult, ModelRecipe, Path],
+) -> None:
+    """Four runs of one reference and recipe share windows, metric definitions, and provenance structure."""
+    pd = _pair(trained, DEV_PD, 20)
+    ct = _pair(trained, REPO_ROOT / "configs" / "controllers" / "computed_torque.toml", 21)
+    suite = PairedSuite(pd.paired.scenario, pd.paired.reference_artifact, "recipe.toml", pd.paired, ct.paired)
+    assert [e.name for e in suite.effects] == [m.name for m in pd.paired.metrics]
+    rmse = next(e for e in suite.effects if e.name == "joint_rmse")
+    assert rmse.generator_effect_pd == pytest.approx(cast("float", rmse.rc_pd) - cast("float", rmse.replay_pd))
+    assert rmse.tracker_effect_replay == pytest.approx(cast("float", rmse.replay_ct) - cast("float", rmse.replay_pd))
+    assert rmse.tracker_effect_rc == pytest.approx(cast("float", rmse.rc_ct) - cast("float", rmse.rc_pd))
+    reports = [pd.paired.rc, pd.paired.replay, ct.paired.rc, ct.paired.replay]
+    assert len({r.windows for r in reports}) == 1
+    assert len({r.reference_artifact for r in reports}) == 1
+    # identical provenance structure: the RC runs differ only in the tracker, likewise the replay runs
+    rc_pd_config = dict(pd.rc.summary.provenance.config)
+    rc_ct_config = dict(ct.rc.summary.provenance.config)
+    assert rc_pd_config.keys() == rc_ct_config.keys()
+    assert _without_tracker(rc_pd_config) == _without_tracker(rc_ct_config)
+    assert pd.rc.summary.provenance.seeds == ct.rc.summary.provenance.seeds
+    assert pd.rc.summary.provenance.artifacts == ct.rc.summary.provenance.artifacts
+    replay_pd_config = dict(pd.replay.summary.provenance.config)
+    replay_ct_config = dict(ct.replay.summary.provenance.config)
+    assert _without_tracker(replay_pd_config) == _without_tracker(replay_ct_config)
+    markdown = suite_to_markdown(suite)
+    assert "| rc+computed_torque |" in markdown
+    assert "| joint_rmse | rad |" in markdown
+    with pytest.raises(ValueError, match="needs a pd pair and a computed_torque pair"):
+        PairedSuite(pd.paired.scenario, pd.paired.reference_artifact, "recipe.toml", pd.paired, pd.paired)
+    with pytest.raises(ValueError, match="recipe differs"):
+        PairedSuite(pd.paired.scenario, pd.paired.reference_artifact, "other", pd.paired, ct.paired)
+    assert EffectDecomposition("x", "", None, 1.0, 2.0, 3.0).generator_effect_pd is None
+
+
+def test_suite_command_line(
+    trained: tuple[StorageRoot, Path, PreprocessResult, ModelRecipe, Path],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The suite CLI combines two paired reports into a loadable suite and a Markdown table."""
+    store, records, processed, _, recipe_file = trained
+    monkeypatch.setenv("ARM_RC_CTRL_STORAGE_ROOT", str(store.root))
+    outputs: dict[str, Path] = {}
+    for label, tracker in (("pd", DEV_PD), ("ct", REPO_ROOT / "configs" / "controllers" / "computed_torque.toml")):
+        config = tmp_path / f"nominal_{label}.toml"
+        text = NOMINAL.read_text().replace(
+            'tracker = "../controllers/task_1a_pd_v2.toml"', f'tracker = "{tracker.as_posix()}"'
+        )
+        config.write_text(text)
+        outputs[label] = tmp_path / f"paired_{label}.json"
+        argv = [
+            "--config",
+            str(config),
+            "--scenario",
+            str(SCENARIO),
+            "--dataset",
+            str(processed.record_file),
+            "--recipe",
+            str(recipe_file),
+            "--records-root",
+            str(records),
+            "--report",
+            str(outputs[label]),
+            "--exploratory",
+        ]
+        assert main(argv) == 0
+        capsys.readouterr()
+    suite_file = tmp_path / "suite.json"
+    markdown_file = tmp_path / "suite.md"
+    argv = ["--pd", str(outputs["pd"]), "--computed-torque", str(outputs["ct"])]
+    argv += ["--report", str(suite_file), "--markdown", str(markdown_file)]
+    assert suite_main(argv) == 0
+    printed = json.loads(capsys.readouterr().out)
+    assert set(printed["joint_rmse"]) == {"replay_pd", "rc_pd", "replay_ct", "rc_ct"}
+    suite = load_paired_suite(suite_file)
+    assert suite.pd.tracker == "pd"
+    assert suite.computed_torque.tracker == "computed_torque"
+    assert markdown_file.read_text().startswith("# Paired suite")
+    with pytest.raises(FileExistsError, match="refusing to overwrite"):
+        suite_main(argv)
