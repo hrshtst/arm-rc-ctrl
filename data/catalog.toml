@@ -31,3 +31,19 @@ record = "data/records/runs/run-20260831-e5265c2773a6.toml"
 uri = "armrc://runs/run-20260831-e5265c2773a6/run.json"
 sha256 = "e5265c2773a64b04d2ac1a561fa1af023d0dd9e7f4b519dd4a105814db137334"
 created_at = "2026-08-31T03:58:41+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260831-2dce459a5acc"
+kind = "run"
+record = "data/records/runs/run-20260831-2dce459a5acc.toml"
+uri = "armrc://runs/run-20260831-2dce459a5acc/run.json"
+sha256 = "2dce459a5acc9b817d0107ad5504ddeb54ccd5d032df79942258c62e7cbb6b69"
+created_at = "2026-08-31T03:58:57+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260831-86704cde37a8"
+kind = "run"
+record = "data/records/runs/run-20260831-86704cde37a8.toml"
+uri = "armrc://runs/run-20260831-86704cde37a8/run.json"
+sha256 = "86704cde37a849367f93a9c1305b12cdb9685847ac23908671c3bc1968cb768e"
+created_at = "2026-08-31T03:58:57+00:00"

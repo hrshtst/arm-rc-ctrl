@@ -1,0 +1,38 @@
+method = "rc+computed_torque"
+scenario = "task-1a-reach"
+termination_kind = "completed"
+success = true
+duration_s = 5.0
+n_samples = 501
+arrays_sha256 = "e4d7264e21f432e660f476a3b0cb92321bdfcc782ccc76521c84202532eaad2d"
+
+[artifact]
+artifact_id = "run-20260831-2dce459a5acc"
+kind = "run"
+created_at = "2026-08-31T03:58:57+00:00"
+license = "LicenseRef-Private"
+access = "private"
+notes = "RC target generator from recipe 'esn-task-1a-v2' tracked by computed_torque; priming until 1.0 s; boundary jump 0.000759 rad."
+schema_version = 1
+
+[artifact.payload]
+uri = "armrc://runs/run-20260831-2dce459a5acc/run.json"
+sha256 = "2dce459a5acc9b817d0107ad5504ddeb54ccd5d032df79942258c62e7cbb6b69"
+size = 7340
+format = "run.json"
+schema_version = 1
+
+[artifact.origin]
+command = "python -m arm_rc_ctrl.experiments.paired --config configs/evaluations/task_1a_nominal_ct.toml --scenario configs/tasks/task_1a.toml --dataset data/records/processed/processed-20260830-feaf73e6663c.toml --recipe data/records/models/model-20260831-038a9b2c8432.toml --report docs/experiments/task_1a/paired_nominal_ct.json --markdown docs/experiments/task_1a/paired_nominal_ct.md"
+config_sha256 = "90d5269dec6faa711f575f2d62a9ee11c049c7a95fc7c71edcd44a5ab95b7f22"
+project_commit = "2676960eb606660a72023c7c98e7d2d4d52556df"
+project_dirty = false
+sources = [
+    "processed-20260830-feaf73e6663c",
+]
+run_id = "run-20260831-2dce459a5acc"
+
+[artifact.origin.dependency_commits]
+rclib = "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b"
+skelarm = "ebb26118864ad158ef2ad36af68027b1a12ade1a"
+rtctrl = "c601076ee60ec712c1cb4a85756a186882df2e1b"

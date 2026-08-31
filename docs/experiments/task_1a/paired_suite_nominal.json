@@ -1,0 +1,562 @@
+{
+  "computed_torque": {
+    "metrics": [
+      {
+        "lower_is_better": true,
+        "name": "joint_rmse",
+        "rc": 0.17139664300187393,
+        "replay": 1.4836058687035973e-05,
+        "unit": "rad"
+      },
+      {
+        "lower_is_better": false,
+        "name": "dwell_in_tolerance_fraction",
+        "rc": 1.0,
+        "replay": 1.0,
+        "unit": ""
+      },
+      {
+        "lower_is_better": false,
+        "name": "dwell_longest_in_tolerance_s",
+        "rc": 1.0,
+        "replay": 1.0,
+        "unit": "s"
+      },
+      {
+        "lower_is_better": true,
+        "name": "dwell_endpoint_rms",
+        "rc": 0.00041166405935396083,
+        "replay": 5.473726622019565e-06,
+        "unit": "m"
+      },
+      {
+        "lower_is_better": true,
+        "name": "dwell_endpoint_max",
+        "rc": 0.0004116807215854896,
+        "replay": 2.3681908879739782e-05,
+        "unit": "m"
+      },
+      {
+        "lower_is_better": true,
+        "name": "dwell_velocity_max",
+        "rc": 2.670188343111199e-07,
+        "replay": 0.0007136618382112723,
+        "unit": "rad/s"
+      },
+      {
+        "lower_is_better": true,
+        "name": "effort_torque_rms",
+        "rc": 0.10086428478771842,
+        "replay": 0.018130762870797817,
+        "unit": "N*m"
+      },
+      {
+        "lower_is_better": true,
+        "name": "effort_torque_peak",
+        "rc": 0.5794607943995668,
+        "replay": 0.0456287651052929,
+        "unit": "N*m"
+      },
+      {
+        "lower_is_better": true,
+        "name": "effort_saturation_fraction",
+        "rc": 0.0,
+        "replay": 0.0,
+        "unit": ""
+      },
+      {
+        "lower_is_better": true,
+        "name": "effort",
+        "rc": 0.10193951153629441,
+        "replay": 0.0032938201140161752,
+        "unit": "N^2*m^2*s"
+      },
+      {
+        "lower_is_better": false,
+        "name": "move_coverage",
+        "rc": 1.0,
+        "replay": 1.0,
+        "unit": ""
+      },
+      {
+        "lower_is_better": false,
+        "name": "dwell_coverage",
+        "rc": 1.0,
+        "replay": 1.0,
+        "unit": ""
+      }
+    ],
+    "rc": {
+      "demand": {
+        "effort": 0.10193951153629441,
+        "per_joint_peak": [
+          0.5794607943995668,
+          0.10083125120651117
+        ],
+        "samples": 501,
+        "saturation_fraction": 0.0,
+        "torque_peak": 0.5794607943995668,
+        "torque_rms": 0.10086428478771842
+      },
+      "dwell": {
+        "endpoint": {
+          "max": 0.0004116807215854896,
+          "mean": 0.0004116640592663761,
+          "p95": 0.0004116805198039833,
+          "rms": 0.00041166405935396083,
+          "samples": 101
+        },
+        "in_tolerance_fraction": 1.0,
+        "longest_in_tolerance_s": 1.0,
+        "samples": 101,
+        "velocity_max": 2.670188343111199e-07,
+        "velocity_rms": 8.062946096488035e-08,
+        "window_s": 1.0
+      },
+      "dwell_coverage": 1.0,
+      "effort": {
+        "effort": 0.10193951153629441,
+        "per_joint_peak": [
+          0.5794607943995668,
+          0.10083125120651117
+        ],
+        "samples": 501,
+        "saturation_fraction": 0.0,
+        "torque_peak": 0.5794607943995668,
+        "torque_rms": 0.10086428478771842
+      },
+      "effort_source": "tau_applied",
+      "failed_criteria": [],
+      "joint_rmse": {
+        "aggregate": 0.17139664300187393,
+        "per_joint": [
+          0.24175898097698453,
+          0.017498959443166182
+        ],
+        "samples": 300
+      },
+      "method": "rc+computed_torque",
+      "move_coverage": 1.0,
+      "reference_artifact": "processed-20260830-feaf73e6663c",
+      "run_id": "run-20260831-2dce459a5acc",
+      "scenario": "task-1a-reach",
+      "schema_version": 1,
+      "success": true,
+      "termination_kind": "completed",
+      "windows": {
+        "dwell": [
+          4.0,
+          5.0
+        ],
+        "move": [
+          1.0,
+          4.0
+        ]
+      }
+    },
+    "recipe": "model-20260831-038a9b2c8432.toml",
+    "reference_artifact": "processed-20260830-feaf73e6663c",
+    "replay": {
+      "demand": {
+        "effort": 0.0032938201140161752,
+        "per_joint_peak": [
+          0.0456287651052929,
+          0.008864641205845705
+        ],
+        "samples": 501,
+        "saturation_fraction": 0.0,
+        "torque_peak": 0.0456287651052929,
+        "torque_rms": 0.018130762870797817
+      },
+      "dwell": {
+        "endpoint": {
+          "max": 2.3681908879739782e-05,
+          "mean": 2.193464737042235e-06,
+          "p95": 1.4960559070927952e-05,
+          "rms": 5.473726622019565e-06,
+          "samples": 101
+        },
+        "in_tolerance_fraction": 1.0,
+        "longest_in_tolerance_s": 1.0,
+        "samples": 101,
+        "velocity_max": 0.0007136618382112723,
+        "velocity_rms": 0.00010367030459623048,
+        "window_s": 1.0
+      },
+      "dwell_coverage": 1.0,
+      "effort": {
+        "effort": 0.0032938201140161752,
+        "per_joint_peak": [
+          0.0456287651052929,
+          0.008864641205845705
+        ],
+        "samples": 501,
+        "saturation_fraction": 0.0,
+        "torque_peak": 0.0456287651052929,
+        "torque_rms": 0.018130762870797817
+      },
+      "effort_source": "tau_applied",
+      "failed_criteria": [],
+      "joint_rmse": {
+        "aggregate": 1.4836058687035973e-05,
+        "per_joint": [
+          1.733522229676865e-05,
+          1.1819786066252056e-05
+        ],
+        "samples": 300
+      },
+      "method": "replay+computed_torque",
+      "move_coverage": 1.0,
+      "reference_artifact": "processed-20260830-feaf73e6663c",
+      "run_id": "run-20260831-86704cde37a8",
+      "scenario": "task-1a-reach",
+      "schema_version": 1,
+      "success": true,
+      "termination_kind": "completed",
+      "windows": {
+        "dwell": [
+          4.0,
+          5.0
+        ],
+        "move": [
+          1.0,
+          4.0
+        ]
+      }
+    },
+    "scenario": "task-1a-reach",
+    "schema_version": 1,
+    "tracker": "computed_torque"
+  },
+  "effects": [
+    {
+      "name": "joint_rmse",
+      "rc_ct": 0.17139664300187393,
+      "rc_pd": 0.13254320257389235,
+      "replay_ct": 1.4836058687035973e-05,
+      "replay_pd": 0.0002539740273068126,
+      "unit": "rad"
+    },
+    {
+      "name": "dwell_in_tolerance_fraction",
+      "rc_ct": 1.0,
+      "rc_pd": 1.0,
+      "replay_ct": 1.0,
+      "replay_pd": 1.0,
+      "unit": ""
+    },
+    {
+      "name": "dwell_longest_in_tolerance_s",
+      "rc_ct": 1.0,
+      "rc_pd": 1.0,
+      "replay_ct": 1.0,
+      "replay_pd": 1.0,
+      "unit": "s"
+    },
+    {
+      "name": "dwell_endpoint_rms",
+      "rc_ct": 0.00041166405935396083,
+      "rc_pd": 0.0003911681735704167,
+      "replay_ct": 5.473726622019565e-06,
+      "replay_pd": 6.092723672036065e-06,
+      "unit": "m"
+    },
+    {
+      "name": "dwell_endpoint_max",
+      "rc_ct": 0.0004116807215854896,
+      "rc_pd": 0.0004237935123509889,
+      "replay_ct": 2.3681908879739782e-05,
+      "replay_pd": 2.173210909917302e-05,
+      "unit": "m"
+    },
+    {
+      "name": "dwell_velocity_max",
+      "rc_ct": 2.670188343111199e-07,
+      "rc_pd": 0.0021159640379716012,
+      "replay_ct": 0.0007136618382112723,
+      "replay_pd": 0.0009218642534672346,
+      "unit": "rad/s"
+    },
+    {
+      "name": "effort_torque_rms",
+      "rc_ct": 0.10086428478771842,
+      "rc_pd": 0.07196422564121625,
+      "replay_ct": 0.018130762870797817,
+      "replay_pd": 0.01822640804229492,
+      "unit": "N*m"
+    },
+    {
+      "name": "effort_torque_peak",
+      "rc_ct": 0.5794607943995668,
+      "rc_pd": 0.37357622993599465,
+      "replay_ct": 0.0456287651052929,
+      "replay_pd": 0.045836745739518445,
+      "unit": "N*m"
+    },
+    {
+      "name": "effort_saturation_fraction",
+      "rc_ct": 0.0,
+      "rc_pd": 0.0,
+      "replay_ct": 0.0,
+      "replay_pd": 0.0,
+      "unit": ""
+    },
+    {
+      "name": "effort",
+      "rc_ct": 0.10193951153629441,
+      "rc_pd": 0.051892074715576456,
+      "replay_ct": 0.0032938201140161752,
+      "replay_pd": 0.0033286635402448106,
+      "unit": "N^2*m^2*s"
+    },
+    {
+      "name": "move_coverage",
+      "rc_ct": 1.0,
+      "rc_pd": 1.0,
+      "replay_ct": 1.0,
+      "replay_pd": 1.0,
+      "unit": ""
+    },
+    {
+      "name": "dwell_coverage",
+      "rc_ct": 1.0,
+      "rc_pd": 1.0,
+      "replay_ct": 1.0,
+      "replay_pd": 1.0,
+      "unit": ""
+    }
+  ],
+  "pd": {
+    "metrics": [
+      {
+        "lower_is_better": true,
+        "name": "joint_rmse",
+        "rc": 0.13254320257389235,
+        "replay": 0.0002539740273068126,
+        "unit": "rad"
+      },
+      {
+        "lower_is_better": false,
+        "name": "dwell_in_tolerance_fraction",
+        "rc": 1.0,
+        "replay": 1.0,
+        "unit": ""
+      },
+      {
+        "lower_is_better": false,
+        "name": "dwell_longest_in_tolerance_s",
+        "rc": 1.0,
+        "replay": 1.0,
+        "unit": "s"
+      },
+      {
+        "lower_is_better": true,
+        "name": "dwell_endpoint_rms",
+        "rc": 0.0003911681735704167,
+        "replay": 6.092723672036065e-06,
+        "unit": "m"
+      },
+      {
+        "lower_is_better": true,
+        "name": "dwell_endpoint_max",
+        "rc": 0.0004237935123509889,
+        "replay": 2.173210909917302e-05,
+        "unit": "m"
+      },
+      {
+        "lower_is_better": true,
+        "name": "dwell_velocity_max",
+        "rc": 0.0021159640379716012,
+        "replay": 0.0009218642534672346,
+        "unit": "rad/s"
+      },
+      {
+        "lower_is_better": true,
+        "name": "effort_torque_rms",
+        "rc": 0.07196422564121625,
+        "replay": 0.01822640804229492,
+        "unit": "N*m"
+      },
+      {
+        "lower_is_better": true,
+        "name": "effort_torque_peak",
+        "rc": 0.37357622993599465,
+        "replay": 0.045836745739518445,
+        "unit": "N*m"
+      },
+      {
+        "lower_is_better": true,
+        "name": "effort_saturation_fraction",
+        "rc": 0.0,
+        "replay": 0.0,
+        "unit": ""
+      },
+      {
+        "lower_is_better": true,
+        "name": "effort",
+        "rc": 0.051892074715576456,
+        "replay": 0.0033286635402448106,
+        "unit": "N^2*m^2*s"
+      },
+      {
+        "lower_is_better": false,
+        "name": "move_coverage",
+        "rc": 1.0,
+        "replay": 1.0,
+        "unit": ""
+      },
+      {
+        "lower_is_better": false,
+        "name": "dwell_coverage",
+        "rc": 1.0,
+        "replay": 1.0,
+        "unit": ""
+      }
+    ],
+    "rc": {
+      "demand": {
+        "effort": 0.051892074715576456,
+        "per_joint_peak": [
+          0.37357622993599465,
+          0.06514559580533519
+        ],
+        "samples": 501,
+        "saturation_fraction": 0.0,
+        "torque_peak": 0.37357622993599465,
+        "torque_rms": 0.07196422564121625
+      },
+      "dwell": {
+        "endpoint": {
+          "max": 0.0004237935123509889,
+          "mean": 0.00038980689859251374,
+          "p95": 0.00042358515620771303,
+          "rms": 0.0003911681735704167,
+          "samples": 101
+        },
+        "in_tolerance_fraction": 1.0,
+        "longest_in_tolerance_s": 1.0,
+        "samples": 101,
+        "velocity_max": 0.0021159640379716012,
+        "velocity_rms": 0.00043082297984043267,
+        "window_s": 1.0
+      },
+      "dwell_coverage": 1.0,
+      "effort": {
+        "effort": 0.051892074715576456,
+        "per_joint_peak": [
+          0.37357622993599465,
+          0.06514559580533519
+        ],
+        "samples": 501,
+        "saturation_fraction": 0.0,
+        "torque_peak": 0.37357622993599465,
+        "torque_rms": 0.07196422564121625
+      },
+      "effort_source": "tau_applied",
+      "failed_criteria": [],
+      "joint_rmse": {
+        "aggregate": 0.13254320257389235,
+        "per_joint": [
+          0.18691303039248475,
+          0.014103906075473894
+        ],
+        "samples": 300
+      },
+      "method": "rc+pd",
+      "move_coverage": 1.0,
+      "reference_artifact": "processed-20260830-feaf73e6663c",
+      "run_id": "run-20260831-3fef7abca22a",
+      "scenario": "task-1a-reach",
+      "schema_version": 1,
+      "success": true,
+      "termination_kind": "completed",
+      "windows": {
+        "dwell": [
+          4.0,
+          5.0
+        ],
+        "move": [
+          1.0,
+          4.0
+        ]
+      }
+    },
+    "recipe": "model-20260831-038a9b2c8432.toml",
+    "reference_artifact": "processed-20260830-feaf73e6663c",
+    "replay": {
+      "demand": {
+        "effort": 0.0033286635402448106,
+        "per_joint_peak": [
+          0.045836745739518445,
+          0.008907219061582365
+        ],
+        "samples": 501,
+        "saturation_fraction": 0.0,
+        "torque_peak": 0.045836745739518445,
+        "torque_rms": 0.01822640804229492
+      },
+      "dwell": {
+        "endpoint": {
+          "max": 2.173210909917302e-05,
+          "mean": 2.549981143017802e-06,
+          "p95": 1.783565504191888e-05,
+          "rms": 6.092723672036065e-06,
+          "samples": 101
+        },
+        "in_tolerance_fraction": 1.0,
+        "longest_in_tolerance_s": 1.0,
+        "samples": 101,
+        "velocity_max": 0.0009218642534672346,
+        "velocity_rms": 0.00017295436376116473,
+        "window_s": 1.0
+      },
+      "dwell_coverage": 1.0,
+      "effort": {
+        "effort": 0.0033286635402448106,
+        "per_joint_peak": [
+          0.045836745739518445,
+          0.008907219061582365
+        ],
+        "samples": 501,
+        "saturation_fraction": 0.0,
+        "torque_peak": 0.045836745739518445,
+        "torque_rms": 0.01822640804229492
+      },
+      "effort_source": "tau_applied",
+      "failed_criteria": [],
+      "joint_rmse": {
+        "aggregate": 0.0002539740273068126,
+        "per_joint": [
+          0.00027011494046008953,
+          0.00023673515166346848
+        ],
+        "samples": 300
+      },
+      "method": "replay+pd",
+      "move_coverage": 1.0,
+      "reference_artifact": "processed-20260830-feaf73e6663c",
+      "run_id": "run-20260831-e5265c2773a6",
+      "scenario": "task-1a-reach",
+      "schema_version": 1,
+      "success": true,
+      "termination_kind": "completed",
+      "windows": {
+        "dwell": [
+          4.0,
+          5.0
+        ],
+        "move": [
+          1.0,
+          4.0
+        ]
+      }
+    },
+    "scenario": "task-1a-reach",
+    "schema_version": 1,
+    "tracker": "pd"
+  },
+  "recipe": "model-20260831-038a9b2c8432.toml",
+  "reference_artifact": "processed-20260830-feaf73e6663c",
+  "scenario": "task-1a-reach",
+  "schema_version": 1
+}
