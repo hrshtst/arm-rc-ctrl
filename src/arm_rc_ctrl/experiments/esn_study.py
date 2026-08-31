@@ -17,7 +17,8 @@ Command line::
 
     python -m arm_rc_ctrl.experiments.esn_study --protocol configs/studies/esn_search_1a.toml
         --dataset data/records/processed/<id>.toml --report docs/experiments/task_1a/esn_search.json
-        [--max-trials N] [--records-root ROOT] [--exploratory] [--no-mlflow]
+        [--markdown docs/experiments/task_1a/esn_search.md] [--max-trials N] [--records-root ROOT]
+        [--exploratory] [--no-mlflow]
 """
 
 from __future__ import annotations
@@ -34,6 +35,7 @@ from arm_rc_ctrl.config import from_mapping, to_mapping
 from arm_rc_ctrl.experiments.baselines import frozen_baseline_digest
 from arm_rc_ctrl.experiments.esn_objective import TrialContext, TrialEvaluation, make_objective
 from arm_rc_ctrl.experiments.esn_search import (
+    PLANNED_PARAMETERS,
     EsnSearchProtocol,
     TrialPoint,
     enqueue_comparisons,
@@ -63,7 +65,16 @@ if TYPE_CHECKING:
 
     from arm_rc_ctrl.storage import StorageRoot
 
-__all__ = ["REPORT_SCHEMA_VERSION", "EsnStudyReport", "EsnStudyResult", "main", "run_esn_study"]
+__all__ = [
+    "REPORT_SCHEMA_VERSION",
+    "EsnStudyReport",
+    "EsnStudyResult",
+    "load_report",
+    "main",
+    "render_markdown",
+    "report_to_json",
+    "run_esn_study",
+]
 
 REPORT_SCHEMA_VERSION: Final = 1
 STUDY_TAG: Final = "armrc.study"
@@ -227,6 +238,90 @@ def load_report(path: Path) -> EsnStudyReport:
     return from_mapping(cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8"))), EsnStudyReport)
 
 
+def _fmt(value: float | None) -> str:
+    return "n/a" if value is None else f"{value:.4g}"
+
+
+def render_markdown(report: EsnStudyReport) -> str:
+    """A Markdown selection report: budget, outcomes, comparison points, best trials, and the selected point."""
+    summary = report.summary
+    trials = summary.trials
+    feasible = [t for t in trials if t.flags.get("feasible") is True]
+    reasons: dict[str, int] = {}
+    for trial in trials:
+        if trial.flags.get("feasible") is not True:
+            reason = trial.labels.get("reason", "") or "(pruned)"
+            key = reason.partition(": ")[2] if reason.startswith("scenario ") else reason
+            reasons[key] = reasons.get(key, 0) + 1
+    names = tuple(PLANNED_PARAMETERS)
+    dirty = " (dirty)" if report.provenance.project_dirty else ""
+    seed = report.provenance.seeds.get("sampler")
+    lines = [
+        f"# ESN search `{report.protocol}`",
+        "",
+        f"- Protocol: `{report.protocol_file}` (digest `{report.protocol_sha256[:12]}`), dataset `{report.dataset}`,",
+        f"  tracker `{report.tracker}` (digest `{report.tracker_sha256[:12]}`).",
+        (
+            f"- Budget {report.budget}; stored {len(trials)} trials ({summary.n_complete} complete, "
+            f"{summary.n_pruned} pruned); {report.n_feasible} feasible; this invocation ran {report.trials_run}."
+        ),
+        f"- Provenance: commit `{report.provenance.project_commit[:12]}`{dirty}, sampler seed {seed}.",
+        "",
+        "## Selection",
+        "",
+    ]
+    if report.best_point is None or summary.best_number is None:
+        lines.append("No feasible completed trial: nothing is selected.")
+    else:
+        best = next(t for t in trials if t.number == summary.best_number)
+        lines.append(f"Trial {best.number} with objective {_fmt(best.value)} rad (median movement-window joint RMSE).")
+        lines.append("")
+        lines.append("| parameter | value |")
+        lines.append("| --- | --- |")
+        lines.extend(f"| {name} | {getattr(report.best_point, name)!r} |" for name in names)
+        lines.append("")
+        lines.append("Development metrics of the selected trial:")
+        lines.append("")
+        lines.append("| scenario | kind | movement RMSE (rad) | saturation | criteria |")
+        lines.append("| --- | --- | --- | --- | --- |")
+        index = 0
+        while f"components.{index}.kind" in best.labels:
+            prefix = f"components.{index}"
+            criteria = ", ".join(
+                f"{k.removeprefix(prefix + '.criteria.')}={'ok' if v else 'FAIL'}"
+                for k, v in sorted(best.flags.items())
+                if k.startswith(prefix + ".criteria.")
+            )
+            lines.append(
+                f"| {index} | {best.labels[prefix + '.kind']} | {_fmt(best.metrics.get(prefix + '.move_joint_rmse'))} "
+                f"| {_fmt(best.metrics.get(prefix + '.saturation_fraction'))} | {criteria} |"
+            )
+            index += 1
+        lines.append("")
+    lines.extend(
+        [
+            "## Comparison points",
+            "",
+            "| label | trial | objective (rad) | feasible | reason |",
+            "| --- | --- | --- | --- | --- |",
+        ]
+    )
+    for trial in trials:
+        label = trial.labels.get("armrc.comparison")
+        if label is not None:
+            reason = trial.labels.get("reason", "")
+            feasible_flag = trial.flags.get("feasible")
+            lines.append(f"| {label} | {trial.number} | {_fmt(trial.value)} | {feasible_flag} | {reason} |")
+    lines.extend(["", "## Best feasible trials", "", "| trial | objective (rad) | " + " | ".join(names) + " |"])
+    lines.append("| --- | --- | " + " | ".join("---" for _ in names) + " |")
+    for trial in sorted(feasible, key=lambda t: (t.value if t.value is not None else float("inf"), t.number))[:10]:
+        values = " | ".join(f"{trial.params.get(name, float('nan')):.4g}" for name in names)
+        lines.append(f"| {trial.number} | {_fmt(trial.value)} | {values} |")
+    lines.extend(["", "## Infeasible and pruned trials by reason", "", "| reason | trials |", "| --- | --- |"])
+    lines.extend(f"| {reason} | {count} |" for reason, count in sorted(reasons.items(), key=lambda kv: (-kv[1], kv[0])))
+    return "\n".join(lines) + "\n"
+
+
 def run_esn_study(
     protocol: EsnSearchProtocol,
     protocol_file: Path,
@@ -315,15 +410,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--dataset", type=Path, required=True, help="processed dataset record (TOML)")
     parser.add_argument("--report", type=Path, required=True, help="selection report JSON to write (must not exist)")
+    parser.add_argument(
+        "--markdown", type=Path, default=None, help="optional Markdown report to write (must not exist)"
+    )
     parser.add_argument("--max-trials", type=int, default=None, help="run at most this many new trials, then stop")
     parser.add_argument("--records-root", type=Path, default=None, help="root the dataset record is relative to")
     parser.add_argument("--exploratory", action="store_true", help="allow a dirty worktree")
     parser.add_argument("--no-mlflow", action="store_true", help="skip the MLflow mirror (scratch only)")
     args = parser.parse_args(argv)
     ensure_single_thread()  # before rclib is imported and provenance is collected
-    if Path(args.report).exists():
-        msg = f"refusing to overwrite {args.report}"
-        raise FileExistsError(msg)
+    for target in (args.report, args.markdown):
+        if target is not None and Path(target).exists():
+            msg = f"refusing to overwrite {target}"
+            raise FileExistsError(msg)
     if args.max_trials is not None and args.max_trials < 1:
         msg = "--max-trials must be >= 1"
         raise ValueError(msg)
@@ -344,6 +443,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     Path(args.report).parent.mkdir(parents=True, exist_ok=True)
     Path(args.report).write_text(report_to_json(result.report) + "\n", encoding="utf-8")
+    if args.markdown is not None:
+        Path(args.markdown).write_text(render_markdown(result.report), encoding="utf-8")
     report = result.report
     print(
         json.dumps(

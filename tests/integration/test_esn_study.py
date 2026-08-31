@@ -204,13 +204,14 @@ def test_command_runs_a_bounded_number_of_trials_and_writes_the_report(
         "--max-trials",
         "1",
     ]
-    assert main(argv) == 0
+    assert main([*argv, "--markdown", str(tmp_path / "esn_search.md")]) == 0
     printed = json.loads(capsys.readouterr().out)
     assert printed["trials_run"] == 1
     assert printed["trials_stored"] == 1
     assert printed["budget"] == 6
     assert printed["mlflow_parent_run"] is None
     loaded = load_report(report)
+    assert (tmp_path / "esn_search.md").read_text(encoding="utf-8").startswith("# ESN search `esn-search-cli`")
     assert loaded.protocol == "esn-search-cli"
     assert loaded.summary.trials[0].labels["armrc.comparison"] == "anchor-alpha-1e-2"
     assert loaded.provenance.exploratory
