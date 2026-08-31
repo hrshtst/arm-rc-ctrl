@@ -13,8 +13,16 @@ from pathlib import Path
 import pytest
 
 from arm_rc_ctrl.data.records import ProcessedDatasetRecord, RawDemonstrationRecord, load_record
-from arm_rc_ctrl.experiments.reproduce_1a import CONFIRMATORY_REPORT, STEPS, compare_suites, main, reproduce
-from arm_rc_ctrl.experiments.robustness import load_suite
+from arm_rc_ctrl.experiments.reproduce_1a import (
+    CONFIRMATORY_REPORT,
+    STEPS,
+    compare_suites,
+    main,
+    prepare_scratch,
+    reproduce,
+)
+from arm_rc_ctrl.experiments.robustness import RobustnessSuite, load_suite
+from arm_rc_ctrl.metrics.report import RunReport
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.storage import StorageError, StorageRoot, open_storage
 
@@ -31,26 +39,90 @@ def configured_store() -> StorageRoot:
         pytest.skip(f"configured external store not available: {exc}")
 
 
-def test_compare_suites_reports_deviations_and_categorical_differences() -> None:
-    """Identical suites deviate by zero; a changed metric or outcome is reported."""
+def test_compare_suites_covers_every_report_field_except_the_rerun_identity() -> None:
+    """Identical suites deviate by zero; any float field counts towards the deviation; counts and labels are exact."""
     suite = load_suite(CONFIRMATORY_REPORT)
     assert compare_suites(suite, suite) == (0.0, [])
     first = suite.runs[0]
     assert first.report.joint_rmse is not None
-    bumped = replace(
+    assert first.report.demand is not None
+    assert first.report.dwell is not None
+
+    def rebuilt(report: RunReport, run_id: str = first.run_id) -> RobustnessSuite:
+        run = replace(first, run_id=run_id, report=replace(report, run_id=run_id))
+        return replace(suite, runs=(run, *suite.runs[1:]), aggregates=(), effects=())
+
+    renamed = rebuilt(first.report, run_id="run-20260831-000000000000")
+    assert compare_suites(suite, renamed) == (0.0, [])  # the rerun's own ID is the only exempt field
+    bumped_demand = replace(first.report.demand, torque_rms=first.report.demand.torque_rms + 1.0)
+    demand = replace(first.report, demand=bumped_demand)
+    assert compare_suites(suite, rebuilt(demand)) == (pytest.approx(1.0), [])
+    peaks = first.report.demand.per_joint_peak
+    per_joint = replace(first.report, demand=replace(first.report.demand, per_joint_peak=(peaks[0] + 0.5, *peaks[1:])))
+    assert compare_suites(suite, rebuilt(per_joint)) == (pytest.approx(0.5), [])
+    rmse = replace(
         first.report, joint_rmse=replace(first.report.joint_rmse, aggregate=first.report.joint_rmse.aggregate + 1e-6)
     )
-    worst, differences = compare_suites(
-        suite, replace(suite, runs=(replace(first, report=bumped), *suite.runs[1:]), aggregates=(), effects=())
-    )
+    worst, differences = compare_suites(suite, rebuilt(rmse))
     assert worst == pytest.approx(1e-6)
     assert differences == []
-    failed = replace(first.report, success=False, failed_criteria=("completed",))
-    _, differences = compare_suites(
-        suite, replace(suite, runs=(replace(first, report=failed), *suite.runs[1:]), aggregates=(), effects=())
+    counted = replace(first.report, dwell=replace(first.report.dwell, samples=first.report.dwell.samples + 1))
+    _, differences = compare_suites(suite, rebuilt(counted))
+    samples = first.report.dwell.samples
+    assert differences == [f"{first.arm}/{first.scenario_id}.dwell.samples: {samples + 1} vs {samples}"]
+    source = replace(first.report, effort_source="tau_requested")
+    _, differences = compare_suites(suite, rebuilt(source))
+    assert differences == [f"{first.arm}/{first.scenario_id}.effort_source: 'tau_requested' vs 'tau_applied'"]
+    windows = replace(first.report, windows=replace(first.report.windows, dwell=(0.0, 1.0)))
+    worst, differences = compare_suites(suite, rebuilt(windows))
+    assert worst >= 3.0  # the report windows are compared like every other float field
+    assert differences == []
+    shorter = replace(
+        first.report, joint_rmse=replace(first.report.joint_rmse, per_joint=first.report.joint_rmse.per_joint[:1])
     )
-    assert differences
-    assert "outcome" in differences[0]
+    _, differences = compare_suites(suite, rebuilt(shorter))
+    assert differences == [f"{first.arm}/{first.scenario_id}.joint_rmse.per_joint: length 1 vs 2"]
+    failed = replace(first.report, success=False, failed_criteria=("completed",))
+    _, differences = compare_suites(suite, rebuilt(failed))
+    assert any(".success: False vs True" in d for d in differences)
+    assert any(".failed_criteria: length 1 vs 0" in d for d in differences)
+
+
+def test_scratch_must_be_a_fresh_directory_outside_the_repository(tmp_path: Path) -> None:
+    """Repository-local, symbolic-link, and non-empty scratch targets are refused and nothing is deleted."""
+    with pytest.raises(ValueError, match="outside the repository"):
+        reproduce(scratch=REPO_ROOT / "build" / "scratch", classes=("nominal",))
+    assert not (REPO_ROOT / "build" / "scratch").exists()
+    occupied = tmp_path / "occupied"
+    occupied.mkdir()
+    sentinel = occupied / "keep.txt"
+    sentinel.write_text("do not delete", encoding="utf-8")
+    with pytest.raises(ValueError, match="not empty"):
+        reproduce(scratch=occupied, classes=("nominal",))
+    assert sentinel.read_text(encoding="utf-8") == "do not delete"
+    real = tmp_path / "real"
+    real.mkdir()
+    link = tmp_path / "link"
+    link.symlink_to(real)
+    with pytest.raises(ValueError, match="symbolic link"):
+        reproduce(scratch=link, classes=("nominal",))
+    assert real.is_dir()
+    with pytest.raises(ValueError, match="not a directory"):
+        reproduce(scratch=sentinel, classes=("nominal",))
+    fresh = prepare_scratch(tmp_path / "new" / "deep")
+    assert fresh.is_dir()
+    assert not any(fresh.iterdir())
+
+
+def test_tolerance_must_be_finite_and_non_negative(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """NaN, infinite, and negative tolerances are rejected before any work; the command exits with usage."""
+    for bad in (float("nan"), float("inf"), -1e-9):
+        with pytest.raises(ValueError, match="tolerance must be a finite non-negative number"):
+            reproduce(scratch=tmp_path / f"scratch-{bad}", classes=("nominal",), tolerance=bad)
+    with pytest.raises(SystemExit) as info:
+        main(["--tolerance", "nan", "--scratch", str(tmp_path / "s"), "--exploratory"])
+    assert info.value.code == 2
+    assert "--tolerance must be a finite non-negative number" in capsys.readouterr().err
 
 
 def worktree_is_clean() -> bool:
@@ -72,6 +144,9 @@ def test_reproduction_rebuilds_data_model_and_report_and_names_the_rerun_require
     assert "clean checkout" in evaluation.detail
     assert result.ok is False
     assert result.inputs["raw"].startswith("raw-")
+    assert result.inputs["reproduction_project_dirty"] == "True"
+    assert len(result.inputs["reproduction_project_commit"]) == 40
+    assert result.inputs["evidence_project_commit"] != result.inputs["reproduction_project_commit"]
     assert (tmp_path / "scratch" / "store" / "processed").is_dir()
     assert next(c for c in result.checks if c.name == "data").detail.endswith("(identical)")
 

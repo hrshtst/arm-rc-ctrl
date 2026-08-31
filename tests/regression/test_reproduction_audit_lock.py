@@ -33,7 +33,9 @@ def test_audit_passed_every_step_exactly_on_the_committed_evidence() -> None:
     assert all(c.ok for c in result.checks)
     assert result.max_deviation == 0.0
     suite = load_suite(CONFIRMATORY)
-    assert result.inputs["project_commit"] == suite.provenance.project_commit
+    assert result.inputs["evidence_project_commit"] == suite.provenance.project_commit
+    assert len(result.inputs["reproduction_project_commit"]) == 40
+    assert result.inputs["reproduction_project_dirty"] == "False"
     assert result.inputs["lock_sha256"] == suite.provenance.lock_sha256
     assert result.inputs["recipe"] == suite.recipe_file
     assert result.inputs["confirmatory_report"] == CONFIRMATORY.name

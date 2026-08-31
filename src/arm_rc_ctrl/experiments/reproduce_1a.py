@@ -20,17 +20,19 @@ Command line::
 
 The confirmatory rerun (step ``evaluation``) always runs under the
 ``confirmatory-rerun`` label from a clean checkout; ``--exploratory`` lets the
-other steps run in a dirty worktree and makes that step fail clearly.
+other steps run in a dirty worktree and makes that step fail clearly. The
+scratch directory must be a fresh (empty or missing) directory outside the
+repository: nothing is ever deleted.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import platform
 import re
-import shutil
 import sys
 import tempfile
 import time
@@ -56,7 +58,7 @@ from arm_rc_ctrl.experiments.perturbations import CLASS_ORDER, PerturbationClass
 from arm_rc_ctrl.experiments.report_1a import PLOT_FILES, load_inputs, render_report
 from arm_rc_ctrl.experiments.robustness import RobustnessSuite, load_suite, run_robustness
 from arm_rc_ctrl.experiments.run_record import RunPointerRecord
-from arm_rc_ctrl.provenance import command_line, sha256_file
+from arm_rc_ctrl.provenance import command_line, sha256_file, worktree_state
 from arm_rc_ctrl.rc.esn import ensure_single_thread
 from arm_rc_ctrl.rc.recipe import load_recipe
 from arm_rc_ctrl.repo import repository_root
@@ -69,30 +71,22 @@ if TYPE_CHECKING:
     from arm_rc_ctrl.data.samples import SampleSet
     from arm_rc_ctrl.rc.recipe import ModelRecipe
 
-__all__ = ["Check", "Reproduction", "ReproductionError", "audit_markdown", "compare_suites", "main", "reproduce"]
+__all__ = [
+    "Check",
+    "Reproduction",
+    "ReproductionError",
+    "audit_markdown",
+    "compare_suites",
+    "main",
+    "prepare_scratch",
+    "reproduce",
+]
 
 REPO: Final = repository_root()
 DOCS: Final = REPO / "docs" / "experiments" / "task_1a"
 CONFIRMATORY_REPORT: Final = DOCS / "robustness_confirmatory_v2_recipe_v4.json"
 PREPROCESS_CONFIG: Final = REPO / "configs" / "preprocessing" / "default.toml"
 STEPS: Final = ("environment", "storage", "records", "payloads", "data", "model", "evaluation", "report")
-_METRIC_PATHS: Final = (
-    ("joint_rmse", "aggregate"),
-    ("dwell", "endpoint", "mean"),
-    ("dwell", "endpoint", "rms"),
-    ("dwell", "endpoint", "max"),
-    ("dwell", "endpoint", "p95"),
-    ("dwell", "in_tolerance_fraction"),
-    ("dwell", "longest_in_tolerance_s"),
-    ("dwell", "velocity_rms"),
-    ("dwell", "velocity_max"),
-    ("effort", "torque_rms"),
-    ("effort", "torque_peak"),
-    ("effort", "saturation_fraction"),
-    ("effort", "effort"),
-    ("move_coverage",),
-    ("dwell_coverage",),
-)
 
 
 class ReproductionError(RuntimeError):
@@ -127,17 +121,61 @@ class Reproduction:
         return len(self.checks) == len(STEPS) and all(c.ok for c in self.checks)
 
 
-def _scalar(report: object, path: tuple[str, ...]) -> float | None:
-    value: object = report
-    for name in path:
-        if value is None:
-            return None
-        value = getattr(value, name)
-    return None if value is None else float(cast("float", value))
+def _is_exact(value: object) -> bool:
+    """Whether a leaf must match exactly (flags, counts, labels, absences) rather than within a tolerance."""
+    return isinstance(value, bool | str | int | None)
+
+
+def _compare_leaf(path: str, a: object, b: object, differences: list[str]) -> float | None:
+    """Deviation of two leaves, or ``None`` when they are not both leaves."""
+    if _is_exact(a) or _is_exact(b):
+        if a != b:
+            differences.append(f"{path}: {a!r} vs {b!r}")
+        return 0.0
+    if isinstance(a, float) and isinstance(b, float):
+        if math.isnan(a) or math.isnan(b):
+            if not (math.isnan(a) and math.isnan(b)):
+                differences.append(f"{path}: {a!r} vs {b!r}")
+            return 0.0
+        return abs(a - b)
+    return None
+
+
+def _compare(path: str, a: object, b: object, differences: list[str]) -> float:
+    """Largest float deviation under ``path``; counts, flags, strings, and shapes must match exactly."""
+    kinds = f"{type(a).__name__} vs {type(b).__name__}"
+    leaf = _compare_leaf(path, a, b, differences)
+    if leaf is not None:
+        return leaf
+    if isinstance(a, dict) and isinstance(b, dict):
+        left = cast("dict[str, object]", a)
+        right = cast("dict[str, object]", b)
+        worst = 0.0
+        for key in sorted(set(left) | set(right)):
+            if key not in left or key not in right:
+                differences.append(f"{path}.{key}: present in one report only")
+                continue
+            worst = max(worst, _compare(f"{path}.{key}", left[key], right[key], differences))
+        return worst
+    if isinstance(a, list | tuple) and isinstance(b, list | tuple):
+        left_items = cast("Sequence[object]", a)
+        right_items = cast("Sequence[object]", b)
+        if len(left_items) != len(right_items):
+            differences.append(f"{path}: length {len(left_items)} vs {len(right_items)}")
+            return 0.0
+        pairs = zip(left_items, right_items, strict=True)
+        return max((_compare(f"{path}[{i}]", x, y, differences) for i, (x, y) in enumerate(pairs)), default=0.0)
+    differences.append(f"{path}: {kinds}")
+    return 0.0
 
 
 def compare_suites(committed: RobustnessSuite, rebuilt: RobustnessSuite) -> tuple[float, list[str]]:
-    """Largest absolute metric deviation over every (arm, scenario) pair, plus categorical differences."""
+    """Compare every field of every rebuilt run's report with the committed one (the rerun's own run ID excepted).
+
+    Returns the largest absolute deviation over the floating-point fields and
+    the list of categorical or structural differences (outcomes, counts,
+    labels, windows, shapes), each named by its path.
+    """
     by_key = {(r.arm, r.scenario_id): r for r in committed.runs}
     worst = 0.0
     differences: list[str] = []
@@ -146,19 +184,11 @@ def compare_suites(committed: RobustnessSuite, rebuilt: RobustnessSuite) -> tupl
         if reference is None:
             differences.append(f"{run.arm}/{run.scenario_id}: not in the committed suite")
             continue
-        a, b = run.report, reference.report
-        if (a.termination_kind, a.success, a.failed_criteria) != (b.termination_kind, b.success, b.failed_criteria):
-            outcome = f"{a.termination_kind}/{a.success} vs {b.termination_kind}/{b.success}"
-            differences.append(f"{run.arm}/{run.scenario_id}: outcome {outcome}")
-        for path in _METRIC_PATHS:
-            x, y = _scalar(a, path), _scalar(b, path)
-            if (x is None) != (y is None):
-                differences.append(f"{run.arm}/{run.scenario_id}: {'.'.join(path)} present in one report only")
-            elif x is not None and y is not None:
-                worst = max(worst, abs(x - y))
-        if a.joint_rmse is not None and b.joint_rmse is not None:
-            for x, y in zip(a.joint_rmse.per_joint, b.joint_rmse.per_joint, strict=True):
-                worst = max(worst, abs(x - y))
+        left = to_mapping(run.report)
+        right = to_mapping(reference.report)
+        left.pop("run_id", None)  # the rerun is a new content-addressed run
+        right.pop("run_id", None)
+        worst = max(worst, _compare(f"{run.arm}/{run.scenario_id}", left, right, differences))
     return worst, differences
 
 
@@ -170,11 +200,29 @@ def _sanitize(text: str) -> str:
     return _ABSOLUTE_PATH.sub(lambda m: Path(m.group(0)).name or "/", text)
 
 
-def _fresh(path: Path) -> Path:
-    if path.exists():
-        shutil.rmtree(path)
-    path.mkdir(parents=True)
-    return path
+def prepare_scratch(scratch: Path) -> Path:
+    """A fresh scratch directory outside the repository; nothing is ever deleted.
+
+    A symbolic link, a location inside the repository, a non-directory, or a
+    non-empty directory is refused; a missing directory is created.
+    """
+    if scratch.is_symlink():
+        msg = f"scratch directory {scratch.name!r} is a symbolic link"
+        raise ValueError(msg)
+    resolved = scratch.resolve()
+    if resolved == REPO or resolved.is_relative_to(REPO):
+        msg = "the scratch directory must lie outside the repository"
+        raise ValueError(msg)
+    if resolved.exists():
+        if not resolved.is_dir():
+            msg = f"scratch {resolved.name!r} is not a directory"
+            raise ValueError(msg)
+        if any(resolved.iterdir()):
+            msg = f"the scratch directory {resolved.name!r} is not empty; nothing is deleted, choose a fresh one"
+            raise ValueError(msg)
+    else:
+        resolved.mkdir(parents=True)
+    return resolved
 
 
 def _need[T](value: T | None, step: str) -> T:
@@ -221,8 +269,11 @@ class _Reproducer:
         if lock != suite.provenance.lock_sha256:
             msg = f"uv.lock digest {lock[:12]} differs from the evidence's {suite.provenance.lock_sha256[:12]}"
             raise ReproductionError(msg)
+        commit, dirty = worktree_state(REPO)
         self.inputs["lock_sha256"] = lock
-        self.inputs["project_commit"] = suite.provenance.project_commit
+        self.inputs["evidence_project_commit"] = suite.provenance.project_commit
+        self.inputs["reproduction_project_commit"] = commit
+        self.inputs["reproduction_project_dirty"] = str(dirty)
         return f"{len(builds)} build identities verified; submodules {sorted(recorded)} and uv.lock match the evidence"
 
     def storage(self) -> str:
@@ -272,10 +323,13 @@ class _Reproducer:
         store = _need(self.store, "data")
         raw = _need(self.raw, "data")
         processed = _need(self.processed, "data")
-        scratch_store = StorageRoot(_fresh(self.scratch / "store"), repositories=(REPO,))
+        store_dir = self.scratch / "store"
+        store_dir.mkdir()  # the scratch directory was verified empty; a second data step is an error
+        scratch_store = StorageRoot(store_dir, repositories=(REPO,))
         payload = store.path(raw.artifact.payload.uri, mode="read")
         scratch_store.path(raw.artifact.payload.uri, mode="write").write_bytes(payload.read_bytes())
-        records_root = _fresh(self.scratch / "repo")
+        records_root = self.scratch / "repo"
+        records_root.mkdir()
         (records_root / "data" / "records" / "processed").mkdir(parents=True)
         (records_root / "data" / "records" / "runs").mkdir(parents=True)
         scenario_file = REPO / processed.scenario.config_path
@@ -394,9 +448,12 @@ def reproduce(
     now: datetime | None = None,
 ) -> Reproduction:
     """Run every reproduction step; ``scratch`` receives the rebuilt store and records (outside the repository)."""
+    if not (math.isfinite(tolerance) and tolerance >= 0.0):
+        msg = f"tolerance must be a finite non-negative number, got {tolerance!r}"
+        raise ValueError(msg)
     started = time.perf_counter()
     started_at = (now or datetime.now(tz=UTC)).isoformat()
-    reproducer = _Reproducer(scratch, classes, tolerance, exploratory, store, docs, now)
+    reproducer = _Reproducer(prepare_scratch(scratch), classes, tolerance, exploratory, store, docs, now)
     checks: list[Check] = []
     for name in STEPS:
         check = reproducer.step(name)
@@ -463,12 +520,15 @@ def main(argv: Sequence[str] | None = None) -> int:
         help="allow a dirty worktree for the data, model, and report steps (the confirmatory rerun then fails)",
     )
     args = parser.parse_args(argv)
+    tolerance = float(args.tolerance)
+    if not (math.isfinite(tolerance) and tolerance >= 0.0):
+        parser.error(f"--tolerance must be a finite non-negative number, got {args.tolerance!r}")
     ensure_single_thread()  # before rclib is imported and provenance is collected
     scratch = Path(tempfile.mkdtemp(prefix="arm-rc-ctrl-reproduce-")) if args.scratch is None else Path(args.scratch)
     result = reproduce(
         scratch=scratch,
         classes=cast("list[PerturbationClass]", args.classes),
-        tolerance=float(args.tolerance),
+        tolerance=tolerance,
         keep_going=bool(args.keep_going),
         exploratory=bool(args.exploratory),
     )
