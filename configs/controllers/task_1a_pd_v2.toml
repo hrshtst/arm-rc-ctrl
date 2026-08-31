@@ -1,0 +1,11 @@
+# Frozen by study 'baseline-gains-1a-v2' on dataset processed-20260830-feaf73e6663c (objective 0.000253974 rad).
+# Do not edit: baseline gains are fixed before any ESN tuning (docs/PLAN.md section 6).
+type = "pd"
+kp = [
+    103.66390204385338,
+    26.057552331473403,
+]
+kd = [
+    3.206354655071141,
+    0.11992321023424186,
+]

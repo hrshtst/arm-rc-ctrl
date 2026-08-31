@@ -8,6 +8,7 @@ schema_version = 1
 [gains]
 computed_torque = "0ac3dff977cdbbd673ff760b105c96f84bc4aeddb86cae50e931f60007a21ea1"
 pd = "3b058ed7ca1e831dfa8c3cc984e02db959b07678a66135ba5483d8edd47698b2"
+pd_v2 = "45f6e7a31490be7f033d84cab740802711663c97ded7bcdc966b2a88b730ab29"
 
 [tolerances]
 metric_rel = 1e-09
@@ -94,3 +95,44 @@ torque_rms = 0.018196990768739787
 torque_peak = 0.045780615626133794
 saturation_fraction = 0.0
 effort = 0.0033179273398367595
+
+[runs.pd_v2]
+method = "replay+pd"
+termination = "completed"
+success = true
+n_samples = 501
+joint_rmse = 0.0002539740273068126
+joint_rmse_per_joint = [
+    0.00027011494046008953,
+    0.00023673515166346848,
+]
+final_q = [
+    0.8319314938930334,
+    1.1592794810735274,
+]
+final_dq = [
+    4.767119708867088e-08,
+    6.425356280403331e-08,
+]
+final_tip = [
+    0.10000000048199838,
+    0.4499999998400187,
+]
+
+[runs.pd_v2.criteria]
+completed = true
+dwell_in_tolerance = true
+dwell_stationary = true
+
+[runs.pd_v2.dwell]
+in_tolerance_fraction = 1.0
+longest_in_tolerance_s = 1.0
+endpoint_rms = 6.092723672036065e-06
+endpoint_max = 2.173210909917302e-05
+velocity_max = 0.0009218642534672346
+
+[runs.pd_v2.effort]
+torque_rms = 0.01822640804229492
+torque_peak = 0.045836745739518445
+saturation_fraction = 0.0
+effort = 0.0033286635402448106

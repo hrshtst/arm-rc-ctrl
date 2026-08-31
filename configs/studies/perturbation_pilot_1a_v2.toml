@@ -1,0 +1,44 @@
+# Perturbation pilot v2: identical grids and selection rules to perturbation_pilot_1a.toml
+# (which stays immutable with its report and the v1 confirmatory lock), run with the
+# robustness-constrained PD gains of study v2 (configs/controllers/task_1a_pd_v2.toml,
+# docs/TASKS.md M3-015) and the unchanged frozen computed-torque gains. Its report justifies
+# configs/evaluations/task_1a_confirmatory_v2.toml, which supersedes the v1 lock for M3.
+name = "perturbation-pilot-1a-v2"
+scenario = "../tasks/task_1a.toml"
+baselines = ["pd_v2", "computed_torque"]
+
+[posture]
+# Initial-posture offset magnitudes (rad) applied along each joint-space direction
+# (normalized to unit length) at t = 0, while the demonstration holds its prime posture.
+magnitudes = [0.02, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.15, 0.2, 0.3, 0.5, 0.8]
+directions = [
+    [1.0, 0.0], [-1.0, 0.0], [0.0, 1.0], [0.0, -1.0],
+    [1.0, 1.0], [-1.0, -1.0], [1.0, -1.0], [-1.0, 1.0],
+]
+
+[force]
+# Constant endpoint force pulses (N) applied during the movement interval, in
+# the base frame, for every direction listed (degrees from the base x axis).
+magnitudes = [0.5, 1.0, 2.0, 4.0, 8.0, 10.0, 12.0, 14.0, 16.0, 32.0, 64.0]
+directions_deg = [0.0, 90.0, 180.0, 270.0]
+start_s = 2.0
+duration_s = 0.2
+
+[selection]
+# A level is SAFE when, for every baseline and direction, the run completes,
+# satisfies every dwell criterion, and the endpoint returns to within the task
+# tolerance of the reference endpoint (and stays there) within the recovery
+# bound below; force levels additionally keep the saturated-sample fraction at
+# or below `force_max_saturation_fraction` (0 = full actuator headroom).
+# A posture level is NONTRIVIAL when at least one baseline needs at least
+# `posture_recovery_min_s` to recover, i.e. the perturbation is visible in the
+# telemetry for several control periods. A force level is NONTRIVIAL when the
+# peak endpoint deviation reaches `force_deviation_min_m` for at least one baseline.
+# Selected: small posture = smallest safe nontrivial magnitude; large (held-out)
+# posture = largest safe magnitude; force = largest safe nontrivial magnitude.
+posture_recovery_min_s = 0.1
+# The prime interval lasts 1 s: a posture perturbation must be absorbed before the movement starts.
+posture_recovery_max_s = 1.0
+force_recovery_max_s = 1.0
+force_deviation_min_m = 0.01
+force_max_saturation_fraction = 0.0

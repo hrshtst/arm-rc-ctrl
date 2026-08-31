@@ -1,0 +1,105 @@
+# End-to-end RC pipeline snapshot (M2-015): raw fixture -> preprocessing -> training -> paired closed loop.
+# Regenerate only after an intentional change: `uv run pytest tests/regression --update-baselines`,
+# then review the diff. Comparisons use the declared [tolerances].
+scenario = "pd-reach-fixture"
+dataset = "processed-20260901-57512e840318"
+model_config_sha256 = "52bf4ef3c31424fb63f7689cbaa6dedd0f200abaabb2e61ea324c4619cfe6084"
+gains = "e362dcdd3eff34425d474051eb87ee90d2464a8c60c4df1a4d7fb2051e13204d"
+schema_version = 1
+
+[tolerances]
+metric_rel = 1e-06
+state_abs = 1e-06
+
+[snapshot]
+recipe_id = "model-20260901-ad85a0ffc559"
+boundary_jump = 0.10173285733933535
+
+[snapshot.fit]
+rmse = 0.0009601453540586878
+constant_rmse = 0.11276120390670723
+max_abs_error = 0.0021273980057907593
+rmse_joint_0 = 0.000394248742868103
+rmse_joint_1 = 0.0012993560445805016
+
+[snapshot.rc]
+method = "rc+pd"
+termination = "completed"
+success = true
+n_samples = 31
+joint_rmse = 0.3405232753722201
+joint_rmse_per_joint = [
+    0.42037276223045783,
+    0.2349445528527628,
+]
+final_q = [
+    0.6842610794612304,
+    0.7712493684704185,
+]
+final_dq = [
+    3.342241571943257,
+    1.099900706460965,
+]
+final_tip = [
+    0.2612235677823874,
+    0.43797066642952254,
+]
+
+[snapshot.rc.criteria]
+completed = true
+dwell_in_tolerance = true
+dwell_stationary = true
+
+[snapshot.rc.dwell]
+in_tolerance_fraction = 0.0
+longest_in_tolerance_s = 0.0
+endpoint_rms = 0.04816409824113522
+endpoint_max = 0.074703500847274
+velocity_max = 3.342241571943257
+
+[snapshot.rc.effort]
+torque_rms = 2.0673548099273815
+torque_peak = 10.0
+saturation_fraction = 0.03225806451612903
+effort = 2.648182024156456
+
+[snapshot.replay]
+method = "replay+pd"
+termination = "completed"
+success = true
+n_samples = 31
+joint_rmse = 0.10677991653924904
+joint_rmse_per_joint = [
+    0.12309105571517481,
+    0.08747852968118355,
+]
+final_q = [
+    1.0837503257142898,
+    0.6861900119876929,
+]
+final_dq = [
+    -0.9022625265007955,
+    3.9227624550724096,
+]
+final_tip = [
+    0.09094764553267823,
+    0.5101748399730727,
+]
+
+[snapshot.replay.criteria]
+completed = true
+dwell_in_tolerance = true
+dwell_stationary = true
+
+[snapshot.replay.dwell]
+in_tolerance_fraction = 0.0
+longest_in_tolerance_s = 0.0
+endpoint_rms = 0.20649509815013373
+endpoint_max = 0.21766186118483147
+velocity_max = 4.056958254221009
+
+[snapshot.replay.effort]
+torque_rms = 4.486643437680444
+torque_peak = 9.291628181784127
+saturation_fraction = 0.25806451612903225
+effort = 12.255988257396798

@@ -16,7 +16,17 @@ libraries are pinned Git submodules:
 
 Pinned commits are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
-**Status:** milestone M0 (repository foundation). No experiment results yet.
+**Status:** milestones M0 and M1 are closed; M2 (the task 1-a RC vertical
+slice) is implemented and under review. Recorded results live under
+`docs/experiments/task_1a/` with Git-tracked records under `data/records/`;
+see `docs/TASKS.md` for the ledger.
+
+The reservoir-computing commands (`python -m arm_rc_ctrl.rc.train`,
+`arm_rc_ctrl.experiments.closed_loop`, `arm_rc_ctrl.experiments.paired`,
+`arm_rc_ctrl.experiments.scale_pilot`) pin `OMP_NUM_THREADS=1` for their own
+process so results are bitwise reproducible; when driving `arm_rc_ctrl.rc`
+from an interactive interpreter, export `OMP_NUM_THREADS=1` first (a
+different explicit value is rejected).
 
 ## Requirements
 

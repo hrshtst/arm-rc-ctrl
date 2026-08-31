@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import dataclasses
+import json
 import math
 from datetime import UTC, datetime
 from pathlib import Path
@@ -19,11 +20,14 @@ from arm_rc_ctrl.data.preprocess import preprocess_demonstration
 from arm_rc_ctrl.data.records import ProcessedDatasetRecord, RawDemonstrationRecord, load_record
 from arm_rc_ctrl.data.samples import SampleSet
 from arm_rc_ctrl.experiments.tuning import (
+    DevelopmentPulse,
+    Feasibility,
     GainRange,
     Objective,
     TuningProtocol,
     evaluate_gains,
     load_protocol,
+    main,
     run_study,
     sample_gains,
 )
@@ -296,3 +300,122 @@ def test_command_line_runs_a_study_writes_the_report_and_freezes_gains(
     with pytest.raises(FileExistsError, match="immutable"):
         main(args)
     del StudyReport
+
+
+# --- M3-015: robustness-constrained protocol version 2 ---------------------------------------------
+
+PROTOCOL_V2 = REPO_ROOT / "configs" / "studies" / "baseline_gains_1a_v2.toml"
+
+
+def test_committed_v2_protocol_adds_robustness_constraints() -> None:
+    """v2 keeps v1's search spaces and adds directions, force pulses, a saturation bound, and the nominal objective."""
+    v1 = load_protocol(PROTOCOL)
+    v2 = load_protocol(PROTOCOL_V2)
+    assert v2.name == "baseline-gains-1a-v2"
+    assert v2.scenario == v1.scenario
+    assert v2.search == v1.search
+    assert v2.sampler_seed != v1.sampler_seed
+    assert v2.objective.kind == "nominal_move_joint_rmse"
+    assert v2.feasibility.max_saturation_fraction == 0.05
+    offsets = v2.development.initial_posture_offsets
+    assert offsets[0] == (0.0, 0.0)
+    assert len(offsets) == 17
+    norms = sorted({round(math.hypot(*o), 6) for o in offsets[1:]})
+    assert norms == [0.04, 0.08]  # distinct from every confirmatory level (0.05 and 0.06 rad)
+    pulses = v2.development.force_pulses
+    assert len(pulses) == 8
+    assert {p.direction_deg for p in pulses} == {45.0, 135.0, 225.0, 315.0}  # not the confirmatory 0/90/180/270
+    assert {p.start_s for p in pulses} == {2.5}  # not the confirmatory 2.0 s
+    assert {p.magnitude_n for p in pulses} == {6.0, 9.0}
+    assert v1.feasibility.max_saturation_fraction == 1.0  # v1 unchanged: no headroom requirement
+    assert v1.development.force_pulses == ()
+
+
+def test_v2_validation() -> None:
+    """The nominal objective needs the unperturbed posture first; pulses are validated; the bound lies in [0, 1]."""
+    v2 = load_protocol(PROTOCOL_V2)
+    shifted = dataclasses.replace(v2.development, initial_posture_offsets=v2.development.initial_posture_offsets[1:])
+    with pytest.raises(ValueError, match="needs the unperturbed posture as the first development offset"):
+        dataclasses.replace(v2, development=shifted)
+    with pytest.raises(ValueError, match="max_saturation_fraction must lie in"):
+        Feasibility(1.5)
+    with pytest.raises(ValueError, match="duration_s must be > 0"):
+        DevelopmentPulse(2.5, 0.0, 6.0, 45.0)
+    assert DevelopmentPulse(2.5, 0.2, 6.0, 90.0).pulse().force == pytest.approx((0.0, 6.0), abs=1e-12)
+
+
+def test_force_scenarios_and_saturation_bound_decide_feasibility(
+    dataset: tuple[SampleSet, ScenarioConfig, ProcessedDatasetRecord],
+) -> None:
+    """Force scenarios are evaluated at the nominal posture, saturation is reported, and the bound is enforced."""
+    samples, scenario, _ = dataset
+    v2 = load_protocol(PROTOCOL_V2)
+    development = dataclasses.replace(
+        v2.development,
+        initial_posture_offsets=((0.0, 0.0), (0.01, 0.0)),
+        force_pulses=(DevelopmentPulse(0.12, 0.05, 2.0, 45.0),),
+    )
+    relaxed = dataclasses.replace(v2, scenario=SCENARIO, development=development, feasibility=Feasibility(1.0))
+    strong = TrackerConfig("pd", (300.0, 300.0), (60.0, 60.0))
+    objective, feasible, components = evaluate_gains(relaxed, scenario, samples, strong)
+    assert [c.kind for c in components] == ["posture", "posture", "force"]
+    assert components[2].pulse == development.force_pulses[0]
+    assert components[2].initial_q == tuple(scenario.task.initial_q)
+    assert all(c.saturation_fraction is not None and 0.0 <= c.saturation_fraction <= 1.0 for c in components)
+    worst = max(c.saturation_fraction or 0.0 for c in components)
+    assert worst > 0.0  # kp = 300 saturates the fixture's 10/5 N*m actuators
+    if feasible:
+        assert objective == components[0].move_joint_rmse  # the nominal scenario alone ranks feasible trials
+    tight = dataclasses.replace(relaxed, feasibility=Feasibility(max_saturation_fraction=worst / 2))
+    objective, feasible, components = evaluate_gains(tight, scenario, samples, strong)
+    assert feasible is False
+    assert objective == tight.objective.infeasible_penalty
+    assert any(
+        c.saturation_fraction is not None and c.saturation_fraction > worst / 2 and not c.feasible for c in components
+    )
+
+
+def test_command_line_refuses_to_freeze_without_a_feasible_trial(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A study in which every trial fails the robustness constraints writes its report but freezes nothing."""
+    root = tmp_path / "store"
+    root.mkdir()
+    store = StorageRoot(root, repositories=(REPO_ROOT,))
+    raw = load_record(RAW_RECORD, RawDemonstrationRecord)
+    store.path(raw.artifact.payload.uri, mode="write").write_bytes(RAW_LOG.read_bytes())
+    records = tmp_path / "repo"
+    (records / "data" / "records" / "processed").mkdir(parents=True)
+    processed = preprocess_demonstration(
+        RAW_RECORD, SCENARIO, PREPROCESS, store=store, records_root=records, exploratory=True, now=FIXED_TIME
+    )
+    protocol = tmp_path / "hopeless.toml"
+    protocol.write_text(
+        PROTOCOL_V2.read_text()
+        .replace('scenario = "../tasks/task_1a.toml"', f'scenario = "{SCENARIO.as_posix()}"')
+        .replace("budget = 128", "budget = 2")
+        .replace("max_saturation_fraction = 0.05", "max_saturation_fraction = 0.0")
+        .replace("kp = { low = 1.0, high = 300.0, log = true }", "kp = { low = 250.0, high = 300.0, log = true }")
+    )
+    monkeypatch.setenv("ARM_RC_CTRL_STORAGE_ROOT", str(root))
+    report = tmp_path / "report.json"
+    frozen = tmp_path / "frozen.toml"
+    argv = [
+        "--protocol",
+        str(protocol),
+        "--dataset",
+        str(processed.record_file),
+        "--tracker",
+        "pd",
+        "--report",
+        str(report),
+        "--freeze",
+        str(frozen),
+        "--exploratory",
+    ]
+    with pytest.raises(RuntimeError, match="satisfied every development scenario; report written, nothing frozen"):
+        main(argv)
+    assert report.is_file()
+    assert not frozen.exists()
+    assert json.loads(report.read_text())["result"]["feasible_trials"] == 0
+    capsys.readouterr()

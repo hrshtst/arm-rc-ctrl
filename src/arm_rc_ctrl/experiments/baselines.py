@@ -35,23 +35,41 @@ if TYPE_CHECKING:
 __all__ = [
     "FROZEN_BASELINES",
     "BaselineExpectations",
+    "PipelineExpectations",
+    "PipelineSnapshot",
     "ReplaySnapshot",
     "Tolerances",
+    "baseline_method",
     "build_expectations",
+    "compare_pipeline",
     "compare_snapshots",
     "frozen_baseline_digest",
     "frozen_baseline_file",
     "load_expectations",
     "load_frozen_baseline",
+    "load_pipeline_expectations",
     "snapshot",
     "write_expectations",
+    "write_pipeline_expectations",
 ]
 
 FROZEN_BASELINES: Final[dict[str, str]] = {
     "pd": "configs/controllers/task_1a_pd.toml",
+    "pd_v2": "configs/controllers/task_1a_pd_v2.toml",
     "computed_torque": "configs/controllers/task_1a_computed_torque.toml",
 }
-"""Repository-relative frozen gain files of the task 1-a baselines, by tracker method."""
+"""Repository-relative frozen gain files of the task 1-a baselines, by baseline name.
+
+A name is the tracker method (``pd``, ``computed_torque``) optionally followed by
+a study version suffix (``pd_v2`` = the robustness-constrained PD study, M3-015);
+version 1 files stay immutable development evidence.
+"""
+
+
+def baseline_method(name: str) -> str:
+    """Tracker method of a baseline name (``pd_v2`` -> ``pd``)."""
+    return name.split("_v", 1)[0]
+
 
 EXPECTATIONS_SCHEMA_VERSION: Final = 1
 
@@ -70,8 +88,8 @@ def load_frozen_baseline(method: str) -> TrackerConfig:
     """Load the frozen gains of ``method`` and check that the file declares that tracker type."""
     file = frozen_baseline_file(method)
     config = load_config(file, TrackerConfig)
-    if config.type != method:
-        msg = f"{file.name} declares tracker type {config.type!r}, expected {method!r}"
+    if config.type != baseline_method(method):
+        msg = f"{file.name} declares tracker type {config.type!r}, expected {baseline_method(method)!r}"
         raise ValueError(msg)
     return config
 
@@ -141,9 +159,9 @@ class BaselineExpectations:
         if set(self.gains) != set(self.runs):
             msg = f"gains {sorted(self.gains)} and runs {sorted(self.runs)} must cover the same methods"
             raise ValueError(msg)
-        for method, run in self.runs.items():
-            if run.method != f"replay+{method}":
-                msg = f"run {method!r} holds a snapshot of method {run.method!r}"
+        for name, run in self.runs.items():
+            if run.method != f"replay+{baseline_method(name)}":
+                msg = f"run {name!r} holds a snapshot of method {run.method!r}"
                 raise ValueError(msg)
 
 
@@ -256,3 +274,67 @@ def write_expectations(path: Path, expectations: BaselineExpectations) -> None:
 def load_expectations(path: Path) -> BaselineExpectations:
     """Load committed expectations."""
     return load_config(path, BaselineExpectations)
+
+
+@dataclass(frozen=True)
+class PipelineSnapshot:
+    """Outcome of the end-to-end RC pipeline on one dataset: the fitted recipe and the paired runs."""
+
+    recipe_id: str
+    fit: dict[str, float]
+    """Fit report scalars: ``rmse``, ``constant_rmse``, ``max_abs_error``, and ``rmse_joint_<i>``."""
+    boundary_jump: float
+    rc: ReplaySnapshot
+    replay: ReplaySnapshot
+
+
+@dataclass(frozen=True)
+class PipelineExpectations:
+    """Committed snapshot of the end-to-end pipeline with the digests of its inputs."""
+
+    scenario: str
+    dataset: str
+    model_config_sha256: str
+    gains: str
+    """Digest of the tracker gains used (``frozen_baseline_digest``-style canonical JSON)."""
+    tolerances: Tolerances
+    snapshot: PipelineSnapshot
+    schema_version: int = field(default=EXPECTATIONS_SCHEMA_VERSION)
+
+    def __post_init__(self) -> None:
+        """Schema and identity fields are valid."""
+        if self.schema_version != EXPECTATIONS_SCHEMA_VERSION:
+            msg = f"unsupported expectations schema version {self.schema_version}"
+            raise ValueError(msg)
+        if not (self.snapshot.rc.method.startswith("rc+") and self.snapshot.replay.method.startswith("replay+")):
+            methods = f"{self.snapshot.rc.method!r}/{self.snapshot.replay.method!r}"
+            msg = f"snapshot must hold an rc+ and a replay+ run, got {methods}"
+            raise ValueError(msg)
+
+
+def compare_pipeline(actual: PipelineSnapshot, expected: PipelineSnapshot, tolerances: Tolerances) -> list[str]:
+    """Describe every deviation of a pipeline snapshot beyond the tolerances (empty when it reproduces)."""
+    mismatches: list[str] = []
+    if actual.recipe_id != expected.recipe_id:
+        mismatches.append(f"recipe_id: {actual.recipe_id!r} != expected {expected.recipe_id!r}")
+    mismatches += _compare_table("fit", actual.fit, expected.fit, tolerances.metric_rel)
+    jump = ((actual.boundary_jump,), (expected.boundary_jump,))
+    mismatches += _compare_tuple("boundary_jump", *jump, tolerances.metric_rel)
+    mismatches += [f"rc.{m}" for m in compare_snapshots(actual.rc, expected.rc, tolerances)]
+    mismatches += [f"replay.{m}" for m in compare_snapshots(actual.replay, expected.replay, tolerances)]
+    return mismatches
+
+
+def write_pipeline_expectations(path: Path, expectations: PipelineExpectations) -> None:
+    """Write pipeline expectations as TOML with the regeneration note."""
+    header = (
+        "# End-to-end RC pipeline snapshot (M2-015): raw fixture -> preprocessing -> training -> paired closed loop.\n"
+        "# Regenerate only after an intentional change: `uv run pytest tests/regression --update-baselines`,\n"
+        "# then review the diff. Comparisons use the declared [tolerances].\n"
+    )
+    path.write_text(header + tomli_w.dumps(to_mapping(expectations)), encoding="utf-8")
+
+
+def load_pipeline_expectations(path: Path) -> PipelineExpectations:
+    """Load committed pipeline expectations."""
+    return load_config(path, PipelineExpectations)

@@ -17,7 +17,9 @@ from dataclasses import dataclass, field
 from typing import Final, Literal
 
 __all__ = [
+    "FAILURE_KINDS",
     "LIMIT_NAMES",
+    "FailureKind",
     "LimitName",
     "Outcome",
     "Termination",
@@ -41,8 +43,11 @@ type TerminationKind = Literal[
     "backend_failure",
 ]
 type LimitName = Literal["joint_position", "joint_velocity", "torque", "endpoint"]
+type FailureKind = Literal["non_finite", "shape", "bounds", "stale_time", "model_exception"]
 
 LIMIT_NAMES: Final[tuple[str, ...]] = ("joint_position", "joint_velocity", "torque", "endpoint")
+FAILURE_KINDS: Final[tuple[str, ...]] = ("non_finite", "shape", "bounds", "stale_time", "model_exception")
+"""Why a command was invalid: the categories of docs/TASKS.md M2-013, each ending the run safely."""
 
 
 def _finite(value: float | None, name: str) -> None:
@@ -65,6 +70,8 @@ class Termination:
     joint: int | None = None
     value: float | None = None
     bound: float | None = None
+    failure: FailureKind | None = None
+    """Category of an invalid command (``invalid_output`` only)."""
 
     def __post_init__(self) -> None:
         """Validate timing and the fields each kind requires."""
@@ -89,6 +96,12 @@ class Termination:
             raise ValueError(msg)
         _finite(self.value, "value")
         _finite(self.bound, "bound")
+        if self.failure is not None and self.kind != "invalid_output":
+            msg = f"failure is only valid for invalid_output, not {self.kind!r}"
+            raise ValueError(msg)
+        if self.failure is not None and self.failure not in FAILURE_KINDS:
+            msg = f"failure must be one of {list(FAILURE_KINDS)}, got {self.failure!r}"
+            raise ValueError(msg)
 
     @property
     def is_completed(self) -> bool:
@@ -134,9 +147,9 @@ def invalid_state(time_s: float, step: int, detail: str) -> Termination:
     return Termination("invalid_state", time_s, step, detail)
 
 
-def invalid_output(time_s: float, step: int, detail: str) -> Termination:
-    """The target generator or controller produced an invalid command."""
-    return Termination("invalid_output", time_s, step, detail)
+def invalid_output(time_s: float, step: int, detail: str, failure: FailureKind | None = None) -> Termination:
+    """The target generator or controller produced an invalid command (``failure`` says why)."""
+    return Termination("invalid_output", time_s, step, detail, failure=failure)
 
 
 def limit_violation(

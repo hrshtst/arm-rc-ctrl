@@ -16,6 +16,7 @@ from arm_rc_ctrl.experiments.baselines import (
     BaselineExpectations,
     ReplaySnapshot,
     Tolerances,
+    baseline_method,
     compare_snapshots,
     frozen_baseline_digest,
     frozen_baseline_file,
@@ -63,7 +64,7 @@ def test_frozen_baselines_load_with_their_declared_method(method: str) -> None:
     file = frozen_baseline_file(method)
     assert file.is_relative_to(repository_root())
     config = load_frozen_baseline(method)
-    assert config.type == method
+    assert config.type == baseline_method(method)
     assert config.dof == 2
     assert all(value > 0 for value in (*config.kp, *config.kd))
     assert len(frozen_baseline_digest(method)) == 64
@@ -153,3 +154,12 @@ def test_expectations_validate_their_structure() -> None:
         BaselineExpectations("s", "d", {"computed_torque": "y"}, Tolerances(), {"computed_torque": _snapshot()})
     with pytest.raises(ValueError, match="unsupported expectations schema version 2"):
         BaselineExpectations("s", "d", {"pd": "x"}, Tolerances(), {"pd": _snapshot()}, schema_version=2)
+
+
+def test_versioned_names_map_to_their_tracker_method() -> None:
+    """A study-version suffix does not change the tracker method."""
+    assert baseline_method("pd") == "pd"
+    assert baseline_method("pd_v2") == "pd"
+    assert baseline_method("computed_torque") == "computed_torque"
+    assert load_frozen_baseline("pd_v2").type == "pd"
+    assert load_frozen_baseline("pd_v2") != load_frozen_baseline("pd")

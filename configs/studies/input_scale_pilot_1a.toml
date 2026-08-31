@@ -1,0 +1,36 @@
+# Input-scale development pilot for the task 1-a RC target generator (docs/PLAN.md section 5.1;
+# docs/TASKS.md M2-018; owner decision of 2026-09-01). For every cell of fixed physical input
+# scales, the ESN is trained on the task 1-a dataset under adjacent development settings
+# (ridge regularization and reservoir seed around the development anchor) and run closed loop
+# with both frozen trackers. A cell is scored by the fraction of its variants that complete
+# the nominal run and satisfy every dwell criterion; the selected anchor is the best cell whose
+# four grid neighbours also reach the feasibility threshold, so the region is broad rather than
+# a single lucky cell. Development only: no confirmatory seed, level, or perturbation is used.
+#
+# Grid iteration (development, 2026-09-02): the first grid (q 0.2-1.0 rad, dq 2-8 rad/s,
+# alpha 1e-3/1e-2/1e-1) had no feasible cell at the 0.75 threshold - the best cells (0.67) sat
+# on its edge at q <= 0.3 rad and dq >= 6 rad/s, and alpha = 1e-3 never succeeded - so this
+# grid is shifted toward that band and the ridge variants raised. The threshold is unchanged.
+name = "input-scale-pilot-1a"
+scenario = "../tasks/task_1a.toml"
+model = "../models/esn_task_1a.toml"
+trackers = ["pd_v2", "computed_torque"]
+
+[grid]
+q_scales = [0.1, 0.15, 0.2, 0.3, 0.5]
+dq_scales = [4.0, 6.0, 8.0, 12.0, 16.0]
+
+[variants]
+ridge_alphas = [1e-2, 3e-2, 1e-1, 3e-1]
+reservoir_seeds = [31, 32]
+
+[estimator]
+velocity_cutoff_hz = 20.0
+acceleration_cutoff_hz = 20.0
+max_dt_ratio = 3.0
+
+[selection]
+# A cell is feasible when at least this fraction of its variants (alphas x seeds x trackers)
+# complete and succeed; the anchor is the feasible cell with the highest fraction (ties: lower
+# median movement RMSE) whose in-grid neighbours are all feasible.
+min_feasible_fraction = 0.75

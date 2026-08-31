@@ -1,0 +1,95 @@
+# Deterministic model recipe (docs/PLAN.md section 8): rebuild and refit, never unpickle.
+# Written by arm_rc_ctrl.rc.recipe; do not edit.
+name = "esn-task-1a-v2"
+dof = 2
+task_code_dim = 0
+schema_version = 1
+
+[esn.reservoir]
+n_neurons = 200
+spectral_radius = 0.9
+sparsity = 0.9
+leak_rate = 0.3
+input_scaling = 0.5
+seed = 31
+include_bias = true
+
+[esn.readout]
+alpha = 0.01
+solver = "cholesky"
+include_bias = true
+tolerance = 1e-10
+
+[[datasets]]
+artifact_id = "processed-20260830-feaf73e6663c"
+payload_sha256 = "feaf73e6663c865cf9232c5a620bab5729ea02e6bd8c0181ad3dae5733540767"
+record = "data/records/processed/processed-20260830-feaf73e6663c.toml"
+
+[preprocessing]
+resample_period_s = 0.01
+smoothing = "butterworth-zero-phase"
+derivative_method = "central-difference"
+interpolation = "linear"
+
+[preprocessing.smoothing_params]
+order = 4.0
+cutoff_hz = 5.0
+
+[transform]
+policy = "fixed_scale"
+derived_from = [
+    "processed-20260830-feaf73e6663c",
+]
+
+[transform.channels.q]
+center = [
+    0.5159657475692301,
+    1.1796397403637415,
+]
+scale = [
+    0.3,
+    0.3,
+]
+
+[transform.channels.dq]
+center = [
+    0.1261340309502653,
+    -0.00812784815718683,
+]
+scale = [
+    12.0,
+    12.0,
+]
+
+[transform.fixed_scales]
+q = 0.3
+dq = 12.0
+
+[training]
+input_channels = [
+    "q",
+    "dq",
+]
+target = "next_q"
+washout = "prime_phase"
+
+[rclib]
+version = "0.1.0"
+commit = "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b"
+
+[fit]
+episodes = [
+    "processed-20260830-feaf73e6663c",
+]
+loss_rows = 400
+washout_rows = 100
+rmse_per_joint = [
+    0.0002733844259324914,
+    0.0001309793763411477,
+]
+rmse = 0.00021435326142743184
+constant_rmse = 0.175016924019056
+max_abs_error = 0.0007591152862630457
+
+[tolerance]
+error_abs = 1e-09

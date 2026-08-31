@@ -1,0 +1,37 @@
+# Locked confirmatory protocol of task 1-a, version 2 (docs/PLAN.md sections 9.2 and 10;
+# docs/TASKS.md M3-015). It supersedes task_1a_confirmatory.toml, which stays immutable
+# with its pilot as development evidence; no confirmatory run was executed under v1.
+# The levels were selected by the v2 pilot docs/experiments/task_1a/perturbation_pilot_v2.json
+# with the robustness-constrained PD v2 gains (configs/controllers/task_1a_pd_v2.toml) and the
+# unchanged frozen computed-torque gains under the same rules as v1; every case is in that
+# report and summarized in docs/experiments/task_1a/perturbation_pilot_v2.md. Once locked,
+# these values and seeds may not be used for tuning; reusing a confirmatory outcome to alter
+# a recipe creates a new study version. M3 implements the generators (M3-007/M3-008) and
+# runs the suite exactly once per study version (M3-010).
+# tests/regression/test_confirmatory_lock.py keeps this file consistent with the pilot.
+name = "task-1a-confirmatory-v2"
+scenario = "../tasks/task_1a.toml"
+locked = true
+pilot_report = "../../docs/experiments/task_1a/perturbation_pilot_v2.json"
+# Confirmatory seeds, unchanged from v1 (no confirmatory run consumed them); distinct from every
+# development seed (gain studies 20260830 and 20260911, any ESN study seed), enforced by the lock test.
+seeds = [20260901, 20260902, 20260903, 20260904, 20260905]
+
+[posture]
+# Class 2 (small) and class 3 (larger, held-out) initial-posture perturbations: for each seed and
+# class, `draws_per_seed` joint-space offsets with a uniformly random direction and a Euclidean norm
+# equal to the class magnitude, added to the demonstrated initial posture. Both baselines absorb
+# fixed-norm offsets up to 0.10 rad before the movement starts; PD v2 violates the joint-velocity
+# limit from 0.15 rad on and computed torque no longer recovers within the prime interval there.
+small_magnitude_rad = 0.05
+large_magnitude_rad = 0.1
+draws_per_seed = 4
+
+[force]
+# Class 4 endpoint force pulses during the movement interval (class 5 combines them with the small
+# posture perturbations): 12 N is the largest level both baselines survive with success and without
+# saturation; 14 N drives computed torque over the joint-velocity limit (PD v2 survives 16 N).
+magnitude_n = 12.0
+start_s = 2.0
+duration_s = 0.2
+directions_deg = [0.0, 90.0, 180.0, 270.0]

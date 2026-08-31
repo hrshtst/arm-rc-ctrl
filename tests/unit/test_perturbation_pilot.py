@@ -289,5 +289,6 @@ def test_cases_round_trip_with_their_complete_termination() -> None:
         "joint": 1,
         "value": 6.045592,
         "bound": 6.0,
+        "failure": None,
     }
     assert from_mapping(mapping, PilotCase) == case
