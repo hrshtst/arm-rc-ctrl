@@ -16,9 +16,11 @@ libraries are pinned Git submodules:
 
 Pinned commits are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 
-**Status:** milestones M0–M2 are closed (the task 1-a RC vertical slice
-tracks under PD v2 and computed torque); M3 (tuning and robustness) is in
-progress. Recorded results live under
+**Status:** milestones M0–M2 are closed; M3 (tuning and robustness) has
+tuned and frozen the task 1-a ESN recipe (v4, from the recorded search v2
+and its seed-sensitivity panel) and run the locked confirmatory robustness
+suite once on it (260 runs, all successful); reporting and the reproduction
+audit follow. Recorded results live under
 `docs/experiments/task_1a/` with Git-tracked records under `data/records/`;
 see `docs/TASKS.md` for the ledger.
 
