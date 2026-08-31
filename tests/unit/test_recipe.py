@@ -37,7 +37,8 @@ ESN = EsnConfig(
 )
 SOURCE = DatasetSource("processed-20260830-555555555555", "ab" * 32, "data/records/processed/x.toml")
 PREPROCESSING = Preprocessing(0.01, "none", {}, "central-difference")
-RCLIB = RclibIdentity("0.0.0", "0" * 40)
+RCLIB = RclibIdentity.current()
+FOREIGN_RCLIB = RclibIdentity("0.0.0", "0" * 40)
 
 
 def _samples(phase_offset: float = 0.0, n: int = 300) -> SampleSet:
@@ -136,8 +137,18 @@ def test_recipe_validation() -> None:
         DatasetSource("raw-20260830-555555555555", "ab" * 32, "r.toml")
     with pytest.raises(ValueError, match="payload_sha256 must be 64"):
         DatasetSource("processed-20260830-555555555555", "xyz", "r.toml")
-    with pytest.raises(ValueError, match="repository-relative"):
-        DatasetSource("processed-20260830-555555555555", "ab" * 32, "/abs.toml")
+    for record in (
+        "/abs.toml",
+        "../outside.toml",
+        "data/../x.toml",
+        "./x.toml",
+        "data\\records\\x.toml",
+        "data//x.toml",
+        "x.toml/",
+        "C:/x.toml",
+    ):
+        with pytest.raises(ValueError, match="must be a repository-relative POSIX path"):
+            DatasetSource("processed-20260830-555555555555", "ab" * 32, record)
     with pytest.raises(ValueError, match="40-hex commit"):
         RclibIdentity("1.0", "abc")
     with pytest.raises(ValueError, match="unsupported training spec"):
@@ -179,3 +190,15 @@ def test_no_pickle_in_the_rc_package() -> None:
         source = Path(str(module.__file__)).read_text(encoding="utf-8")
         for forbidden in ("import pickle", "from pickle", "import joblib", "from joblib", "import dill", "cloudpickle"):
             assert forbidden not in source, (module.__name__, forbidden)
+
+
+def test_refit_requires_the_recipes_rclib_pin(tmp_path: Path) -> None:
+    """A recipe made with another rclib version or commit is refused before the model is rebuilt."""
+    made, _file, samples = _create(tmp_path)
+    made.refit(samples)  # the checkout's pin matches
+    foreign = dataclasses.replace(made, rclib=FOREIGN_RCLIB)
+    with pytest.raises(RecipeMismatchError, match=r"was made with rclib 0\.0\.0 \(000000000000\) but"):
+        foreign.refit(samples)
+    with pytest.raises(RecipeMismatchError, match="is installed"):
+        made.refit(samples, installed=FOREIGN_RCLIB)
+    made.require_rclib(RclibIdentity.current())

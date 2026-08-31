@@ -84,6 +84,7 @@ __all__ = [
     "make_artifact_id",
     "payload_from_store",
     "record_path",
+    "require_relative_posix",
     "to_toml",
     "verify_payload",
     "write_catalog",
@@ -143,11 +144,26 @@ def make_artifact_id(kind: ArtifactKind, created_at: str, sha256: str) -> str:
     return f"{kind}-{stamp:%Y%m%d}-{sha256[:12]}"
 
 
-def _require_relative_posix(value: str, field_name: str) -> None:
+def require_relative_posix(value: str, field_name: str) -> None:
+    """Fail unless ``value`` is a canonical repository-relative POSIX path (no root, drive, dot segments, backslash)."""
     path = PurePosixPath(value)
-    if not value or path.is_absolute() or "\\" in value or ".." in path.parts or "." in path.parts:
-        msg = f"{field_name} must be a repository-relative POSIX path without '.' or '..', got {value!r}"
+    canonical = path.as_posix() == value and not value.endswith("/")
+    if (
+        not value
+        or not canonical
+        or path.is_absolute()
+        or "\\" in value
+        or ":" in path.parts[0]
+        or ".." in path.parts
+        or "." in path.parts
+    ):
+        msg = (
+            f"{field_name} must be a repository-relative POSIX path without '.' or '..' (canonical form), got {value!r}"
+        )
         raise ValueError(msg)
+
+
+_require_relative_posix = require_relative_posix
 
 
 # --- common record ----------------------------------------------------------------

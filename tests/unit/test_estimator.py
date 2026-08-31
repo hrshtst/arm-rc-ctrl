@@ -10,7 +10,12 @@ import math
 import numpy as np
 import pytest
 
-from arm_rc_ctrl.controllers.estimator import CausalDerivativeEstimator, EstimatorConfig, EstimatorError
+from arm_rc_ctrl.controllers.estimator import (
+    CausalDerivativeEstimator,
+    DerivativeEstimate,
+    EstimatorConfig,
+    EstimatorError,
+)
 
 DT = 0.01
 
@@ -146,3 +151,25 @@ def test_config_validation(kwargs: dict[str, float], message: str) -> None:
         EstimatorConfig(**kwargs)
     with pytest.raises(ValueError, match="dof must be >= 1"):
         CausalDerivativeEstimator(EstimatorConfig(DT), 0)
+
+
+def test_estimates_are_read_only_copies() -> None:
+    """Telemetry consumers cannot alter the estimator's state: every array is a distinct, read-only copy."""
+    estimator = _estimator()
+    first = estimator.update(0.0, np.array([0.1, 0.2]))
+    assert first.dq_raw is not first.ddq_raw
+    assert first.dq is not first.ddq
+    for name in ("q", "dq_raw", "ddq_raw", "dq", "ddq"):
+        array = getattr(first, name)
+        assert not array.flags.writeable, name
+        with pytest.raises(ValueError, match="read-only"):
+            array[0] = 5.0
+    channels = first.channels()
+    with pytest.raises(ValueError, match="read-only"):
+        channels["dq_desired"][0] = 1.0
+    second = estimator.update(DT, np.array([0.2, 0.2]))
+    assert second.dq_raw[0] == pytest.approx(10.0)  # unaffected by any attempt to mutate the first estimate
+    with pytest.raises(ValueError, match="dq must have 2 entries"):
+        DerivativeEstimate(0.0, 0.0, np.zeros(2), np.zeros(2), np.zeros(2), np.zeros(3), np.zeros(2))
+    with pytest.raises(ValueError, match="t and dt must be finite and non-negative"):
+        DerivativeEstimate(0.0, -0.01, np.zeros(2), np.zeros(2), np.zeros(2), np.zeros(2), np.zeros(2))

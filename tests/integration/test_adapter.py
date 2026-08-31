@@ -53,7 +53,7 @@ ESN = EsnConfig(
     ),
     readout=ReadoutConfig(alpha=1e-6),
 )
-RCLIB = RclibIdentity("0.0.0", "0" * 40)
+RCLIB = RclibIdentity.current()
 
 
 def _planned_samples(scenario: ScenarioConfig) -> SampleSet:

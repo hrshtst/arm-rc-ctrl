@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Final
 import tomli_w
 
 from arm_rc_ctrl.config import load_config, to_mapping
-from arm_rc_ctrl.data.records import Normalization, Preprocessing, is_artifact_id
+from arm_rc_ctrl.data.records import Normalization, Preprocessing, is_artifact_id, require_relative_posix
 from arm_rc_ctrl.dependencies import submodule_revisions, submodule_version
 from arm_rc_ctrl.rc.esn import EsnConfig, EsnModel
 from arm_rc_ctrl.rc.teacher_forcing import INPUT_CHANNELS, Episode, InputEncoder, build_episode
@@ -71,9 +71,7 @@ class DatasetSource:
         if not is_hex(self.payload_sha256, SHA256_HEX_LENGTH):
             msg = f"payload_sha256 must be 64 lowercase hex characters, got {self.payload_sha256!r}"
             raise ValueError(msg)
-        if not self.record.strip() or self.record.startswith("/"):
-            msg = f"record must be a repository-relative path, got {self.record!r}"
-            raise ValueError(msg)
+        require_relative_posix(self.record, "record")
 
 
 @dataclass(frozen=True)
@@ -201,8 +199,21 @@ class ModelRecipe:
         encoder = self.encoder()
         return [build_episode(samples[d.artifact_id], encoder, source=d.artifact_id) for d in self.datasets]
 
-    def refit(self, samples: Mapping[str, SampleSet]) -> tuple[EsnModel, FitReport]:
-        """Rebuild and refit the model; fail unless the recorded fit report is reproduced within tolerance."""
+    def require_rclib(self, installed: RclibIdentity | None = None) -> None:
+        """Fail unless the installed ``rclib`` (default: this checkout's pin) is the one the recipe was made with."""
+        current = RclibIdentity.current() if installed is None else installed
+        if current != self.rclib:
+            msg = (
+                f"recipe {self.name!r} was made with rclib {self.rclib.version} ({self.rclib.commit[:12]}) but "
+                f"{current.version} ({current.commit[:12]}) is installed; reservoir and readout semantics may differ"
+            )
+            raise RecipeMismatchError(msg)
+
+    def refit(
+        self, samples: Mapping[str, SampleSet], *, installed: RclibIdentity | None = None
+    ) -> tuple[EsnModel, FitReport]:
+        """Rebuild and refit the model; fail unless the rclib pin matches and the fit report is reproduced."""
+        self.require_rclib(installed)
         model = self.build_model()
         report = train_readout(model, self.episodes(samples))
         mismatches = _compare_fit(report, self.fit, self.tolerance)

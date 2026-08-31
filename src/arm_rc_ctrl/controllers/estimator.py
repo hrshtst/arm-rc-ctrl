@@ -84,6 +84,16 @@ class DerivativeEstimate:
     dq: NDArray[np.float64]
     ddq: NDArray[np.float64]
 
+    def __post_init__(self) -> None:
+        """Validate timing and vectors; store finite, read-only copies so telemetry consumers cannot alter state."""
+        if not (math.isfinite(self.t) and self.t >= 0) or not (math.isfinite(self.dt) and self.dt >= 0):
+            msg = f"t and dt must be finite and non-negative, got {self.t!r} and {self.dt!r}"
+            raise ValueError(msg)
+        q = as_joint_vector(self.q, "q")
+        object.__setattr__(self, "q", q)
+        for name in ("dq_raw", "ddq_raw", "dq", "ddq"):
+            object.__setattr__(self, name, as_joint_vector(getattr(self, name), name, dof=q.shape[0]))
+
     def channels(self) -> dict[str, NDArray[np.float64]]:
         """Telemetry channels named as in the run record."""
         return {
@@ -140,10 +150,10 @@ class CausalDerivativeEstimator:
             msg = f"t must be finite and non-negative, got {t!r}"
             raise EstimatorError(msg)
         position = as_joint_vector(q, "q", dof=self._dof)
-        zeros = np.zeros(self._dof, dtype=np.float64)
         previous = self._last
         if previous is None:
-            estimate = DerivativeEstimate(t, 0.0, position, zeros, zeros, zeros, zeros)
+            zeros = [np.zeros(self._dof, dtype=np.float64) for _ in range(4)]  # distinct arrays, copied and frozen
+            estimate = DerivativeEstimate(t, 0.0, position, *zeros)
         else:
             dt = t - previous.t
             if dt <= 0:
