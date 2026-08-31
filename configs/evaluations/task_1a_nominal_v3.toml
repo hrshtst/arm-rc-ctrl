@@ -1,0 +1,12 @@
+# Nominal RC closed-loop evaluation (docs/TASKS.md M3-006): the point selected by the recorded ESN search
+# docs/experiments/task_1a/esn_search.json (protocol configs/studies/esn_search_1a.toml, digest 255ff4876c5f; trial 13 of
+# 120 stored / budget 120, 1 feasible; objective
+# 0.02165268757558386 rad median movement-window joint RMSE over the development scenarios; dataset processed-20260830-feaf73e6663c).
+# The estimator cutoffs are the selected point's; the tracker is the protocol's frozen baseline.
+name = "task-1a-nominal-v3"
+tracker = "../controllers/task_1a_pd_v2.toml"
+
+[estimator]
+velocity_cutoff_hz = 14.175590436732154
+acceleration_cutoff_hz = 10.612032951422595
+max_dt_ratio = 3.0
