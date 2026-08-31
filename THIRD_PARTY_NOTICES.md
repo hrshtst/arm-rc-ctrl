@@ -8,7 +8,7 @@ Third-party components retain their own copyrights and license conditions.
 | Component | License | Source | Path | Pinned commit |
 | --- | --- | --- | --- | --- |
 | rclib | Apache License 2.0 | <https://github.com/hrshtst/rclib> | `third_party/rclib` | `a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b` |
-| skelarm | GNU GPL 3.0 only | <https://github.com/hrshtst/skelarm> | `third_party/skelarm` | `ebb26118864ad158ef2ad36af68027b1a12ade1a` |
+| skelarm | GNU GPL 3.0 only | <https://github.com/hrshtst/skelarm> | `third_party/skelarm` | `11f563d37c23fcbbebddfbe6b6b23897204e38fb` |
 | rtctrl | Apache License 2.0 | <https://github.com/hrshtst/rtctrl> | `third_party/rtctrl` | `c601076ee60ec712c1cb4a85756a186882df2e1b` |
 
 These projects are pinned Git submodules with HTTPS URLs. The pinned commits

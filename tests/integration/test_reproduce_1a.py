@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from arm_rc_ctrl.data.records import ProcessedDatasetRecord, RawDemonstrationRecord, load_record
+from arm_rc_ctrl.dependencies import submodule_revisions
 from arm_rc_ctrl.experiments.reproduce_1a import (
     CONFIRMATORY_REPORT,
     STEPS,
@@ -131,13 +132,28 @@ def worktree_is_clean() -> bool:
     return status.stdout.strip() == ""
 
 
+def at_evidence_pins() -> bool:
+    """Whether the checked-out submodules match the confirmatory evidence (required by the environment step)."""
+    suite = load_suite(CONFIRMATORY_REPORT)
+    recorded = {s.name: (s.checked_out or s.recorded) for s in suite.provenance.submodules}
+    current = {s.name: (s.checked_out or s.recorded) for s in submodule_revisions(REPO_ROOT)}
+    return all(current.get(name) == revision for name, revision in recorded.items())
+
+
 def test_reproduction_rebuilds_data_model_and_report_and_names_the_rerun_requirement(tmp_path: Path) -> None:
     """In a dirty worktree every step but the confirmatory rerun passes; the rerun names its clean-checkout need."""
     store = configured_store()
     result = reproduce(
         scratch=tmp_path / "scratch", classes=("nominal",), exploratory=True, keep_going=True, store=store
     )
-    assert [c.name for c in result.checks] == list(STEPS)
+    assert [c.name for c in result.checks] == list(STEPS)  # keep_going runs every step
+    if not at_evidence_pins():
+        # A checkout whose pins differ from the evidence must fail the environment step and rebuild nothing.
+        environment = result.checks[0]
+        assert not environment.ok
+        assert "submodule pins differ" in environment.detail
+        assert result.ok is False
+        return
     outcomes = {c.name: c.ok for c in result.checks}
     assert outcomes == {**dict.fromkeys(STEPS, True), "evaluation": False}
     evaluation = next(c for c in result.checks if c.name == "evaluation")
@@ -156,6 +172,8 @@ def test_reproduction_reruns_the_nominal_evidence_exactly_from_a_clean_checkout(
     store = configured_store()
     if not worktree_is_clean():
         pytest.skip("the confirmatory rerun needs a clean worktree")
+    if not at_evidence_pins():
+        pytest.skip("the checked-out submodule pins differ from the evidence")
     result = reproduce(scratch=tmp_path / "scratch", classes=("nominal",), store=store)
     assert result.ok, [c for c in result.checks if not c.ok]
     assert result.max_deviation == 0.0
@@ -181,6 +199,8 @@ def test_a_mismatched_payload_fails_the_payload_step_clearly(tmp_path: Path) -> 
         store.path(raw.artifact.payload.uri, mode="read").read_bytes()
     )
     corrupt.path(processed.artifact.payload.uri, mode="write").write_bytes(b"not the payload")
+    if not at_evidence_pins():
+        pytest.skip("the checked-out submodule pins differ from the evidence; the environment step fails first")
     result = reproduce(scratch=tmp_path / "scratch", classes=("nominal",), exploratory=True, store=corrupt)
     names = [c.name for c in result.checks]
     assert names == ["environment", "storage", "records", "payloads"]
@@ -206,13 +226,24 @@ def test_command_writes_a_summary_and_reports_failure_status(
     assert status == 1
     printed = json.loads(capsys.readouterr().out)
     assert printed["ok"] is False
-    assert [c["name"] for c in printed["checks"]] == ["environment", "storage"]
+    if at_evidence_pins():
+        assert [c["name"] for c in printed["checks"]] == ["environment", "storage"]
+    else:
+        assert [c["name"] for c in printed["checks"]] == ["environment"]
+        assert "submodule pins differ" in printed["checks"][0]["detail"]
     assert printed["checks"][-1]["ok"] is False
     assert json.loads(summary.read_text(encoding="utf-8")) == printed
     note = audit.read_text(encoding="utf-8")
     assert note.startswith("# Task 1-a reproduction audit")
     assert "- Outcome: FAIL" in note
-    assert "| storage | FAILED |" in note
-    assert "Steps not run after the first failure: records, payloads, data, model, evaluation, report." in note
+    if at_evidence_pins():
+        assert "| storage | FAILED |" in note
+        assert "Steps not run after the first failure: records, payloads, data, model, evaluation, report." in note
+    else:
+        assert "| environment | FAILED |" in note
+        assert (
+            "Steps not run after the first failure: storage, records, payloads, data, model, evaluation, report."
+            in note
+        )
     assert str(tmp_path) not in note  # records never carry machine-specific paths
     assert "- Command: `python -m arm_rc_ctrl.experiments.reproduce_1a --classes nominal --scratch scratch" in note
