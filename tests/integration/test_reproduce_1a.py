@@ -125,12 +125,17 @@ def test_command_writes_a_summary_and_reports_failure_status(
     """The command prints and writes the summary; a missing storage configuration is a clear non-zero exit."""
     monkeypatch.setenv("ARM_RC_CTRL_STORAGE_ROOT", str(tmp_path / "missing"))
     summary = tmp_path / "summary.json"
-    status = main(
-        ["--classes", "nominal", "--scratch", str(tmp_path / "scratch"), "--summary", str(summary), "--exploratory"]
-    )
+    audit = tmp_path / "audit.md"
+    argv = ["--classes", "nominal", "--scratch", str(tmp_path / "scratch"), "--summary", str(summary), "--exploratory"]
+    status = main([*argv, "--audit", str(audit)])
     assert status == 1
     printed = json.loads(capsys.readouterr().out)
     assert printed["ok"] is False
     assert [c["name"] for c in printed["checks"]] == ["environment", "storage"]
     assert printed["checks"][-1]["ok"] is False
     assert json.loads(summary.read_text(encoding="utf-8")) == printed
+    note = audit.read_text(encoding="utf-8")
+    assert note.startswith("# Task 1-a reproduction audit")
+    assert "- Outcome: FAIL" in note
+    assert "| storage | FAILED |" in note
+    assert "Steps not run after the first failure: records, payloads, data, model, evaluation, report." in note

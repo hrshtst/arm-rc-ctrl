@@ -66,7 +66,7 @@ if TYPE_CHECKING:
     from arm_rc_ctrl.data.samples import SampleSet
     from arm_rc_ctrl.rc.recipe import ModelRecipe
 
-__all__ = ["Check", "Reproduction", "ReproductionError", "compare_suites", "main", "reproduce"]
+__all__ = ["Check", "Reproduction", "ReproductionError", "audit_markdown", "compare_suites", "main", "reproduce"]
 
 REPO: Final = repository_root()
 DOCS: Final = REPO / "docs" / "experiments" / "task_1a"
@@ -400,6 +400,39 @@ def reproduce(
     )
 
 
+def audit_markdown(result: Reproduction, *, command: str, auditor: str = "(to be filled by the auditor)") -> str:
+    """A reproduction-audit note: command, environment, per-step outcome and time, inputs, deviation."""
+    deviation = "n/a" if result.max_deviation is None else f"{result.max_deviation:.3e}"
+    lines = [
+        "# Task 1-a reproduction audit",
+        "",
+        f"- Auditor: {auditor}",
+        f"- Started: {result.started_at}",
+        f"- Command: `{command}`",
+        f"- Elapsed: {result.elapsed_s:.1f} s",
+        f"- Outcome: {'PASS' if result.ok else 'FAIL'}",
+        f"- Largest metric deviation of the confirmatory rerun: {deviation}",
+        "",
+        "## Environment",
+        "",
+        *[f"- {key}: {value}" for key, value in sorted(result.environment.items())],
+        "",
+        "## Inputs",
+        "",
+        *[f"- {key}: `{value}`" for key, value in sorted(result.inputs.items())],
+        "",
+        "## Steps",
+        "",
+        "| step | outcome | elapsed (s) | detail |",
+        "| --- | --- | --- | --- |",
+        *[f"| {c.name} | {'ok' if c.ok else 'FAILED'} | {c.elapsed_s:.2f} | {c.detail} |" for c in result.checks],
+    ]
+    missing = [name for name in STEPS if name not in {c.name for c in result.checks}]
+    if missing:
+        lines.extend(["", f"Steps not run after the first failure: {', '.join(missing)}."])
+    return "\n".join(lines) + "\n"
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Command-line entry point (exit status 1 when any step fails)."""
     parser = argparse.ArgumentParser(description="Reproduce the task 1-a result from the committed records.")
@@ -409,6 +442,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     parser.add_argument("--scratch", type=Path, default=None, help="scratch directory outside the repository")
     parser.add_argument("--summary", type=Path, default=None, help="write the machine-readable summary here")
+    parser.add_argument("--audit", type=Path, default=None, help="write the Markdown audit note here")
     parser.add_argument("--keep-going", action="store_true", help="run every step even after a failure")
     parser.add_argument(
         "--exploratory",
@@ -429,6 +463,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     text = json.dumps(summary, indent=2, sort_keys=True)
     if args.summary is not None:
         Path(args.summary).write_text(text + "\n", encoding="utf-8")
+    if args.audit is not None:
+        invoked = "python scripts/reproduce_1a.py " + " ".join(sys.argv[1:] if argv is None else argv)
+        Path(args.audit).write_text(audit_markdown(result, command=invoked), encoding="utf-8")
     print(text)
     return 0 if result.ok else 1
 
