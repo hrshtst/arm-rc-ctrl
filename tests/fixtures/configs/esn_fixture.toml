@@ -1,0 +1,21 @@
+# Small ESN configuration for the end-to-end regression fixture (docs/TASKS.md M2-015): the
+# committed development anchor (configs/models/esn_task_1a.toml) with a 30-neuron reservoir so
+# the fixture trains in well under a second. Not a scientific configuration.
+name = "esn-fixture"
+
+[esn.reservoir]
+n_neurons = 30
+spectral_radius = 0.9
+sparsity = 0.9
+leak_rate = 0.3
+input_scaling = 0.5
+seed = 31
+
+[esn.readout]
+alpha = 1e-2
+solver = "cholesky"
+
+[input_transform]
+policy = "fixed_scale"
+q_scale = 0.3
+dq_scale = 4.0
