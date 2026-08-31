@@ -1,0 +1,24 @@
+# Development ESN configuration for the task 1-a vertical slice (docs/PLAN.md section 5;
+# docs/TASKS.md M2-011). Hand-picked, not tuned: M2-018 selects the input-scale region with a
+# provenance-recorded pilot and M3 tunes the reservoir and readout with Optuna. Training
+# datasets are given to the training command; the resulting recipe records everything.
+name = "esn-task-1a-dev"
+
+[esn.reservoir]
+n_neurons = 200
+spectral_radius = 0.9
+sparsity = 0.9
+leak_rate = 0.3
+input_scaling = 0.5
+seed = 31
+
+[esn.readout]
+alpha = 1e-2
+solver = "cholesky"
+
+[input_transform]
+# Recipe-level input transform (PLAN section 5.1): training means as centers and one shared
+# physical scale per channel; the anchor values of the owner decision of 2026-09-01.
+policy = "fixed_scale"
+q_scale = 0.3
+dq_scale = 4.0
