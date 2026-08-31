@@ -783,3 +783,11 @@ record = "data/records/runs/run-20260831-9123f5a773af.toml"
 uri = "armrc://runs/run-20260831-9123f5a773af/run.json"
 sha256 = "9123f5a773af5e2377f57a1968d579279ba5dfcb26c6d429248827cdb7bfbae2"
 created_at = "2026-08-31T05:17:51+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260831-fad4971db23b"
+kind = "run"
+record = "data/records/runs/run-20260831-fad4971db23b.toml"
+uri = "armrc://runs/run-20260831-fad4971db23b/run.json"
+sha256 = "fad4971db23bf09793026153608009c8b896712b6a2c9d6a7b21308b89d262cb"
+created_at = "2026-08-31T05:14:44+00:00"
