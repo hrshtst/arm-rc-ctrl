@@ -22,6 +22,7 @@ DOCS = REPO_ROOT / "docs" / "experiments" / "task_1a"
 SUMMARY = DOCS / "reproduction_audit.json"
 NOTE = DOCS / "reproduction_audit.md"
 CONFIRMATORY = DOCS / "robustness_confirmatory_v2_recipe_v4.json"
+AUDITOR = "OpenAI Codex (independent same-host rerun at `3ecb548`)"
 
 
 def test_audit_passed_every_step_exactly_on_the_committed_evidence() -> None:
@@ -51,5 +52,6 @@ def test_audit_note_is_rendered_from_the_summary_and_names_no_machine_path() -> 
     note = NOTE.read_text(encoding="utf-8")
     command = re.search(r"- Command: `([^`]+)`", note)
     assert command is not None
-    assert note == audit_markdown(result, command=command.group(1))
+    assert f"- Auditor: {AUDITOR}" in note
+    assert note == audit_markdown(result, command=command.group(1), auditor=AUDITOR)
     assert not re.search(r"(?<![\w./])/(?:home|tmp|Users|mnt)/", note + SUMMARY.read_text(encoding="utf-8"))

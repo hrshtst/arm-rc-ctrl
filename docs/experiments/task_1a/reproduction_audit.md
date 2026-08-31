@@ -1,6 +1,6 @@
 # Task 1-a reproduction audit
 
-- Auditor: (to be filled by the auditor)
+- Auditor: OpenAI Codex (independent same-host rerun at `3ecb548`)
 - Started: 2026-08-31T10:04:42.725035+00:00
 - Command: `python -m arm_rc_ctrl.experiments.reproduce_1a --scratch reproduce --summary docs/experiments/task_1a/reproduction_audit.json --audit docs/experiments/task_1a/reproduction_audit.md`
 - Elapsed: 147.0 s
