@@ -1,0 +1,38 @@
+method = "rc+pd"
+scenario = "task-1a-reach"
+termination_kind = "completed"
+success = true
+duration_s = 5.0
+n_samples = 501
+arrays_sha256 = "858d93767f12230e896575f2cee6009b0bc5d7c58f814e960bbe2c9e1e156356"
+
+[artifact]
+artifact_id = "run-20260831-473cb98d27ff"
+kind = "run"
+created_at = "2026-08-31T08:09:03+00:00"
+license = "LicenseRef-Private"
+access = "private"
+notes = "RC target generator from recipe 'esn-task-1a-v4' tracked by pd; priming until 1.0 s; boundary jump 0.0455 rad."
+schema_version = 1
+
+[artifact.payload]
+uri = "armrc://runs/run-20260831-473cb98d27ff/run.json"
+sha256 = "473cb98d27ff4e724d304604d053e88ddc8a49ec012a5721c6e9fe74f1c12aa8"
+size = 7445
+format = "run.json"
+schema_version = 1
+
+[artifact.origin]
+command = "python -m arm_rc_ctrl.experiments.robustness --confirmatory configs/evaluations/task_1a_confirmatory_v2.toml --dataset data/records/processed/processed-20260830-feaf73e6663c.toml --recipe data/records/models/model-20260831-1b9477aaa246.toml --evaluation configs/evaluations/task_1a_nominal_v4.toml --label confirmatory --report docs/experiments/task_1a/robustness_confirmatory_v2_recipe_v4.json --markdown docs/experiments/task_1a/robustness_confirmatory_v2_recipe_v4.md"
+config_sha256 = "dc9c69e3622d1973e078810807c0da7393bde67121914d3ba1bbc90c7c3664f8"
+project_commit = "19b9af3f5540f95cb594eb19b9ab6fa4e32b9fac"
+project_dirty = false
+sources = [
+    "processed-20260830-feaf73e6663c",
+]
+run_id = "run-20260831-473cb98d27ff"
+
+[artifact.origin.dependency_commits]
+rclib = "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b"
+skelarm = "ebb26118864ad158ef2ad36af68027b1a12ade1a"
+rtctrl = "c601076ee60ec712c1cb4a85756a186882df2e1b"
