@@ -40,7 +40,10 @@ An ESN search (`arm_rc_ctrl.experiments.esn_study --protocol configs/studies/esn
 --dataset … --report …`) keeps its Optuna study under `armrc://optuna/<name>.db`,
 resumes when re-run with the same protocol (`--max-trials` bounds one
 invocation), and mirrors the study as one MLflow parent run with a child run
-per trial.
+per trial. Only trials feasible in every development scenario can be
+selected; `arm_rc_ctrl.experiments.esn_stability` re-evaluates a study's
+leading trials over a reservoir-seed panel, and `arm_rc_ctrl.experiments.esn_freeze`
+turns the selection into versioned model and evaluation configurations.
 The paired robustness suite (`arm_rc_ctrl.experiments.robustness --development
 configs/evaluations/task_1a_robustness_dev_v1.toml` or `--confirmatory
 configs/evaluations/task_1a_confirmatory_v2.toml`, plus `--dataset`, `--recipe`,

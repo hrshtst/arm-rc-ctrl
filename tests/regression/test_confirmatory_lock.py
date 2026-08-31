@@ -34,7 +34,9 @@ REPO_ROOT = repository_root()
 GAIN_STUDY = REPO_ROOT / "configs" / "studies" / "baseline_gains_1a.toml"
 GAIN_STUDY_V2 = REPO_ROOT / "configs" / "studies" / "baseline_gains_1a_v2.toml"
 ESN_SEARCH = REPO_ROOT / "configs" / "studies" / "esn_search_1a.toml"
+ESN_SEARCH_V2 = REPO_ROOT / "configs" / "studies" / "esn_search_1a_v2.toml"
 ROBUSTNESS_DEV = REPO_ROOT / "configs" / "evaluations" / "task_1a_robustness_dev_v1.toml"
+ROBUSTNESS_DEV_V2 = REPO_ROOT / "configs" / "evaluations" / "task_1a_robustness_dev_v2.toml"
 
 
 @dataclass(frozen=True)
@@ -64,8 +66,8 @@ VERSIONS = {
         REPO_ROOT / "docs" / "experiments" / "task_1a" / "perturbation_pilot_v2.json",
         REPO_ROOT / "docs" / "experiments" / "task_1a" / "perturbation_pilot_v2.md",
         (GAIN_STUDY, GAIN_STUDY_V2),
-        (ESN_SEARCH,),
-        (ROBUSTNESS_DEV,),
+        (ESN_SEARCH, ESN_SEARCH_V2),
+        (ROBUSTNESS_DEV, ROBUSTNESS_DEV_V2),
     ),
 }
 

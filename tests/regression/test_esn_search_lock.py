@@ -14,6 +14,7 @@ import pytest
 from arm_rc_ctrl.experiments.baselines import baseline_method
 from arm_rc_ctrl.experiments.confirmatory import load_confirmatory
 from arm_rc_ctrl.experiments.esn_search import PLANNED_PARAMETERS, EsnSearchSpace, load_esn_search
+from arm_rc_ctrl.experiments.esn_study import load_report
 from arm_rc_ctrl.experiments.tuning import load_protocol as load_tuning_protocol
 from arm_rc_ctrl.rc.train import load_model_config
 from arm_rc_ctrl.repo import repository_root
@@ -103,3 +104,46 @@ def test_no_confirmatory_seed_level_timing_or_direction_is_used() -> None:
         assert pulse.start_s != confirmatory.force.start_s
         assert pulse.direction_deg not in confirmatory.force.directions_deg
         assert pulse.magnitude_n < confirmatory.force.magnitude_n
+
+
+V2 = REPO_ROOT / "configs" / "studies" / "esn_search_1a_v2.toml"
+V1_REPORT = REPO_ROOT / "docs" / "experiments" / "task_1a" / "esn_search.json"
+
+
+def test_v2_is_a_protocol_correction_of_v1() -> None:
+    """v2 keeps v1's scenarios, objective, and anchors; no pruning; inclusive start-up; refined bounds."""
+    v1 = load_esn_search(PROTOCOL)
+    v2 = load_esn_search(V2)
+    assert v2.name != v1.name
+    assert (v2.development, v2.objective, v2.feasibility, v2.model, v2.tracker, v2.scenario) == (
+        v1.development, v1.objective, v1.feasibility, v1.model, v1.tracker, v1.scenario,
+    )  # fmt: skip
+    assert v2.pruner.kind == "none"
+    assert v2.budget >= 1000
+    assert v2.sampler.seed not in {v1.sampler.seed, *load_confirmatory(CONFIRMATORY).seeds}
+    assert len(v2.comparison) == len(v1.comparison) + 1
+    assert [c.point for c in v2.comparison[: len(v1.comparison)]] == [c.point for c in v1.comparison]
+    assert v2.random_startup_trials == 100
+    assert v2.sampler.n_startup_trials == len(v2.comparison) + 100
+    v1_report = load_report(V1_REPORT)
+    assert v1_report.best_point is not None
+    assert v2.comparison[-1].point == v1_report.best_point
+    assert v2.comparison[-1].label == "v1-trial-13"
+    best = v1_report.best_point
+    space = v2.search
+    assert space.seed == v1.search.seed  # reservoir seeds stay uniform over the full range
+    assert space.alpha == v1.search.alpha
+    assert (
+        space.leak_rate.low
+        < v1.search.leak_rate.low
+        <= best.leak_rate
+        < space.leak_rate.high
+        < v1.search.leak_rate.high
+    )
+    assert space.input_scaling.low < v1.search.input_scaling.low <= best.input_scaling < space.input_scaling.high
+    assert space.spectral_radius.low < best.spectral_radius < space.spectral_radius.high
+    assert space.n_neurons.low <= best.n_neurons <= space.n_neurons.high < v1.search.n_neurons.high
+    assert space.velocity_cutoff_hz.high < v1.search.velocity_cutoff_hz.high
+    assert space.alpha.low <= ALPHA_REQUIRED[0]
+    assert space.alpha.high >= ALPHA_REQUIRED[1]
+    assert sorted(c.point.alpha for c in v2.comparison[:4]) == sorted(c.point.alpha for c in v1.comparison)

@@ -497,7 +497,12 @@ are logged separately; the scalar objective is never the only saved result.
 Only trials feasible in every development scenario are eligible for selection
 and freezing — a study without one selects nothing — and, because Optuna counts
 queued comparison points towards the sampler's start-up trials, a protocol
-states its start-up count inclusive of them.
+states its start-up count inclusive of them. Before a selection is frozen, a
+reservoir-seed sensitivity panel re-evaluates the leading feasible trials with
+a predefined list of seeds (everything else unchanged) and records how many
+seeds stay feasible and the spread of their objectives; a frozen recipe must
+also pass the held-out development robustness suite, otherwise the previous
+recipe is retained and the failure documented.
 
 Development/tuning scenarios and seeds are separate from confirmatory scenarios
 and seeds. The selected recipe is frozen before confirmatory evaluation. Reusing
