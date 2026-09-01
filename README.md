@@ -19,8 +19,9 @@ Pinned commits are listed in [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md).
 **Status:** milestones M0–M2 are closed; M3 (tuning and robustness) has
 tuned and frozen the task 1-a ESN recipe (v4, from the recorded search v2
 and its seed-sensitivity panel) and run the locked confirmatory robustness
-suite once on it (260 runs, all successful); the results report is
-`docs/experiments/task_1a/report.md` (regenerate with
+suite once on it (260 runs, all successful); start with the human-oriented
+`docs/experiments/task_1a/overview.md`, then consult the complete results report
+at `docs/experiments/task_1a/report.md` (regenerate with
 `uv run python -m arm_rc_ctrl.experiments.report_1a --docs docs/experiments/task_1a
 --output docs/experiments/task_1a/report.md --plots docs/experiments/task_1a/plots --force`);
 `uv run python scripts/reproduce_1a.py` re-derives the result from the

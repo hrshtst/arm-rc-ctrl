@@ -375,9 +375,12 @@ available when present.
 The exported log may contain visualization-only floating-point copies of integer
 channels, but it is not an archival representation of the run. Repeated exports
 must be semantically equivalent, contain no absolute machine paths, and be
-written atomically without overwriting an existing file. Exported logs and
-videos are local, disposable products: they receive no artifact record or
-catalog entry and are ignored by Git.
+written atomically without overwriting an existing file. Exported logs and ad
+hoc videos are local, disposable products: they receive no artifact record or
+catalog entry and are ignored by Git. A small animation may be committed only
+when explicitly curated for a human report; it must name its verified source run
+and generation command and remains an illustration rather than primary
+experimental evidence.
 
 A thin convenience command exports one run to a temporary location and invokes
 the pinned `third_party/skelarm/tools/player.py`; it forwards playback speed,

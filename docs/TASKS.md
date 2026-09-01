@@ -46,6 +46,7 @@ are complete. Do not mark research software complete merely because it runs once
 | --- | --- | --- | --- | --- |
 | DOC-001 | `DONE` | Define the research and implementation roadmap | — | `docs/PLAN.md` specifies architecture, equations, protocols, gates, safety, and reproducibility |
 | DOC-002 | `DONE` | Initialize the implementation task ledger | DOC-001 | `docs/TASKS.md` contains stable IDs, dependencies, statuses, and acceptance criteria |
+| DOC-003 | `DONE` | Write a human-oriented task 1-a results report with curated visualizations | M3-GATE, TOOL-001 | `docs/experiments/task_1a/overview.md` explains the motivation, task, RC method, paired baselines, locked robustness protocol, results, interpretation, and limitations; it links the complete generated report, embeds the three committed plots, and includes four illustrative GIFs generated from verified confirmatory run records whose IDs and commands are documented; a regression test binds every animation to the named arm/scenario/run and checks the report assets |
 
 ## M0 — Repository foundation
 

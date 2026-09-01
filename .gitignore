@@ -85,6 +85,9 @@ storage.toml
 !/tests/fixtures/**/*.parquet
 !/tests/fixtures/**/*.db
 !/tests/fixtures/**/*.sqlite3
+# Small, explicitly curated animations in the human task 1-a report are
+# illustrative documentation; the verified run payloads remain external.
+!/docs/experiments/task_1a/animations/*.gif
 
 # --- Editors / OS -----------------------------------------------------------
 .vscode/
