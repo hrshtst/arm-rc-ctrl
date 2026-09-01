@@ -617,6 +617,7 @@ arm-rc-ctrl/
 │   ├── evaluate.py
 │   ├── export_run_sklog.py
 │   ├── play_run.py
+│   ├── plot_task_1a_trajectories.py
 │   ├── preprocess_demo.py
 │   ├── record_demo.py
 │   ├── reproduce_1a.py
