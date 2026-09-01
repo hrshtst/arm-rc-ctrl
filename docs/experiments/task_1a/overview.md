@@ -23,6 +23,15 @@ closed loop from measured robot state, and remain safe under controlled
 perturbations? Task 1-a is that first end-to-end test. It is a proof of the
 learning and evaluation framework, not yet a demonstration of online learning.
 
+The frozen model learned from exactly **one five-second trajectory (501
+samples)**. No random-noise injection, perturbed copies, or other data
+augmentation was used during training. That is encouraging evidence of training
+data efficiency, especially when contrasted qualitatively with modern deep
+reinforcement learning workflows that commonly collect many repeated
+environment interactions. It is not a controlled RC-versus-Deep-RL benchmark:
+this task is simple, no Deep RL agent was trained, and model selection still
+used many development simulations.
+
 ## Task specification
 
 | Item | Specification |
@@ -46,6 +55,11 @@ The ESN is trained by teacher forcing on one processed demonstration. At sample
 the target is the next demonstrated joint position `q_(k+1)`. The initial hold
 also washes out the reservoir state. Ridge regression fits the readout while the
 random reservoir remains fixed.
+
+The one trajectory supplies 500 next-step input/target pairs. The first 100
+pairs wash out the reservoir, leaving 400 rows in the ridge-regression loss.
+Preprocessing derives velocities, phases, and fixed physical input scaling from
+that record; it does not create additional trajectories or add noise.
 
 During evaluation the input comes only from measured feedback:
 
@@ -127,28 +141,125 @@ trial) to a broad feasible set (902 of 1,000 trials):
 
 ![ESN search objective distributions](plots/search_objectives.png)
 
-## Animations
+## Representative scenarios: animations and joint trajectories
 
 The purple marker and ring show the target and its 1 cm tolerance. Green joints
 show the recorded robot state. A red arrow appears during endpoint-force pulses.
 The GIFs are sampled at 12 frames/s for presentation; metrics use the original
 100 Hz logs.
 
-| Learned RC motion, nominal | Direct-replay baseline, nominal |
+For each robustness class, the displayed scenario is selected deterministically:
+the RC+PD v2 run whose movement RMSE is closest to that class's RC+PD median.
+The same scenario is then used for all four arms. This avoids choosing unusually
+good or bad examples. In every 2-by-2 animation grid, learned RC is on the left,
+direct replay is on the right, PD is the top row, and computed torque is the
+bottom row.
+
+The time-series plots show the teacher signal/direct-replay reference as a black
+dashed line, replay's measured motion in blue, and RC's measured motion in
+orange. They are split by tracker and then by joint; vertical dotted lines mark
+the hold/reach and reach/dwell boundaries.
+
+### Nominal
+
+Scenario `nominal`: demonstrated posture and no external force.
+
+| RC + PD v2 | Replay + PD v2 |
 | --- | --- |
 | ![Nominal RC plus PD v2](animations/nominal_rc_pd.gif) | ![Nominal replay plus PD v2](animations/nominal_replay_pd.gif) |
 | RC+PD v2, `run-20260831-8dc3862d7168` | Replay+PD v2, `run-20260831-013f6eb247ff` |
+| RC + computed torque | Replay + computed torque |
+| ![Nominal RC plus computed torque](animations/nominal_rc_ct.gif) | ![Nominal replay plus computed torque](animations/nominal_replay_ct.gif) |
+| RC+computed torque, `run-20260831-4f4f4934ec19` | Replay+computed torque, `run-20260831-8c0569ef8a62` |
 
-The visual difference is subtle because both methods reach the target; the
-quantitative RMSE reveals the replay baseline's tighter trajectory tracking.
-
-| RC with PD v2, 12 N upward pulse | RC with computed torque, same pulse |
+| PD v2 joint trajectories | Computed-torque joint trajectories |
 | --- | --- |
-| ![RC plus PD v2 under a 12 N force pulse](animations/force_12n_rc_pd.gif) | ![RC plus computed torque under the same force pulse](animations/force_12n_rc_ct.gif) |
-| `run-20260831-6a6b01edfccf`, RMSE 0.00734 rad | `run-20260831-94b08b3e3cc9`, RMSE 0.03241 rad |
+| ![Nominal per-joint trajectories with PD v2](plots/trajectories_nominal_pd.png) | ![Nominal per-joint trajectories with computed torque](plots/trajectories_nominal_computed_torque.png) |
 
-These two runs use the same 12 N, 90-degree pulse. Both succeed, but the larger
-computed-torque displacement is consistent with its higher force-class error.
+The visual difference is subtle because every method reaches the target; the
+time series reveals replay's tighter reference tracking.
+
+### Small posture fluctuation
+
+Scenario `posture-small-20260903-03`: an unseen initial joint offset with norm
+0.05 rad and no external force.
+
+| RC + PD v2 | Replay + PD v2 |
+| --- | --- |
+| ![Small-posture RC plus PD v2](animations/posture_small_rc_pd.gif) | ![Small-posture replay plus PD v2](animations/posture_small_replay_pd.gif) |
+| RC+PD v2, `run-20260831-ec1191ddc035` | Replay+PD v2, `run-20260831-244e793b514f` |
+| RC + computed torque | Replay + computed torque |
+| ![Small-posture RC plus computed torque](animations/posture_small_rc_ct.gif) | ![Small-posture replay plus computed torque](animations/posture_small_replay_ct.gif) |
+| RC+computed torque, `run-20260831-7fa865cdcc90` | Replay+computed torque, `run-20260831-4b68d57e2fac` |
+
+| PD v2 joint trajectories | Computed-torque joint trajectories |
+| --- | --- |
+| ![Small-posture per-joint trajectories with PD v2](plots/trajectories_posture_small_pd.png) | ![Small-posture per-joint trajectories with computed torque](plots/trajectories_posture_small_computed_torque.png) |
+
+Both controllers first recover from an initial state that differs from the
+teacher signal. The ESN then generates the learned reach from measured feedback.
+
+### Large posture fluctuation
+
+Scenario `posture-large-20260904-03`: an unseen initial joint offset with norm
+0.10 rad and no external force.
+
+| RC + PD v2 | Replay + PD v2 |
+| --- | --- |
+| ![Large-posture RC plus PD v2](animations/posture_large_rc_pd.gif) | ![Large-posture replay plus PD v2](animations/posture_large_replay_pd.gif) |
+| RC+PD v2, `run-20260831-eeaf620bb2c6` | Replay+PD v2, `run-20260831-23e24d8dfaae` |
+| RC + computed torque | Replay + computed torque |
+| ![Large-posture RC plus computed torque](animations/posture_large_rc_ct.gif) | ![Large-posture replay plus computed torque](animations/posture_large_replay_ct.gif) |
+| RC+computed torque, `run-20260831-0c1cd4d956c0` | Replay+computed torque, `run-20260831-144ec91a9a51` |
+
+| PD v2 joint trajectories | Computed-torque joint trajectories |
+| --- | --- |
+| ![Large-posture per-joint trajectories with PD v2](plots/trajectories_posture_large_pd.png) | ![Large-posture per-joint trajectories with computed torque](plots/trajectories_posture_large_computed_torque.png) |
+
+The larger initial mismatch makes the recovery transient more visible, but all
+four runs still complete and meet the dwell criteria.
+
+### Force
+
+Scenario `force-12N-270deg`: the demonstrated posture plus a 12 N, 270-degree
+endpoint-force pulse lasting 0.2 s from `t = 2 s`.
+
+| RC + PD v2 | Replay + PD v2 |
+| --- | --- |
+| ![Force RC plus PD v2](animations/force_12n_rc_pd.gif) | ![Force replay plus PD v2](animations/force_12n_replay_pd.gif) |
+| RC+PD v2, `run-20260831-c98f8f1156cc` | Replay+PD v2, `run-20260831-c24da9e6c486` |
+| RC + computed torque | Replay + computed torque |
+| ![Force RC plus computed torque](animations/force_12n_rc_ct.gif) | ![Force replay plus computed torque](animations/force_12n_replay_ct.gif) |
+| RC+computed torque, `run-20260831-98e177f1a474` | Replay+computed torque, `run-20260831-530d72bc46f0` |
+
+| PD v2 joint trajectories | Computed-torque joint trajectories |
+| --- | --- |
+| ![Force per-joint trajectories with PD v2](plots/trajectories_force_pd.png) | ![Force per-joint trajectories with computed torque](plots/trajectories_force_computed_torque.png) |
+
+The pulse produces a localized deviation in both target-generation methods. The
+larger computed-torque response is nearly shared by RC and replay, supporting
+the interpretation that it is primarily a tracker effect.
+
+### Combined
+
+Scenario `combined-20260901-03-270deg`: an unseen 0.05 rad initial joint offset
+combined with the same 12 N, 270-degree pulse.
+
+| RC + PD v2 | Replay + PD v2 |
+| --- | --- |
+| ![Combined RC plus PD v2](animations/combined_rc_pd.gif) | ![Combined replay plus PD v2](animations/combined_replay_pd.gif) |
+| RC+PD v2, `run-20260831-8658997d9ad9` | Replay+PD v2, `run-20260831-4db678e4956e` |
+| RC + computed torque | Replay + computed torque |
+| ![Combined RC plus computed torque](animations/combined_rc_ct.gif) | ![Combined replay plus computed torque](animations/combined_replay_ct.gif) |
+| RC+computed torque, `run-20260831-0689609c5082` | Replay+computed torque, `run-20260831-340828190d94` |
+
+| PD v2 joint trajectories | Computed-torque joint trajectories |
+| --- | --- |
+| ![Combined per-joint trajectories with PD v2](plots/trajectories_combined_pd.png) | ![Combined per-joint trajectories with computed torque](plots/trajectories_combined_computed_torque.png) |
+
+This class combines the two disturbances rather than testing either in
+isolation. The displayed runs recover, reach, and satisfy the same dwell rule as
+the other 256 confirmatory evaluations.
 
 ## Interpretation
 
@@ -172,6 +283,9 @@ for testing generalization in task 1-b and eventually online adaptation.
   hardware noise, latency, and model mismatch are absent.
 - Training uses one scripted demonstration of one target. A human demonstration
   has not yet been added to the final evidence.
+- No matched Deep RL system was evaluated, so the single-trajectory result
+  supports an RC data-efficiency hypothesis but does not quantify an advantage
+  over Deep RL.
 - Robustness is demonstrated only within the locked 0.10 rad posture and 12 N
   force envelope; it is not a general stability guarantee.
 - The selected ESN lies near several search bounds, leaving optimization
@@ -191,7 +305,16 @@ The complete evidence, exact metrics, provenance, and limitations are in
 [reproduction_audit.md](reproduction_audit.md). Run payloads remain in the
 configured external store and are verified through Git-tracked pointer records.
 
-The animations were generated from the four named confirmatory run records with:
+The ten joint-trajectory plots are generated directly from the locked suite and
+the external payloads with:
+
+```bash
+uv run python scripts/plot_task_1a_trajectories.py \
+  --suite docs/experiments/task_1a/robustness_confirmatory_v2_recipe_v4.json \
+  --output-dir /tmp/task-1a-trajectory-plots
+```
+
+Each animation was generated from the run record named below it with:
 
 ```bash
 uv run python scripts/play_run.py --run <run-id> \
