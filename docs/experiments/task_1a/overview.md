@@ -156,9 +156,10 @@ direct replay is on the right, PD is the top row, and computed torque is the
 bottom row.
 
 The time-series plots show the teacher signal/direct-replay reference as a black
-dashed line, replay's measured motion in blue, and RC's measured motion in
-orange. They are split by tracker and then by joint; vertical dotted lines mark
-the hold/reach and reach/dwell boundaries.
+dashed line, replay's measured motion in solid blue, the ESN position output in
+dashed green, and RC's measured motion in solid orange. The curves are drawn and
+listed in that order. The plots are split by tracker and then by joint; vertical
+dotted lines mark the hold/reach and reach/dwell boundaries.
 
 ### Nominal
 

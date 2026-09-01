@@ -107,3 +107,4 @@ def test_overview_visuals_are_bound_to_confirmatory_runs() -> None:
     assert "one five-second trajectory (501" in text
     assert "No random-noise injection, perturbed copies, or other data" in text
     assert "not a controlled RC-versus-Deep-RL benchmark" in text
+    assert "the ESN position output in\ndashed green" in text
