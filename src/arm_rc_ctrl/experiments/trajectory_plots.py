@@ -33,7 +33,14 @@ if TYPE_CHECKING:
     from arm_rc_ctrl.experiments.run_record import LoadedRun
     from arm_rc_ctrl.storage import StorageRoot
 
-__all__ = ["ARM_PAIRS", "plot_joint_series", "select_representatives", "write_task_1a_trajectory_plots"]
+__all__ = [
+    "ARM_PAIRS",
+    "CURVE_ORDER",
+    "CURVE_STYLES",
+    "plot_joint_series",
+    "select_representatives",
+    "write_task_1a_trajectory_plots",
+]
 
 ARM_PAIRS: Final[Mapping[str, tuple[str, str]]] = {
     "pd": ("rc+pd_v2", "replay+pd_v2"),
@@ -49,6 +56,14 @@ _CLASS_LABELS: Final[Mapping[PerturbationClass, str]] = {
 _PHASE_BOUNDARIES: Final = (1.0, 4.0)
 _MINIMUM_SAMPLES: Final = 2
 _TRAJECTORY_DIMENSIONS: Final = 2
+CURVE_ORDER: Final = ("reference", "replay_actual", "rc_output", "rc_actual")
+"""Legend and draw order for every joint-trajectory panel."""
+CURVE_STYLES: Final[Mapping[str, tuple[str, str, float, str]]] = {
+    "reference": ("black", "--", 2.2, "teacher/reference"),
+    "replay_actual": ("tab:blue", "-", 1.8, "replay actual"),
+    "rc_output": ("tab:green", "--", 1.8, "RC output"),
+    "rc_actual": ("tab:orange", "-", 1.5, "RC actual"),
+}
 
 
 def _joint_rmse(run: ArmRun) -> float:
@@ -93,31 +108,35 @@ def _finite_trajectory(array: NDArray[np.float64], name: str, shape: tuple[int, 
 
 def plot_joint_series(
     t: NDArray[np.float64],
-    teacher: NDArray[np.float64],
-    replay: NDArray[np.float64],
-    rc: NDArray[np.float64],
+    reference: NDArray[np.float64],
+    replay_actual: NDArray[np.float64],
+    rc_output: NDArray[np.float64],
+    rc_actual: NDArray[np.float64],
     out: Path,
     *,
     title: str,
     force: bool = False,
 ) -> Path:
-    """Plot teacher, replay actual, and RC actual joint positions in one panel per joint."""
+    """Plot reference, replay actual, RC output, and RC actual positions in the declared order."""
     time = np.asarray(t, dtype=np.float64)
     if time.ndim != 1 or time.size < _MINIMUM_SAMPLES or not np.all(np.isfinite(time)) or not np.all(np.diff(time) > 0):
         msg = "t must be a finite, strictly increasing 1-D array with at least two samples"
         raise ValueError(msg)
-    teacher_values = np.asarray(teacher, dtype=np.float64)
+    reference_values = np.asarray(reference, dtype=np.float64)
     if (
-        teacher_values.ndim != _TRAJECTORY_DIMENSIONS
-        or teacher_values.shape[0] != time.size
-        or teacher_values.shape[1] < 1
+        reference_values.ndim != _TRAJECTORY_DIMENSIONS
+        or reference_values.shape[0] != time.size
+        or reference_values.shape[1] < 1
     ):
-        msg = f"teacher must have shape (N, dof), got {teacher_values.shape}"
+        msg = f"reference must have shape (N, dof), got {reference_values.shape}"
         raise ValueError(msg)
-    shape = (time.size, teacher_values.shape[1])
-    reference = _finite_trajectory(teacher_values, "teacher", shape)
-    replay_actual = _finite_trajectory(replay, "replay", shape)
-    rc_actual = _finite_trajectory(rc, "rc", shape)
+    shape = (time.size, reference_values.shape[1])
+    curves = {
+        "reference": _finite_trajectory(reference_values, "reference", shape),
+        "replay_actual": _finite_trajectory(replay_actual, "replay_actual", shape),
+        "rc_output": _finite_trajectory(rc_output, "rc_output", shape),
+        "rc_actual": _finite_trajectory(rc_actual, "rc_actual", shape),
+    }
     if out.exists() and not force:
         msg = f"refusing to overwrite {out}"
         raise FileExistsError(msg)
@@ -135,15 +154,22 @@ def plot_joint_series(
     )
     panels = axes[:, 0]
     for joint, axis in enumerate(panels):
-        axis.plot(time, reference[:, joint], color="black", linestyle="--", linewidth=2.2, label="teacher/reference")
-        axis.plot(time, replay_actual[:, joint], color="tab:blue", linewidth=1.8, label="replay actual")
-        axis.plot(time, rc_actual[:, joint], color="tab:orange", linewidth=1.5, label="RC actual")
+        for name in CURVE_ORDER:
+            color, linestyle, linewidth, label = CURVE_STYLES[name]
+            axis.plot(
+                time,
+                curves[name][:, joint],
+                color=color,
+                linestyle=linestyle,
+                linewidth=linewidth,
+                label=label,
+            )
         for boundary in _PHASE_BOUNDARIES:
             axis.axvline(boundary, color="0.65", linewidth=0.8, linestyle=":")
         axis.set_ylabel(f"q{joint + 1} (rad)")
         axis.grid(visible=True, alpha=0.3)
     panels[0].set_title(title)
-    panels[0].legend(loc="best", fontsize="small", ncol=3)
+    panels[0].legend(loc="best", fontsize="small", ncol=4)
     panels[-1].set_xlabel("time (s)   |   hold: 0-1   reach: 1-4   dwell: 4-5")
     out.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile(prefix=out.stem, suffix=".tmp.png", dir=out.parent, delete=False) as handle:
@@ -206,6 +232,7 @@ def write_task_1a_trajectory_plots(
                 replay.arrays.arrays["t"],
                 replay.arrays.arrays["q_desired"],
                 replay.arrays.arrays["q"],
+                rc.arrays.arrays["q_desired"],
                 rc.arrays.arrays["q"],
                 output_dir / filename,
                 title=f"{_CLASS_LABELS[kind]} — {tracker.replace('_', ' ')} — {scenario_id}",
