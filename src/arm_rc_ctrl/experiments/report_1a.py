@@ -45,7 +45,7 @@ PLOT_FILES: Final = ("rmse_by_class.png", "paired_differences.png", "search_obje
 _STAT_HEADER: Final = ("arm", "class", "successes", "median", "q25", "q75", "min", "max")
 _LIMITATIONS: Final = (
     (
-        "Simulation only: all results come from the `skelarm` planar two-link model at 250 Hz with the frozen "
+        "Simulation only: all results come from the `skelarm` planar two-link model at 100 Hz with the frozen "
         "tracker gains; no hardware, sensor noise, latency, or model mismatch beyond the configured perturbations "
         "is represented."
     ),

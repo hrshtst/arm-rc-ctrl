@@ -267,7 +267,7 @@ uv run python scripts/play_run.py --run run-20260831-3fef7abca22a --scenario con
 
 ## Limitations
 
-- Simulation only: all results come from the `skelarm` planar two-link model at 250 Hz with the frozen tracker gains; no hardware, sensor noise, latency, or model mismatch beyond the configured perturbations is represented.
+- Simulation only: all results come from the `skelarm` planar two-link model at 100 Hz with the frozen tracker gains; no hardware, sensor noise, latency, or model mismatch beyond the configured perturbations is represented.
 - One demonstration, one task: the recipe was trained on a single scripted demonstration of task 1-a and evaluated against it; generalization to other targets, speeds, or postures beyond the perturbation classes is untested.
 - The RC generator tracks the demonstration less precisely than the direct replay in every posture class (median RC minus replay joint RMSE up to about 0.008 rad under PD v2); under the 12 N pulses the difference vanishes because the pulse dominates both, so the force classes do not separate the methods.
 - Computed torque absorbs the confirmatory pulse worse than PD v2 (about 0.07 rad for RC and replay alike); it is a secondary comparison and the ESN objective was tuned with PD v2 only.
