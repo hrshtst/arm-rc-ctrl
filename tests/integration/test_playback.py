@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -102,6 +103,7 @@ def test_exported_log_carries_state_task_and_identity(
     (disturbance,) = run_meta["disturbances"]
     assert disturbance["kind"] == "endpoint_force_pulse"
     assert "source_config" not in log.extra  # playback-only: never advertised as rerunnable
+    assert "task_code" not in log.channel_names  # zero-width for task 1-a; exported only when it has width
     skeleton = log.build_skeleton()
     assert log.channel("q").shape[1] == scenario.dof
     assert skeleton.q.shape == (scenario.dof,)
@@ -309,3 +311,13 @@ def test_play_rejects_degenerate_speed_and_fps(
     with pytest.raises(SystemExit):
         main_play([*base, "--fps", "12"])  # --fps without --export
     assert "--fps only applies to --export" in capsys.readouterr().err
+
+
+def test_export_keeps_a_nonzero_width_task_code(replayed: tuple[StorageRoot, Path, ReplayResult]) -> None:
+    """A run whose task code has width exports it as a channel (future multi-target playback)."""
+    _store, _records, result = replayed
+    arrays = dict(result.run.arrays.arrays)
+    coded = np.tile(np.array([[1.0, 0.0]]), (arrays["task_code"].shape[0], 1))
+    fake = type(result.run.arrays)({**arrays, "task_code": coded})
+    channels = playback.sklog_channels(replace(result.run, arrays=fake))
+    assert np.array_equal(channels["task_code"], coded)

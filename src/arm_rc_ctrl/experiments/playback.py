@@ -60,8 +60,8 @@ PLAYER: Final = repository_root() / "third_party" / "skelarm" / "tools" / "playe
 _SUFFIX: Final = ".sklog.npz"
 _INTEGER_CHANNELS: Final = ("saturation", "phase")
 """Integer telemetry exported as visualization-only floating-point copies."""
-_SKIPPED: Final = ("t", "task_code")
-"""Arrays that are not exported as channels (time drives the log; the task code is empty for task 1-a)."""
+_SKIPPED: Final = ("t",)
+"""Arrays that are not exported as channels (time drives the log)."""
 
 
 def resolve_pointer(run_id: str, records_root: Path) -> Path:
@@ -85,7 +85,10 @@ def sklog_channels(run: LoadedRun) -> dict[str, NDArray[np.float64]]:
     for name, array in arrays.items():
         if name in _SKIPPED:
             continue
-        channels[name] = np.asarray(array, dtype=np.float64)
+        values = np.asarray(array, dtype=np.float64)
+        if name == "task_code" and values.shape[1] == 0:
+            continue  # a zero-width task code (task 1-a) carries nothing to draw or plot
+        channels[name] = values
     return channels
 
 
