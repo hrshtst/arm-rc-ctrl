@@ -50,9 +50,53 @@ Supporting hypotheses are:
 A negative result is valid. In particular, success on one demonstration does
 not establish a basin of attraction outside the augmented training tube.
 
-## 3. Timing and data semantics
+## 3. Nomenclature
 
-### 3.1 Recording and preprocessing
+All joint vectors have $n_q$ elements and use radians unless noted otherwise.
+A subscript $k$ identifies a sample on the task clock; a superscript identifies
+the role of a signal, not a different robot.
+
+| Symbol | Definition | Dimension/unit |
+| --- | --- | --- |
+| $i$ | Training-episode index; $i=0$ denotes the unmodified demonstration | scalar |
+| $k$ | Discrete sample index after task activation | scalar |
+| $\Delta t_k$ | Time between samples $k$ and $k+1$ | s |
+| $T_w$ | Reservoir warm-up duration before task time zero | s |
+| $q_k,\dot q_k$ | Measured robot joint position and velocity supplied as feedback during evaluation | $n_q$, rad and rad/s |
+| $q_k^{\mathrm{ref}}$ | Cropped demonstrated joint trajectory used by direct replay | $n_q$, rad |
+| $\dot q_k^{\mathrm{ref}}$ | Velocity derived from the cropped demonstration by the versioned preprocessing policy | $n_q$, rad/s |
+| $q_{i,k}^{\mathrm{aug}}$ | Position in augmented training episode $i$ | $n_q$, rad |
+| $\dot q_{i,k}^{\mathrm{aug}}$ | Velocity recomputed from augmented position episode $i$ | $n_q$, rad/s |
+| $\delta_{i,k}$ | Smooth joint-space perturbation added to the demonstration | $n_q$, rad |
+| $z_{i,k}$ | Correlated latent perturbation process before applying its envelope | $n_q$, rad |
+| $\epsilon_{i,k}$ | Seeded innovation that drives the latent process | $n_q$, rad |
+| $\rho$ | Temporal correlation coefficient of the latent perturbation process | dimensionless |
+| $w_k$ | Target-distance augmentation envelope | scalar in $[0,1]$ |
+| $\gamma$ | Exponent controlling how quickly the envelope contracts near the target | positive scalar |
+| $p^\star$ | Cartesian endpoint target | 2, m |
+| $d_{\mathrm{tip}}(q,p^\star)$ | Euclidean distance from the endpoint at $q$ to the target | m |
+| $s_k=[q_k^\mathsf{T},\dot q_k^\mathsf{T}]^\mathsf{T}$ | Measured robot state | $2n_q$ |
+| $\mathcal{T}(s_k)$ | Frozen centering/scaling transform applied to the ESN input | $2n_q$, normalized |
+| $u_k=\mathcal{T}(s_k)$ | ESN input during task execution; task 1-a has no task-code component | $2n_q$, normalized |
+| $x_k$ | Reservoir internal state; reset to the all-zero vector before warm-up | $n_x$, dimensionless |
+| $n_x$ | Number of reservoir-state elements | scalar |
+| $f_{\mathrm{ESN}}$ | Fixed recurrent reservoir state-transition function | $\mathbb{R}^{n_x}\times\mathbb{R}^{2n_q}\rightarrow\mathbb{R}^{n_x}$ |
+| $W_{\mathrm{out}}$ | Trained linear readout, including the `rclib` bias convention | $n_q\times(n_x+1)$ |
+| $\hat q^g_{k+1}$ | Absolute-position readout in the primary RC arms | $n_q$, rad |
+| $\widehat{\Delta q}_{k+1}$ | Increment readout in the residual exploratory arm | $n_q$, rad |
+| $q^d_k,\dot q^d_k,\ddot q^d_k$ | Position command and causally estimated derivatives passed to the tracker | $n_q$, rad, rad/s, rad/s² |
+| $\tau_k^{\mathrm{req}},\tau_k^{\mathrm{applied}}$ | Tracker-requested torque and torque after the configured limiter | $n_q$, N·m |
+
+The symbol $q^g$ is reserved for a value produced by the absolute-position
+readout. The common tracker command $q^d$ equals $q^g$ for the primary RC
+arms, equals $q^{\mathrm{ref}}$ for replay, and is composed from measured
+position plus the readout increment for the residual arm. This distinction
+prevents a hold command or a residual vector from being mislabeled as an ESN
+position output.
+
+## 4. Timing and data semantics
+
+### 4.1 Recording and preprocessing
 
 A manual or scripted recording should include a short stationary pre-roll for
 segmentation, synchronization, filtering, and initial-velocity estimation. The
@@ -69,7 +113,7 @@ but its duration does not define model warm-up.
 The final dwell remains part of learning because it demonstrates the target
 equilibrium.
 
-### 3.2 Warm-up and activation
+### 4.2 Warm-up and activation
 
 Reservoir warm-up occurs before task time, over `[-T_w, 0)`, and is configured
 in the model/evaluation protocol rather than inferred from the demonstration.
@@ -92,14 +136,16 @@ Warm-up duration is selected using development data, frozen with the recipe,
 and tested for state convergence and sensitivity. It is not chosen from
 confirmatory outcomes.
 
-## 4. Training construction
+## 5. Training construction
 
-Let the cropped demonstration be `q_ref[k]`. The original, unmodified episode
-is always included. Synthetic episode `i` is
+Let the cropped demonstration be `q_ref[k]`. Episode `i = 0` is the original,
+unmodified demonstration. Each synthetic episode `i >= 1` is
 
 ```text
 q_aug[i, k] = q_ref[k] + delta[i, k]
 ```
+
+with `q_aug[0, k] = q_ref[k]` and `delta[0, k] = 0`.
 
 where `delta` is smooth, bounded, seeded, and physically valid. The preferred
 contractive construction uses a correlated latent process and a target-distance
@@ -130,7 +176,7 @@ coefficient, envelope exponent, validity rules, and generated-array digests.
 There is still exactly one independent demonstration; reports must distinguish
 that count from the number of synthetic episodes.
 
-## 5. Experimental arms
+## 6. Experimental arms
 
 Use the same frozen PD v2 and computed-torque trackers unless a safety pilot
 requires a separately versioned change. For each tracker and identical scenario,
@@ -150,9 +196,59 @@ the new confirmatory family. Reservoir capacity and trial budgets should be
 matched across RC arms. Any unequal compute or synthetic-episode budget is
 reported explicitly.
 
-## 6. Evaluation
+### 6.1 ESN inputs and outputs by arm
 
-### 6.1 Scenarios and splits
+Every RC arm uses the same measured-state interface at evaluation time:
+
+\[
+u_k = \mathcal{T}([q_k^\mathsf{T},\dot q_k^\mathsf{T}]^\mathsf{T}),
+\qquad
+x_{k+1}=f_{\mathrm{ESN}}(x_k,u_k).
+\]
+
+Positions and velocities are actual simulator feedback, not the previously
+generated reference. Task 1-a has one fixed target, so no one-hot task code is
+appended. During teacher forcing, the corresponding demonstrated or augmented
+state replaces measured feedback. The arms differ as follows:
+
+| Experimental arm | Teacher-forcing ESN input | Readout training target | Task-time ESN input | Readout and tracker position command |
+| --- | --- | --- | --- | --- |
+| Replay | None; replay has no ESN | None | None | $q^d_{k+1}=q^{\mathrm{ref}}_{k+1}$ |
+| RC/no augmentation | $\mathcal{T}([q_k^{\mathrm{ref}},\dot q_k^{\mathrm{ref}}])$ | $q^{\mathrm{ref}}_{k+1}$ | $\mathcal{T}([q_k,\dot q_k])$ | Absolute readout $\hat q^g_{k+1}$; $q^d_{k+1}=\hat q^g_{k+1}$ |
+| RC/non-decaying augmentation | $\mathcal{T}([q_{i,k}^{\mathrm{aug}},\dot q_{i,k}^{\mathrm{aug}}])$ | $q_{i,k+1}^{\mathrm{aug}}$ | $\mathcal{T}([q_k,\dot q_k])$ | Absolute readout $\hat q^g_{k+1}$; $q^d_{k+1}=\hat q^g_{k+1}$ |
+| RC/contractive augmentation | $\mathcal{T}([q_{i,k}^{\mathrm{aug}},\dot q_{i,k}^{\mathrm{aug}}])$ | $q_{i,k+1}^{\mathrm{aug}}$, whose perturbation contracts toward zero | $\mathcal{T}([q_k,\dot q_k])$ | Absolute readout $\hat q^g_{k+1}$; $q^d_{k+1}=\hat q^g_{k+1}$ |
+| RC/residual output | $\mathcal{T}([q_{i,k}^{\mathrm{aug}},\dot q_{i,k}^{\mathrm{aug}}])$ | $q_{i,k+1}^{\mathrm{aug}}-q_{i,k}^{\mathrm{aug}}$ | $\mathcal{T}([q_k,\dot q_k])$ | Increment readout $\widehat{\Delta q}_{k+1}$; $q^d_{k+1}=q_k+\widehat{\Delta q}_{k+1}$ |
+
+For this `skelarm` experiment, $\dot q_k$ is the simulator's integrated robot
+velocity. It is not the desired velocity produced by the causal derivative
+estimator. A later backend that does not measure velocity must provide a
+separately specified feedback-state estimator before $\mathcal{T}$; it must not
+reuse the desired derivative as if it were measured feedback.
+
+All RC arms receive the same kind of input during warm-up, but only update
+$x_k$: the readout is not evaluated and therefore has no output to log. Training
+repeats each episode's initial state $[q_{i,0}^{\mathrm{aug}},0]$ for the frozen
+warm-up duration. Evaluation uses measured $[q_k,\dot q_k]$ while the tracker
+holds that run's actual initial posture. From task time zero, the absolute RC
+arms compute
+
+\[
+\hat q^g_{k+1}=W_{\mathrm{out}}[1;x_{k+1}],
+\]
+
+while the residual arm interprets the same readout shape as an increment. The
+readout consumes the reservoir state and its bias only; raw $u_k$ is not an
+additional readout input. The causal derivative estimator is downstream of
+these equations: it converts the
+selected $q^d$ sequence to $(q^d,\dot q^d,\ddot q^d)$. PD consumes position
+and velocity targets; computed torque additionally consumes desired
+acceleration. The tracker, not the ESN, outputs $\tau^{\mathrm{req}}$, which the
+configured limiter converts to $\tau^{\mathrm{applied}}$. Neither desired
+derivatives nor tracker torque feed the ESN in this experiment.
+
+## 7. Evaluation
+
+### 7.1 Scenarios and splits
 
 Retain nominal, small-posture, large-posture, force, and combined classes. New
 development and confirmatory seeds are disjoint from each other and from M3.
@@ -166,7 +262,7 @@ The protocol, recipe, scenarios, and analysis code are frozen before the
 one-shot confirmatory suite. Using its outcomes to revise the method creates
 `v2` and a new confirmatory run.
 
-### 6.2 Primary and diagnostic metrics
+### 7.2 Primary and diagnostic metrics
 
 Task success and all existing safety, dwell, trajectory, effort, and saturation
 metrics remain mandatory. The new mechanism is evaluated from task time zero:
@@ -198,7 +294,7 @@ never populated with a hold command and must not be called ESN output when the
 readout was inactive. Warm-up telemetry is stored separately with its interval
 and activation boundary.
 
-## 7. Reproducibility and decision gates
+## 8. Reproducibility and decision gates
 
 All generated training episodes, recipes, runs, studies, and reports follow the
 existing external-payload/Git-pointer policy. Provenance includes the single raw
@@ -227,7 +323,7 @@ evidence—not a favorable scientific result. The eventual task ledger should
 split these gates into reviewable, test-first tasks and must not reopen or edit
 M3 artifacts.
 
-## 8. Decisions to approve before implementation
+## 9. Decisions to approve before implementation
 
 The owner should explicitly approve:
 
