@@ -37,7 +37,7 @@ def test_canonical_run_exports_with_exact_state_and_task(tmp_path: object) -> No
         verify_payload(store, pointer.artifact)
     except (StorageError, FileNotFoundError, ValueError, RuntimeError) as exc:
         pytest.skip(f"configured external store with {CANONICAL} not available: {exc}")
-    out = export_run_sklog(store, pointer_file, SCENARIO, Path(str(tmp_path)) / "canonical.sklog.npz")
+    out = export_run_sklog(store, pointer_file, Path(str(tmp_path)) / "canonical.sklog.npz", scenario_file=SCENARIO)
     log = StateLog.load(out)
     run = load_run(store, pointer)
     scenario = load_scenario(SCENARIO)

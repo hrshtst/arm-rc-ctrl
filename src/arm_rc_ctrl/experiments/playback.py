@@ -32,14 +32,16 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, cast
 
 import numpy as np
 
+from arm_rc_ctrl.config import from_mapping, to_mapping
 from arm_rc_ctrl.data.records import load_record, verify_payload
 from arm_rc_ctrl.experiments.run_record import RunPointerRecord, load_run
+from arm_rc_ctrl.provenance import canonical_json, portable_config
 from arm_rc_ctrl.repo import repository_root
-from arm_rc_ctrl.scenario import build_skeleton, load_scenario
+from arm_rc_ctrl.scenario import ScenarioConfig, build_skeleton, load_scenario
 from arm_rc_ctrl.storage import open_storage
 
 if TYPE_CHECKING:
@@ -48,7 +50,6 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from arm_rc_ctrl.experiments.run_record import LoadedRun
-    from arm_rc_ctrl.scenario import ScenarioConfig
     from arm_rc_ctrl.storage import StorageRoot
 
 __all__ = ["PLAYER", "export_run_sklog", "main_export", "main_play", "sklog_channels"]
@@ -121,7 +122,31 @@ def _playback_extra(run: LoadedRun, scenario: ScenarioConfig, tau_source: str) -
     }
 
 
-def export_run_sklog(store: StorageRoot, pointer_file: Path, scenario_file: Path, out: Path) -> Path:
+def _recorded_scenario(run: LoadedRun, scenario_file: Path | None) -> ScenarioConfig:
+    """The scenario the run was actually recorded under, rebuilt from its provenance.
+
+    The geometry, timing, limits, and task always come from the run's own
+    ``provenance.config``; a supplied ``scenario_file`` is only verified — it
+    must match the recorded scenario completely, so a same-name file with
+    altered links, timing, tolerance, or target is refused.
+    """
+    stored = run.summary.provenance.config.get("scenario")
+    if stored is None:
+        msg = f"run {run.pointer.artifact.artifact_id} records no scenario in its provenance"
+        raise ValueError(msg)
+    scenario = from_mapping(cast("dict[str, object]", stored), ScenarioConfig)
+    if scenario_file is not None:
+        given = load_scenario(scenario_file)
+        if canonical_json(portable_config(to_mapping(given))) != canonical_json(portable_config(stored)):
+            msg = (
+                f"{scenario_file.name} does not match the scenario recorded in the run's provenance "
+                f"(name {scenario.name!r}): links, timing, limits, or task differ"
+            )
+            raise ValueError(msg)
+    return scenario
+
+
+def export_run_sklog(store: StorageRoot, pointer_file: Path, out: Path, *, scenario_file: Path | None = None) -> Path:
     """Convert one verified run into a playable ``*.sklog.npz`` (atomic; never overwrites)."""
     from skelarm import StateLog  # deferred: pulls in the full skelarm package
 
@@ -137,14 +162,7 @@ def export_run_sklog(store: StorageRoot, pointer_file: Path, scenario_file: Path
         raise ValueError(msg)
     verify_payload(store, pointer.artifact)
     run = load_run(store, pointer)
-    scenario = load_scenario(scenario_file)
-    if scenario.name != run.summary.scenario:
-        recorded = run.summary.scenario
-        msg = f"run {pointer.artifact.artifact_id} was recorded under scenario {recorded!r}, not {scenario.name!r}"
-        raise ValueError(msg)
-    if tuple(float(v) for v in run.summary.target) != tuple(float(v) for v in scenario.task.target):
-        msg = "the scenario's task target does not match the run's recorded target"
-        raise ValueError(msg)
+    scenario = _recorded_scenario(run, scenario_file)
     arrays = run.arrays.arrays
     tau_source = "tau_applied" if "tau_applied" in arrays else "tau_requested"
     channels = sklog_channels(run)
@@ -186,7 +204,12 @@ def _export_parser(description: str) -> argparse.ArgumentParser:
     group = parser.add_mutually_exclusive_group(required=True)
     group.add_argument("--run", help="run ID with a Git-tracked pointer under data/records/runs")
     group.add_argument("--pointer", type=Path, help="explicit pointer record (TOML)")
-    parser.add_argument("--scenario", type=Path, required=True, help="scenario TOML the run was recorded under")
+    parser.add_argument(
+        "--scenario",
+        type=Path,
+        default=None,
+        help="optional scenario TOML to verify: it must match the run's recorded scenario completely",
+    )
     parser.add_argument("--records-root", type=Path, default=None)
     return parser
 
@@ -201,7 +224,8 @@ def main_export(argv: Sequence[str] | None = None) -> int:
     parser = _export_parser("Export one verified run as a playable skelarm StateLog.")
     parser.add_argument("--out", type=Path, required=True, help=f"output {_SUFFIX} (must not exist)")
     args = parser.parse_args(argv)
-    out = export_run_sklog(open_storage(), _pointer_from_args(args), Path(args.scenario), Path(args.out))
+    scenario_file = None if args.scenario is None else Path(args.scenario)
+    out = export_run_sklog(open_storage(), _pointer_from_args(args), Path(args.out), scenario_file=scenario_file)
     print(json.dumps({"out": out.name, "player": "python third_party/skelarm/tools/player.py"}))
     return 0
 
@@ -217,7 +241,8 @@ def main_play(argv: Sequence[str] | None = None) -> int:
     pointer_file = _pointer_from_args(args)
     store = open_storage()
     with tempfile.TemporaryDirectory(prefix="arm-rc-ctrl-play-") as scratch:
-        log = export_run_sklog(store, pointer_file, Path(args.scenario), Path(scratch) / f"run{_SUFFIX}")
+        scenario_file = None if args.scenario is None else Path(args.scenario)
+        log = export_run_sklog(store, pointer_file, Path(scratch) / f"run{_SUFFIX}", scenario_file=scenario_file)
         command: list[str] = [sys.executable, str(PLAYER), str(log)]
         if args.speed is not None:
             command += ["--speed", str(args.speed)]

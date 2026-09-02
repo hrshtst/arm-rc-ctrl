@@ -74,7 +74,7 @@ def test_exported_log_carries_state_task_and_identity(
     """The log replays the exact measured state with the task, disturbances, and provenance identity embedded."""
     store, records, result = replayed
     run_id = result.pointer.artifact.artifact_id
-    out = export_run_sklog(store, resolve_pointer(run_id, records), SCENARIO, tmp_path / "run.sklog.npz")
+    out = export_run_sklog(store, resolve_pointer(run_id, records), tmp_path / "run.sklog.npz", scenario_file=SCENARIO)
     log = StateLog.load(out)
     arrays = result.run.arrays.arrays
     scenario = load_scenario(SCENARIO)
@@ -116,8 +116,8 @@ def test_repeated_exports_are_semantically_equal(
     """Two exports of the same run carry identical channels and metadata (timestamps aside)."""
     store, records, result = replayed
     pointer = resolve_pointer(result.pointer.artifact.artifact_id, records)
-    first = StateLog.load(export_run_sklog(store, pointer, SCENARIO, tmp_path / "a.sklog.npz"))
-    second = StateLog.load(export_run_sklog(store, pointer, SCENARIO, tmp_path / "b.sklog.npz"))
+    first = StateLog.load(export_run_sklog(store, pointer, tmp_path / "a.sklog.npz"))
+    second = StateLog.load(export_run_sklog(store, pointer, tmp_path / "b.sklog.npz", scenario_file=SCENARIO))
     assert first.channel_names == second.channel_names
     for name in first.channel_names:
         assert np.array_equal(first.channel(name), second.channel(name)), name
@@ -131,13 +131,19 @@ def test_export_refuses_bad_inputs(replayed: tuple[StorageRoot, Path, ReplayResu
     store, records, result = replayed
     run_id = result.pointer.artifact.artifact_id
     pointer = resolve_pointer(run_id, records)
-    out = export_run_sklog(store, pointer, SCENARIO, tmp_path / "run.sklog.npz")
+    out = export_run_sklog(store, pointer, tmp_path / "run.sklog.npz", scenario_file=SCENARIO)
     with pytest.raises(FileExistsError, match="refusing to overwrite"):
-        export_run_sklog(store, pointer, SCENARIO, out)
+        export_run_sklog(store, pointer, out, scenario_file=SCENARIO)
     with pytest.raises(ValueError, match="must end with"):
-        export_run_sklog(store, pointer, SCENARIO, tmp_path / "run.npz")
-    with pytest.raises(ValueError, match="was recorded under scenario"):
-        export_run_sklog(store, pointer, REPO_ROOT / "configs" / "tasks" / "task_1a.toml", tmp_path / "x.sklog.npz")
+        export_run_sklog(store, pointer, tmp_path / "run.npz")
+    with pytest.raises(ValueError, match="does not match the scenario recorded"):
+        export_run_sklog(
+            store, pointer, tmp_path / "x.sklog.npz", scenario_file=REPO_ROOT / "configs" / "tasks" / "task_1a.toml"
+        )
+    lookalike = tmp_path / "lookalike.toml"
+    lookalike.write_text(SCENARIO.read_text(encoding="utf-8").replace("tolerance = 0.004", "tolerance = 0.005"))
+    with pytest.raises(ValueError, match="does not match the scenario recorded"):
+        export_run_sklog(store, pointer, tmp_path / "x2.sklog.npz", scenario_file=lookalike)
     with pytest.raises(FileNotFoundError, match="no pointer record"):
         resolve_pointer("run-20260901-000000000000", records)
     with pytest.raises(ValueError, match="not a run ID"):
@@ -146,17 +152,17 @@ def test_export_refuses_bad_inputs(replayed: tuple[StorageRoot, Path, ReplayResu
     misnamed = tmp_path / "run-20260901-aaaaaaaaaaaa.toml"
     misnamed.write_text(original_pointer)  # a valid record under the wrong file name
     with pytest.raises(ValueError, match="names"):
-        export_run_sklog(store, misnamed, SCENARIO, tmp_path / "y.sklog.npz")
+        export_run_sklog(store, misnamed, tmp_path / "y.sklog.npz")
     tampered = tmp_path / f"{run_id}.toml"
     tampered.write_text(original_pointer.replace(run_id, "run-20260901-aaaaaaaaaaaa"))
     with pytest.raises(ValueError, match="digest prefix"):  # the record loader rejects an inconsistent ID first
-        export_run_sklog(store, tampered, SCENARIO, tmp_path / "y2.sklog.npz")
+        export_run_sklog(store, tampered, tmp_path / "y2.sklog.npz")
     payload = store.path(result.pointer.artifact.payload.uri, mode="read")
     original = payload.read_bytes()
     payload.write_bytes(original + b" ")
     try:
         with pytest.raises(ArtifactMismatchError, match=r"size|digest|sha"):
-            export_run_sklog(store, pointer, SCENARIO, tmp_path / "z.sklog.npz")
+            export_run_sklog(store, pointer, tmp_path / "z.sklog.npz")
     finally:
         payload.write_bytes(original)
     assert not sorted(tmp_path.glob("*.tmp*"))  # atomic staging leaves nothing behind
