@@ -27,8 +27,11 @@ at `docs/experiments/task_1a/report.md` (regenerate with
 `uv run python scripts/reproduce_1a.py` re-derives the result from the
 committed records (submodule pins, lock digest, payload digests, dataset
 rebuild, recipe refit, confirmatory rerun into a scratch store, report
-rendering) and fails naming the first missing or mismatched input; the
-clean-checkout audit follows. Any curated run can be exported as a
+rendering) and fails naming the first missing or mismatched input. It
+requires the checkout to match the evidence exactly — after a submodule pin
+advance, add `--from-evidence` to reproduce inside a fresh git worktree at
+the recorded audit commit, which carries the evidence's pins. The recorded audits live next to
+the report. Any curated run can be exported as a
 disposable `skelarm` log and inspected with the pinned player
 (`uv run python scripts/play_run.py --run <run-id> --scenario configs/tasks/task_1a.toml`,
 or `scripts/export_run_sklog.py` for the file; `docs/PLAN.md` section 7.5).

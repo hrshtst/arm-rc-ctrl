@@ -16,9 +16,13 @@ from arm_rc_ctrl.data.records import ProcessedDatasetRecord, RawDemonstrationRec
 from arm_rc_ctrl.dependencies import submodule_revisions
 from arm_rc_ctrl.experiments.reproduce_1a import (
     CONFIRMATORY_REPORT,
+    DOCS,
     STEPS,
+    Reproducer,
+    ReproductionError,
     compare_suites,
     main,
+    prepare_evidence_checkout,
     prepare_scratch,
     reproduce,
 )
@@ -168,20 +172,50 @@ def test_reproduction_rebuilds_data_model_and_report_and_names_the_rerun_require
 
 
 def test_reproduction_reruns_the_nominal_evidence_exactly_from_a_clean_checkout(tmp_path: Path) -> None:
-    """From a clean checkout the nominal class re-evaluates bitwise (skipped while the worktree is dirty)."""
+    """From a clean checkout at the evidence pins the nominal class re-evaluates bitwise."""
     store = configured_store()
     if not worktree_is_clean():
         pytest.skip("the confirmatory rerun needs a clean worktree")
     if not at_evidence_pins():
-        pytest.skip("the checked-out submodule pins differ from the evidence")
+        pytest.skip("the checked-out submodule pins differ from the evidence; covered by the worktree test")
     result = reproduce(scratch=tmp_path / "scratch", classes=("nominal",), store=store)
     assert result.ok, [c for c in result.checks if not c.ok]
     assert result.max_deviation == 0.0
     assert (tmp_path / "scratch" / "store" / "runs").is_dir()
 
 
+def test_from_evidence_prepares_a_worktree_with_the_recorded_pins(tmp_path: Path) -> None:
+    """The worktree sits at the recorded audit commit with every evidence submodule pin checked out."""
+    suite = load_suite(CONFIRMATORY_REPORT)
+    audit = json.loads((DOCS / "reproduction_audit.json").read_text(encoding="utf-8"))
+    try:
+        checkout, commit = prepare_evidence_checkout(tmp_path / "scratch", keep=True)
+    except ReproductionError as exc:
+        pytest.skip(f"evidence worktree unavailable here: {exc}")
+    try:
+        assert commit == audit["inputs"]["reproduction_project_commit"]
+        head = subprocess.run(
+            ["git", "-C", str(checkout), "rev-parse", "HEAD"], check=True, capture_output=True, text=True
+        ).stdout.strip()
+        assert head == commit
+        assert (checkout / "scripts" / "reproduce_1a.py").is_file()
+        status = subprocess.run(
+            ["git", "-C", str(checkout), "submodule", "status"], check=True, capture_output=True, text=True
+        ).stdout
+        recorded = {s.name: (s.checked_out or s.recorded) for s in suite.provenance.submodules}
+        for line in status.splitlines():
+            revision, name = line.split()[0].lstrip("+-U"), line.split()[1].split("/")[-1]
+            assert recorded[name] == revision, name
+    finally:
+        subprocess.run(["git", "worktree", "remove", "--force", str(checkout)], check=False, capture_output=True)
+
+
 def test_a_mismatched_payload_fails_the_payload_step_clearly(tmp_path: Path) -> None:
-    """A store whose processed payload differs from the record is refused before anything is rebuilt."""
+    """A store whose processed payload differs from the record is refused before anything is rebuilt.
+
+    The payload step is exercised directly (past the environment step), so this
+    holds on any checkout regardless of the current submodule pins.
+    """
     store = configured_store()
     suite = load_suite(CONFIRMATORY_REPORT)
     recipe_datasets = json.loads((REPO_ROOT / "docs" / "experiments" / "task_1a" / "training_v4.json").read_text())[
@@ -199,19 +233,22 @@ def test_a_mismatched_payload_fails_the_payload_step_clearly(tmp_path: Path) -> 
         store.path(raw.artifact.payload.uri, mode="read").read_bytes()
     )
     corrupt.path(processed.artifact.payload.uri, mode="write").write_bytes(b"not the payload")
-    if not at_evidence_pins():
-        pytest.skip("the checked-out submodule pins differ from the evidence; the environment step fails first")
-    result = reproduce(scratch=tmp_path / "scratch", classes=("nominal",), exploratory=True, store=corrupt)
-    names = [c.name for c in result.checks]
-    assert names == ["environment", "storage", "records", "payloads"]
-    assert not result.ok
-    assert not result.checks[-1].ok
-    assert result.checks[-1].name == "payloads"
-    assert (
-        suite.reference_artifact in result.checks[-1].detail
-        or "digest" in result.checks[-1].detail.lower()
-        or "size" in result.checks[-1].detail.lower()
+    reproducer = Reproducer(
+        scratch=tmp_path / "scratch",
+        classes=("nominal",),
+        tolerance=0.0,
+        exploratory=True,
+        configured_store=corrupt,
+        docs=DOCS,
+        now=None,
     )
+    reproducer.suite = load_suite(CONFIRMATORY_REPORT)
+    assert reproducer.step("storage").ok
+    assert reproducer.step("records").ok
+    check = reproducer.step("payloads")
+    assert not check.ok
+    assert "digest" in check.detail.lower() or "size" in check.detail.lower()
+    assert suite.reference_artifact in check.detail or "run.json" not in check.detail
 
 
 def test_command_writes_a_summary_and_reports_failure_status(

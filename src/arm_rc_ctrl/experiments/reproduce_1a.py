@@ -16,13 +16,16 @@ records name.
 Command line::
 
     python scripts/reproduce_1a.py [--classes nominal ...] [--tolerance 0.0] [--scratch DIR]
-        [--summary reproduce_1a.json] [--keep-going] [--exploratory]
+        [--summary reproduce_1a.json] [--keep-going] [--exploratory] [--from-evidence]
 
 The confirmatory rerun (step ``evaluation``) always runs under the
 ``confirmatory-rerun`` label from a clean checkout; ``--exploratory`` lets the
 other steps run in a dirty worktree and makes that step fail clearly. The
 scratch directory must be a fresh (empty or missing) directory outside the
-repository: nothing is ever deleted.
+repository: nothing is ever deleted. The environment step requires the
+checkout's submodule pins to equal the evidence's; after a pin advance, run
+``--from-evidence``, which reproduces inside a fresh git worktree at the
+evidence's own commit (submodules included) instead of weakening the check.
 """
 
 from __future__ import annotations
@@ -33,6 +36,7 @@ import math
 import os
 import platform
 import re
+import subprocess
 import sys
 import tempfile
 import time
@@ -73,6 +77,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "Check",
+    "Reproducer",
     "Reproduction",
     "ReproductionError",
     "audit_markdown",
@@ -233,8 +238,8 @@ def _need[T](value: T | None, step: str) -> T:
 
 
 @dataclass
-class _Reproducer:
-    """The steps, in order, sharing what they resolve."""
+class Reproducer:
+    """The steps, in order, sharing what they resolve (public so tests can exercise one step directly)."""
 
     scratch: Path
     classes: Sequence[PerturbationClass]
@@ -454,7 +459,7 @@ def reproduce(
         raise ValueError(msg)
     started = time.perf_counter()
     started_at = (now or datetime.now(tz=UTC)).isoformat()
-    reproducer = _Reproducer(prepare_scratch(scratch), classes, tolerance, exploratory, store, docs, now)
+    reproducer = Reproducer(prepare_scratch(scratch), classes, tolerance, exploratory, store, docs, now)
     checks: list[Check] = []
     for name in STEPS:
         check = reproducer.step(name)
@@ -504,6 +509,61 @@ def audit_markdown(result: Reproduction, *, command: str, auditor: str = "(to be
     return "\n".join(line.rstrip() for line in lines) + "\n"
 
 
+def prepare_evidence_checkout(scratch: Path, *, keep: bool = False) -> tuple[Path, str]:
+    """Create a detached worktree at the recorded audit checkout, whose pins equal the evidence's.
+
+    The evidence itself predates this script, so the worktree targets the
+    commit the committed reproduction audit ran from
+    (``reproduction_project_commit``): it carries both the reproduction
+    tooling and the evidence's submodule pins, which are re-verified here.
+    Returns the checkout path and that commit. The caller reproduces inside
+    it (``uv sync --locked`` there first); with ``keep`` false the worktree
+    is registered for manual removal via ``git worktree remove``.
+    """
+    suite = load_suite(CONFIRMATORY_REPORT)
+    audit = json.loads((DOCS / "reproduction_audit.json").read_text(encoding="utf-8"))
+    commit = str(audit["inputs"]["reproduction_project_commit"])
+    checkout = prepare_scratch(scratch) / "evidence"
+    _git("worktree", "add", "--detach", str(checkout), commit)
+    _git("-C", str(checkout), "submodule", "update", "--init", "third_party/skelarm", "third_party/rtctrl")
+    _git("-C", str(checkout), "submodule", "update", "--init", "--recursive", "third_party/rclib")
+    recorded = {s.name: (s.checked_out or s.recorded) for s in suite.provenance.submodules}
+    for line in _git("-C", str(checkout), "submodule", "status").splitlines():
+        revision, name = line.split()[0].lstrip("+-U"), line.split()[1].split("/")[-1]
+        if recorded.get(name) != revision:
+            msg = f"evidence checkout has {name} at {revision[:12]}, the evidence recorded {recorded.get(name)!r}"
+            raise ReproductionError(msg)
+    if not (checkout / "scripts" / "reproduce_1a.py").is_file():
+        msg = f"the audit checkout {commit[:12]} carries no scripts/reproduce_1a.py"
+        raise ReproductionError(msg)
+    if not keep:
+        print(f"evidence checkout at {checkout} (remove with: git worktree remove --force {checkout})")
+    return checkout, commit
+
+
+def _git(*args: str) -> str:
+    completed = subprocess.run(["git", *args], check=False, capture_output=True, text=True, cwd=REPO)
+    if completed.returncode != 0:
+        msg = f"git {' '.join(args[:3])} failed: {completed.stderr.strip()[:300]}"
+        raise ReproductionError(msg)
+    return completed.stdout
+
+
+def run_from_evidence(scratch: Path, forwarded: Sequence[str]) -> int:
+    """Reproduce inside a fresh worktree at the evidence commit (sync, run, keep the checkout for inspection)."""
+    checkout, commit = prepare_evidence_checkout(scratch, keep=True)
+    sync = subprocess.run(["uv", "sync", "--locked"], check=False, cwd=checkout)
+    if sync.returncode != 0:
+        return int(sync.returncode)
+    inner_scratch = scratch / "inner"
+    command = [
+        "uv", "run", "--locked", "python", "scripts/reproduce_1a.py", "--scratch", str(inner_scratch), *forwarded,
+    ]  # fmt: skip
+    print(f"reproducing at {commit[:12]} in {checkout}")
+    inner = subprocess.run(command, check=False, cwd=checkout)
+    return int(inner.returncode)
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     """Command-line entry point (exit status 1 when any step fails)."""
     parser = argparse.ArgumentParser(description="Reproduce the task 1-a result from the committed records.")
@@ -520,12 +580,26 @@ def main(argv: Sequence[str] | None = None) -> int:
         action="store_true",
         help="allow a dirty worktree for the data, model, and report steps (the confirmatory rerun then fails)",
     )
+    parser.add_argument(
+        "--from-evidence",
+        action="store_true",
+        help="reproduce inside a fresh git worktree at the recorded audit commit (evidence pins included)",
+    )
     args = parser.parse_args(argv)
     tolerance = float(args.tolerance)
     if not (math.isfinite(tolerance) and tolerance >= 0.0):
         parser.error(f"--tolerance must be a finite non-negative number, got {args.tolerance!r}")
     ensure_single_thread()  # before rclib is imported and provenance is collected
     scratch = Path(tempfile.mkdtemp(prefix="arm-rc-ctrl-reproduce-")) if args.scratch is None else Path(args.scratch)
+    if args.from_evidence:
+        forwarded = ["--classes", *cast("list[str]", args.classes), "--tolerance", str(args.tolerance)]
+        if args.summary is not None:
+            forwarded += ["--summary", str(Path(args.summary).resolve())]
+        if args.audit is not None:
+            forwarded += ["--audit", str(Path(args.audit).resolve())]
+        if args.keep_going:
+            forwarded.append("--keep-going")
+        return run_from_evidence(scratch, forwarded)
     result = reproduce(
         scratch=scratch,
         classes=cast("list[PerturbationClass]", args.classes),
