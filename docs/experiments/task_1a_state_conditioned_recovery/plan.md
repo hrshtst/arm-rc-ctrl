@@ -69,8 +69,10 @@ the role of a signal, not a different robot.
 | $\dot q_{i,k}^{\mathrm{aug}}$ | Velocity recomputed from augmented position episode $i$ | $n_q$, rad/s |
 | $\delta_{i,k}$ | Smooth joint-space perturbation added to the demonstration | $n_q$, rad |
 | $z_{i,k}$ | Correlated latent perturbation process before applying its envelope | $n_q$, rad |
-| $\epsilon_{i,k}$ | Seeded innovation that drives the latent process | $n_q$, rad |
-| $\rho$ | Temporal correlation coefficient of the latent perturbation process | dimensionless |
+| $\xi_{i,k}$ | Independent standard-Gaussian innovation sampled for episode $i$ | $n_q$, dimensionless |
+| $\epsilon_{i,k}$ | Scaled Gaussian innovation that drives the latent process | $n_q$, rad |
+| $\sigma_i$ | Per-joint marginal perturbation scale configured for episode $i$ | scalar, rad |
+| $\phi$ | Temporal correlation coefficient of the augmentation process; distinct from ESN spectral radius | dimensionless |
 | $w_k$ | Target-distance augmentation envelope | scalar in $[0,1]$ |
 | $\gamma$ | Exponent controlling how quickly the envelope contracts near the target | positive scalar |
 | $p^\star$ | Cartesian endpoint target | 2, m |
@@ -98,10 +100,14 @@ residual vector from being mislabeled as an ESN position output.
 
 ### 4.1 Recording and preprocessing
 
-A manual or scripted recording should include a short stationary pre-roll for
-segmentation, synchronization, filtering, and initial-velocity estimation. The
-teacher is not required to start moving at the instant recording begins. The
-motion onset is proposed from the speed profile and confirmed by a human.
+A manual or scripted recording should include a stationary pre-roll for
+segmentation, synchronization, filtering, and initial-velocity estimation. A
+scripted demonstration configures a 1.0 s pre-roll exactly. For a manual
+demonstration, the operator is instructed to hold for about 1.0 s or longer,
+but that nominal instruction is not treated as measured timing: the raw
+session records the complete hold, and motion onset is proposed from the speed
+profile and confirmed by a human. The teacher is not required to synchronize
+motion onset with the recording start.
 
 The derived training episode begins at the confirmed task onset and contains
 the reach plus final dwell. It has no embedded reservoir-washout phase. Existing
@@ -127,10 +133,12 @@ The reservoir starts from its deterministic all-zero state. During warm-up:
 At task time `t = 0`, RC and replay activate simultaneously. Replay begins the
 cropped demonstration reference; RC evaluates its readout from the warmed
 reservoir state. Force-pulse times and metric windows are relative to this task
-clock. Training uses the same reset and warm-up rule for every original or
-augmented episode, using that episode's initial state. Arbitrary fake warm-up
-sequences are excluded from the primary protocol and may be tested only as a
-named ablation.
+clock. Every original or augmented training episode independently (1) resets
+the reservoir state to the all-zero vector and then (2) executes the configured
+warm-up using that episode's initial state before teacher forcing begins. The
+reset is not performed only once for a batch, and no reservoir state passes
+between episodes. Arbitrary fake warm-up sequences are excluded from the
+primary protocol and may be tested only as a named ablation.
 
 Warm-up duration is selected using development data, frozen with the recipe,
 and tested for state convergence and sensitivity. It is not chosen from
@@ -154,7 +162,9 @@ target-distance envelope:
 
 $$
 \begin{aligned}
-z_{i,k+1} &= \rho z_{i,k} + \epsilon_{i,k}, \\
+\xi_{i,k} &\sim \mathcal{N}(0,I), \\
+\epsilon_{i,k} &= \sigma_i\sqrt{1-\phi^2}\,\xi_{i,k}, \\
+z_{i,k+1} &= \phi z_{i,k} + \epsilon_{i,k}, \\
 w_k &= \left[\mathrm{clip}\!\left(
   \frac{d_{\mathrm{tip}}(q_k^{\mathrm{ref}},p^\star)}
        {d_{\mathrm{tip}}(q_0^{\mathrm{ref}},p^\star)},
@@ -163,6 +173,16 @@ w_k &= \left[\mathrm{clip}\!\left(
 \delta_{i,k} &= w_k z_{i,k}.
 \end{aligned}
 $$
+
+The latent state is initialized independently from its stationary distribution,
+$z_{i,0}\sim\mathcal{N}(0,\sigma_i^2 I)$. Thus the innovations are Gaussian,
+but the AR(1) filter makes the position perturbation temporally smooth. The
+$\sqrt{1-\phi^2}$ factor keeps its marginal scale approximately $\sigma_i$ when
+$\phi$ changes, separating the amplitude choice from the correlation-time
+choice. Development evaluates $\phi\in\{0.98,0.99,0.995\}$, with 0.99 as the
+anchor. At the 0.01 s task period these values correspond to correlation times
+of approximately 0.50, 0.99, and 2.00 s. This augmentation coefficient must not
+be named or logged as the ESN spectral radius.
 
 The implementation must make the envelope continuously approach zero and force
 it to zero throughout the final dwell. Samples that violate joint, velocity,
@@ -183,20 +203,25 @@ $$
 \longmapsto q_{i,k+1}^{\mathrm{aug}}.
 $$
 
-Training uses one reservoir reset and configured warm-up per episode. The
-augmentation configuration records episode count, seeds, amplitude
+Each episode resets the reservoir and then executes its warm-up before teacher
+forcing. The augmentation configuration records episode count, seeds, amplitude
 distribution, correlation coefficient, envelope exponent, validity rules, and
-generated-array digests.
-There is still exactly one independent demonstration; reports must distinguish
-that count from the number of synthetic episodes.
+generated-array digests. There is still exactly one independent demonstration;
+reports must distinguish that count from the number of synthetic episodes.
 
 ## 6. Experimental arms
 
 Use the same frozen PD v2 and computed-torque trackers unless a safety pilot
-requires a separately versioned change. For each tracker and identical scenario,
-compare:
+requires a separately versioned change.
 
-1. **Replay:** cropped teacher trajectory, with the common pre-task warm-up.
+The scenario's existing symmetric hard torque limits remain unchanged: 10 N·m
+for joint 1 and 5 N·m for joint 2. Every arm logs requested and limited applied
+torque separately. A development run is ineligible if more than 0.5% of its
+samples are torque-saturated, even if it otherwise completes.
+
+For each tracker and identical scenario, compare:
+
+1. **Replay:** cropped teacher trajectory, with the common pre-task hold.
 2. **RC/no augmentation:** timing redesign only; absolute-position readout.
 3. **RC/non-decaying augmentation:** smooth perturbations whose envelope does
    not contract during movement; used to isolate the contraction mechanism.
@@ -301,6 +326,35 @@ would reproduce direct replay and reject the proposed state-dependent behavior.
 The primary scientific comparison therefore requires both a smaller early
 command gap than replay and successful convergence to the common target.
 
+Time-aligned movement RMSE against $q^{\mathrm{ref}}$ remains a diagnostic for
+continuity with M3, but it is not a model-freeze or success criterion in this
+experiment. It is computed from actual motion against the original, unmodified
+demonstration over the movement window. Both nominal and perturbed learned
+motions are allowed to take a different safe path or timing to the target.
+
+### 7.3 Development eligibility and model freeze
+
+Every development run must complete without a configured state or safety-limit
+violation, remain below the 0.5% torque-saturation bound, and satisfy the
+existing actual-motion dwell criteria. The generated reference must separately
+place the endpoint inside the 1 cm target region for at least 90% of the dwell
+and keep every desired joint below 0.05 rad/s throughout that interval.
+
+For small- and large-posture scenarios, define paired ratios against replay for
+the activation command jump and for the command-gap integral over the first
+0.5 s. An eligible model demonstrates the proposed mechanism when both median
+ratios are below 1 and at least 75% of paired scenarios improve both quantities.
+These relative criteria require a consistent reduction without prescribing a
+50% reduction before observing development feasibility. Force-only scenarios
+remain mandatory safety/target tests, but their disturbance-recovery metrics do
+not enter this initial-posture mechanism rule.
+
+Among models satisfying these gates, selection is lexicographic: minimize the
+median early command-gap ratio, then endpoint settling time, then applied-torque
+RMS. The report retains the complete distributions, original-trajectory RMSE,
+smoothness, restoring alignment, and all failures. Confirmatory outcomes cannot
+change these gates or their ordering.
+
 Reports show curves in this fixed order:
 `reference`, `replay_actual`, `rc_output`, `rc_actual`; `rc_output` is dashed.
 New task-time run records store an explicit `generator_output_q` channel. It is
@@ -326,9 +380,9 @@ Implementation should proceed through these review gates:
    provenance.
 4. **Development ablation:** compare the three absolute-output arms before
    deciding whether the residual arm merits inclusion.
-5. **Model freeze:** require safety, target success, reservoir-seed stability,
-   and a declared improvement in the two-part mechanism criterion; freeze even
-   if the result is negative.
+5. **Model freeze:** apply Section 7.3's safety, target, relative command-gap,
+   and reservoir-seed-stability gates; retain a negative result when no model
+   qualifies.
 6. **Confirmatory gate:** execute the locked suite once, retain all failures,
    reproduce it from a clean checkout, and publish the complete report.
 
@@ -342,12 +396,11 @@ M3 artifacts.
 The owner should explicitly approve:
 
 - the experiment label and separation from M3;
-- the cropped task-onset rule and common pre-task warm-up semantics;
+- the cropped task-onset rule and common pre-task hold semantics;
 - the primary absolute-output formulation and residual-output status;
 - augmentation parameter ranges and number of synthetic episodes;
 - development/confirmatory seeds and common perturbation envelope;
-- the quantitative model-freeze criterion for command-gap reduction and target
-  convergence;
+- any revision to Section 7.3's development eligibility or model-freeze rule;
 - whether a human demonstration replaces or supplements the scripted source.
 
 Until those choices are frozen, this document is a proposal and no
