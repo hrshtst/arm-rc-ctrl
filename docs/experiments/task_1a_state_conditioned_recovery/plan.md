@@ -83,16 +83,16 @@ the role of a signal, not a different robot.
 | $f_{\mathrm{ESN}}$ | Fixed recurrent reservoir state-transition function | $\mathbb{R}^{n_x}\times\mathbb{R}^{2n_q}\rightarrow\mathbb{R}^{n_x}$ |
 | $W_{\mathrm{out}}$ | Trained linear readout, including the `rclib` bias convention | $n_q\times(n_x+1)$ |
 | $\hat q^g_{k+1}$ | Absolute-position readout in the primary RC arms | $n_q$, rad |
-| $\widehat{\Delta q}_{k+1}$ | Increment readout in the residual exploratory arm | $n_q$, rad |
+| $r^g_{k+1}$ | Joint-position increment produced by the residual exploratory readout | $n_q$, rad |
 | $q^d_k,\dot q^d_k,\ddot q^d_k$ | Position command and causally estimated derivatives passed to the tracker | $n_q$, rad, rad/s, rad/s² |
 | $\tau_k^{\mathrm{req}},\tau_k^{\mathrm{applied}}$ | Tracker-requested torque and torque after the configured limiter | $n_q$, N·m |
 
 The symbol $q^g$ is reserved for a value produced by the absolute-position
-readout. The common tracker command $q^d$ equals $q^g$ for the primary RC
-arms, equals $q^{\mathrm{ref}}$ for replay, and is composed from measured
-position plus the readout increment for the residual arm. This distinction
-prevents a hold command or a residual vector from being mislabeled as an ESN
-position output.
+readout, while $r^g$ denotes the generated increment of the residual readout.
+The common tracker command $q^d$ equals $q^g$ for the primary RC arms, equals
+$q^{\mathrm{ref}}$ for replay, and is composed from measured position plus
+$r^g$ for the residual arm. This distinction prevents a hold command or a
+residual vector from being mislabeled as an ESN position output.
 
 ## 4. Timing and data semantics
 
@@ -202,8 +202,8 @@ compare:
    not contract during movement; used to isolate the contraction mechanism.
 4. **RC/contractive augmentation:** primary proposed method.
 5. **RC/residual output:** the same contractive data with
-   `q_desired = q_actual + predicted_delta`; exploratory and never substituted
-   for the primary arm after confirmatory evaluation.
+   $q^d_{k+1}=q_k+r^g_{k+1}$; exploratory and never substituted for the primary
+   arm after confirmatory evaluation.
 
 The current M3 controller is reported as historical evidence, not mixed into
 the new confirmatory family. Reservoir capacity and trial budgets should be
@@ -231,7 +231,7 @@ state replaces measured feedback. The arms differ as follows:
 | RC/no augmentation | $\mathcal{T}([q_k^{\mathrm{ref}},\dot q_k^{\mathrm{ref}}])$ | $q^{\mathrm{ref}}_{k+1}$ | $\mathcal{T}([q_k,\dot q_k])$ | Absolute readout $\hat q^g_{k+1}$; $q^d_{k+1}=\hat q^g_{k+1}$ |
 | RC/non-decaying augmentation | $\mathcal{T}([q_{i,k}^{\mathrm{aug}},\dot q_{i,k}^{\mathrm{aug}}])$ | $q_{i,k+1}^{\mathrm{aug}}$ | $\mathcal{T}([q_k,\dot q_k])$ | Absolute readout $\hat q^g_{k+1}$; $q^d_{k+1}=\hat q^g_{k+1}$ |
 | RC/contractive augmentation | $\mathcal{T}([q_{i,k}^{\mathrm{aug}},\dot q_{i,k}^{\mathrm{aug}}])$ | $q_{i,k+1}^{\mathrm{aug}}$, whose perturbation contracts toward zero | $\mathcal{T}([q_k,\dot q_k])$ | Absolute readout $\hat q^g_{k+1}$; $q^d_{k+1}=\hat q^g_{k+1}$ |
-| RC/residual output | $\mathcal{T}([q_{i,k}^{\mathrm{aug}},\dot q_{i,k}^{\mathrm{aug}}])$ | $q_{i,k+1}^{\mathrm{aug}}-q_{i,k}^{\mathrm{aug}}$ | $\mathcal{T}([q_k,\dot q_k])$ | Increment readout $\widehat{\Delta q}_{k+1}$; $q^d_{k+1}=q_k+\widehat{\Delta q}_{k+1}$ |
+| RC/residual output | $\mathcal{T}([q_{i,k}^{\mathrm{aug}},\dot q_{i,k}^{\mathrm{aug}}])$ | $q_{i,k+1}^{\mathrm{aug}}-q_{i,k}^{\mathrm{aug}}$ | $\mathcal{T}([q_k,\dot q_k])$ | Increment readout and command: $r^g_{k+1};\quad q^d_{k+1}=q_k+r^g_{k+1}$ |
 
 For this `skelarm` experiment, $\dot q_k$ is the simulator's integrated robot
 velocity. It is not the desired velocity produced by the causal derivative
