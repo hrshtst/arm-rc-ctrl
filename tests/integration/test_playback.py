@@ -150,8 +150,9 @@ def test_export_refuses_bad_inputs(
         export_run_sklog(store, pointer, tmp_path / "x2.sklog.npz", scenario_file=lookalike)
     with pytest.raises(FileNotFoundError, match="no pointer record"):
         resolve_pointer("run-20260901-000000000000", records)
-    with pytest.raises(ValueError, match="not a run ID"):
-        resolve_pointer("model-20260901-000000000000", records)
+    for bad in ("model-20260901-000000000000", "run-", "run-2026-abc", "run-20260901-XYZ", "run-20260901-0000"):
+        with pytest.raises(ValueError, match="not a run ID"):
+            resolve_pointer(bad, records)
     original_pointer = (records / "data" / "records" / "runs" / f"{run_id}.toml").read_text()
     misnamed = tmp_path / "run-20260901-aaaaaaaaaaaa.toml"
     misnamed.write_text(original_pointer)  # a valid record under the wrong file name

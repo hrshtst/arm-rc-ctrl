@@ -39,7 +39,7 @@ from typing import TYPE_CHECKING, Final, cast
 import numpy as np
 
 from arm_rc_ctrl.config import from_mapping, to_mapping
-from arm_rc_ctrl.data.records import load_record, verify_payload
+from arm_rc_ctrl.data.records import is_artifact_id, load_record, verify_payload
 from arm_rc_ctrl.experiments.run_record import RunPointerRecord, load_run
 from arm_rc_ctrl.provenance import canonical_json, portable_config
 from arm_rc_ctrl.repo import repository_root
@@ -65,9 +65,9 @@ _SKIPPED: Final = ("t",)
 
 
 def resolve_pointer(run_id: str, records_root: Path) -> Path:
-    """The Git-tracked pointer record of ``run_id`` (strict name check)."""
-    if not run_id.startswith("run-"):
-        msg = f"{run_id!r} is not a run ID (expected run-<date>-<digest>)"
+    """The Git-tracked pointer record of ``run_id`` (full ID grammar enforced)."""
+    if not is_artifact_id(run_id) or not run_id.startswith("run-"):
+        msg = f"{run_id!r} is not a run ID (expected run-<yyyymmdd>-<12 hex digits>)"
         raise ValueError(msg)
     pointer_file = records_root / "data" / "records" / "runs" / f"{run_id}.toml"
     if not pointer_file.is_file():
