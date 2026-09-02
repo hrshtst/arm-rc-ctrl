@@ -24,7 +24,7 @@ are complete. Do not mark research software complete merely because it runs once
 
 - **Next task:** owner decision (M4)
 - **Current milestone:** M4 — later planar experiments, with result-playback tooling queued separately.
-- **Active blockers:** None; awaiting the owner's decision on M4 and on pushing the local commits.
+- **Active blockers:** None; the playback/reproduction work is signed off and pushed. Awaiting the owner's decision on M4.
 - **Latest completed work:** M3 closed 2026-08-31 (all M3 tasks incl. `M3-016`/`M3-017` and `M3-GATE` `DONE`; approved after three review rounds and merged in PR #4); M2 closed 2026-09-02 (PR #3); M1 closed 2026-08-31 (PR #2); M0 closed 2026-08-30 (PR #1); `UP-005` open.
 
 ## Milestone gates
