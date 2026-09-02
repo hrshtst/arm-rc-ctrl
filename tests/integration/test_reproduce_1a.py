@@ -284,3 +284,29 @@ def test_command_writes_a_summary_and_reports_failure_status(
         )
     assert str(tmp_path) not in note  # records never carry machine-specific paths
     assert "- Command: `python -m arm_rc_ctrl.experiments.reproduce_1a --classes nominal --scratch scratch" in note
+
+
+def test_from_evidence_reproduces_the_nominal_class_end_to_end(tmp_path: Path) -> None:
+    """The complete --from-evidence path: worktree, sync, manifest rebuild, and a passing inner reproduction."""
+    configured_store()
+    summary = tmp_path / "summary.json"
+    status = main(
+        [
+            "--from-evidence",
+            "--scratch",
+            str(tmp_path / "scratch"),
+            "--classes",
+            "nominal",
+            "--summary",
+            str(summary),
+        ]
+    )
+    try:
+        assert status == 0, "the inner reproduction must pass from the audit checkout"
+        printed = json.loads(summary.read_text(encoding="utf-8"))
+        assert printed["ok"] is True
+        assert [c["name"] for c in printed["checks"]] == list(STEPS)
+        assert printed["max_deviation"] == 0.0
+    finally:
+        checkout = tmp_path / "scratch" / "evidence"
+        subprocess.run(["git", "worktree", "remove", "--force", str(checkout)], check=False, capture_output=True)

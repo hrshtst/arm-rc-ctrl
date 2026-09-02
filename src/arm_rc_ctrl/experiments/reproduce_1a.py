@@ -550,11 +550,17 @@ def _git(*args: str) -> str:
 
 
 def run_from_evidence(scratch: Path, forwarded: Sequence[str]) -> int:
-    """Reproduce inside a fresh worktree at the evidence commit (sync, run, keep the checkout for inspection)."""
+    """Reproduce inside a fresh worktree at the audit commit: sync, stamp the build manifest, run, keep it."""
     checkout, commit = prepare_evidence_checkout(scratch, keep=True)
-    sync = subprocess.run(["uv", "sync", "--locked"], check=False, cwd=checkout)
-    if sync.returncode != 0:
-        return int(sync.returncode)
+    for stage in (
+        ["uv", "sync", "--locked"],
+        # A fresh environment carries no build-identity manifest; the environment step requires it.
+        ["uv", "run", "--locked", "python", "-m", "arm_rc_ctrl.dependencies", "rebuild"],
+    ):
+        completed = subprocess.run(stage, check=False, cwd=checkout)
+        if completed.returncode != 0:
+            print(f"'{' '.join(stage)}' failed in {checkout}")
+            return int(completed.returncode)
     inner_scratch = scratch / "inner"
     command = [
         "uv", "run", "--locked", "python", "scripts/reproduce_1a.py", "--scratch", str(inner_scratch), *forwarded,
