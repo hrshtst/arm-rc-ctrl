@@ -263,26 +263,31 @@ def main_play(argv: Sequence[str] | None = None) -> int:
     with tempfile.TemporaryDirectory(prefix="arm-rc-ctrl-play-") as scratch:
         scenario_file = None if args.scenario is None else Path(args.scenario)
         log = export_run_sklog(store, pointer_file, Path(scratch) / f"run{_SUFFIX}", scenario_file=scenario_file)
-        command: list[str] = [sys.executable, str(PLAYER), str(log)]
-        if args.speed is not None:
-            command += ["--speed", str(args.speed)]
-        if args.show_com:
-            command += ["--show-com"]
-        if args.panel:
-            command += ["--panel"]
         staged_video = None if target is None else _stage_video(target)
-        if staged_video is not None:
-            command += ["--export", str(staged_video)]
-        if args.fps is not None:
-            command += ["--fps", str(args.fps)]
         try:
-            completed = _run_player(command)
+            completed = _run_player(_player_command(args, log, staged_video))
             if target is not None and staged_video is not None and completed.returncode == 0:
                 _install_video(staged_video, target)
         finally:
             if staged_video is not None:
                 staged_video.unlink(missing_ok=True)
     return int(completed.returncode)
+
+
+def _player_command(args: argparse.Namespace, log: Path, staged_video: Path | None) -> list[str]:
+    """The pinned player's invocation for one exported log."""
+    command: list[str] = [sys.executable, str(PLAYER), str(log)]
+    if args.speed is not None:
+        command += ["--speed", str(args.speed)]
+    if args.show_com:
+        command += ["--show-com"]
+    if args.panel:
+        command += ["--panel"]
+    if staged_video is not None:
+        command += ["--export", str(staged_video)]
+    if args.fps is not None:
+        command += ["--fps", str(args.fps)]
+    return command
 
 
 def _stage_video(target: Path) -> Path:
