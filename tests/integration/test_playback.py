@@ -228,20 +228,25 @@ def test_play_command_exports_to_a_temporary_log_and_invokes_the_pinned_player(
         return _Done()
 
     monkeypatch.setattr(playback, "_run_player", fake_run)
+    clip = tmp_path / "clip.gif"
     argv = [
         "--run", result.pointer.artifact.artifact_id, "--scenario", str(SCENARIO), "--records-root", str(records),
-        "--speed", "0.5", "--show-com", "--panel", "--export", str(tmp_path / "clip.gif"), "--fps", "12",
+        "--speed", "0.5", "--show-com", "--panel", "--export", str(clip), "--fps", "12",
     ]  # fmt: skip
     assert main_play(argv) == 3  # the player's status propagates
-    (tmp_path / "clip.gif").unlink(missing_ok=True)
     (command,) = calls
     assert command[1] == str(playback.PLAYER)
     assert command[2].endswith(".sklog.npz")
     assert not Path(command[2]).exists()  # the temporary export is cleaned up
-    assert command[3:] == [
-        "--speed", "0.5", "--show-com", "--panel",
-        "--export", str((tmp_path / "clip.gif").resolve()), "--fps", "12.0",
-    ]  # fmt: skip
+    assert command[3:7] == ["--speed", "0.5", "--show-com", "--panel"]
+    assert command[7] == "--export"
+    staged = Path(command[8])
+    assert staged.parent == clip.parent  # rendered next to the target for an atomic same-filesystem link
+    assert staged.suffix == ".gif"
+    assert staged != clip.resolve()
+    assert command[9:] == ["--fps", "12.0"]
+    assert not clip.exists()  # the player failed (status 3): no final video appears
+    assert not staged.exists()  # and the staging file is cleaned up
 
 
 def test_play_refuses_unsafe_video_targets(
@@ -322,3 +327,41 @@ def test_export_keeps_a_nonzero_width_task_code(replayed: tuple[StorageRoot, Pat
     fake = type(result.run.arrays)({**arrays, "task_code": coded})
     channels = playback.sklog_channels(replace(result.run, arrays=fake))
     assert np.array_equal(channels["task_code"], coded)
+
+
+def test_play_installs_the_finished_video_atomically(
+    replayed: tuple[StorageRoot, Path, ReplayResult], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A successful export lands via a no-clobber link; a file racing in survives and fails the install."""
+    store, records, result = replayed
+    monkeypatch.setenv("ARM_RC_CTRL_STORAGE_ROOT", str(store.root))
+    base = [
+        "--run", result.pointer.artifact.artifact_id, "--scenario", str(SCENARIO), "--records-root", str(records),
+    ]  # fmt: skip
+
+    class _Ok:
+        returncode = 0
+
+    def render(command: list[str]) -> _Ok:
+        staged = Path(command[command.index("--export") + 1])
+        staged.write_bytes(b"GIF89a-frames")
+        return _Ok()
+
+    monkeypatch.setattr(playback, "_run_player", render)
+    clip = tmp_path / "clip.gif"
+    assert main_play([*base, "--export", str(clip)]) == 0
+    assert clip.read_bytes() == b"GIF89a-frames"
+    assert sorted(tmp_path.glob("clip*.gif")) == [clip]  # the staging file is gone
+
+    def render_and_race(command: list[str]) -> _Ok:
+        staged = Path(command[command.index("--export") + 1])
+        staged.write_bytes(b"new-frames")
+        raced.write_bytes(b"raced")  # appears after the early check, before the install
+        return _Ok()
+
+    raced = tmp_path / "raced.gif"
+    monkeypatch.setattr(playback, "_run_player", render_and_race)
+    with pytest.raises(FileExistsError, match="refusing to overwrite"):
+        main_play([*base, "--export", str(raced)])
+    assert raced.read_bytes() == b"raced"  # the concurrent file survived
+    assert sorted(tmp_path.glob("raced*.gif")) == [raced]

@@ -259,6 +259,7 @@ def main_play(argv: Sequence[str] | None = None) -> int:
             parser.error(f"--fps must be a finite positive number, got {args.fps!r}")
     pointer_file = _pointer_from_args(args)
     store = open_storage()
+    target = None if args.export is None else _video_target(Path(args.export))
     with tempfile.TemporaryDirectory(prefix="arm-rc-ctrl-play-") as scratch:
         scenario_file = None if args.scenario is None else Path(args.scenario)
         log = export_run_sklog(store, pointer_file, Path(scratch) / f"run{_SUFFIX}", scenario_file=scenario_file)
@@ -269,16 +270,43 @@ def main_play(argv: Sequence[str] | None = None) -> int:
             command += ["--show-com"]
         if args.panel:
             command += ["--panel"]
-        if args.export is not None:
-            command += ["--export", str(_video_target(Path(args.export)))]
+        staged_video = None if target is None else _stage_video(target)
+        if staged_video is not None:
+            command += ["--export", str(staged_video)]
         if args.fps is not None:
             command += ["--fps", str(args.fps)]
-        completed = _run_player(command)
+        try:
+            completed = _run_player(command)
+            if target is not None and staged_video is not None and completed.returncode == 0:
+                _install_video(staged_video, target)
+        finally:
+            if staged_video is not None:
+                staged_video.unlink(missing_ok=True)
     return int(completed.returncode)
 
 
+def _stage_video(target: Path) -> Path:
+    """A staging file the player renders into, next to the target so the install link stays on one filesystem."""
+    handle, staged_name = tempfile.mkstemp(prefix=target.stem, suffix=target.suffix, dir=target.parent)
+    os.close(handle)
+    return Path(staged_name)
+
+
+def _install_video(staged: Path, target: Path) -> None:
+    """Install the finished video atomically without clobbering; a file that raced in survives."""
+    try:
+        os.link(staged, target)
+    except FileExistsError:
+        msg = f"refusing to overwrite {target}"
+        raise FileExistsError(msg) from None
+
+
 def _video_target(export: Path) -> Path:
-    """A safe headless-export target: the right suffix, not existing, not a symbolic link."""
+    """A safe headless-export target: the right suffix, not existing, not a symbolic link.
+
+    The check is an early courtesy; the atomic no-clobber installation of the
+    finished video is what actually protects a file appearing concurrently.
+    """
     if export.suffix.lower() not in (".mp4", ".gif"):
         msg = f"--export must end with .mp4 or .gif, got {export.name!r}"
         raise ValueError(msg)
