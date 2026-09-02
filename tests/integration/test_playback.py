@@ -126,7 +126,9 @@ def test_repeated_exports_are_semantically_equal(
     assert first.producer == second.producer
 
 
-def test_export_refuses_bad_inputs(replayed: tuple[StorageRoot, Path, ReplayResult], tmp_path: Path) -> None:
+def test_export_refuses_bad_inputs(
+    replayed: tuple[StorageRoot, Path, ReplayResult], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     """Overwrites, wrong suffixes, foreign scenarios, unknown runs, and tampered payloads are refused."""
     store, records, result = replayed
     run_id = result.pointer.artifact.artifact_id
@@ -166,6 +168,25 @@ def test_export_refuses_bad_inputs(replayed: tuple[StorageRoot, Path, ReplayResu
     finally:
         payload.write_bytes(original)
     assert not sorted(tmp_path.glob("*.tmp*"))  # atomic staging leaves nothing behind
+    # The no-clobber commit is atomic: even if a file appears after the early check, it is never replaced.
+    raced = tmp_path / "raced.sklog.npz"
+    real_exists = Path.exists
+
+    def appears_late(self: Path, *, follow_symlinks: bool = True) -> bool:
+        if self == raced:
+            raced.write_text("winner", encoding="utf-8")
+            return False
+        return real_exists(self, follow_symlinks=follow_symlinks)
+
+    monkeypatch.setattr(Path, "exists", appears_late)
+    with pytest.raises(FileExistsError, match="refusing to overwrite"):
+        export_run_sklog(store, pointer, raced, scenario_file=SCENARIO)
+    monkeypatch.setattr(Path, "exists", real_exists)
+    assert raced.read_text(encoding="utf-8") == "winner"  # the concurrent file survived
+    link = tmp_path / "linked.sklog.npz"
+    link.symlink_to(tmp_path / "elsewhere.sklog.npz")
+    with pytest.raises(FileExistsError, match="refusing to overwrite"):
+        export_run_sklog(store, pointer, link, scenario_file=SCENARIO)
 
 
 def test_export_command_prints_the_player_hint(
@@ -209,6 +230,7 @@ def test_play_command_exports_to_a_temporary_log_and_invokes_the_pinned_player(
         "--speed", "0.5", "--show-com", "--export", str(tmp_path / "clip.gif"), "--fps", "12",
     ]  # fmt: skip
     assert main_play(argv) == 3  # the player's status propagates
+    (tmp_path / "clip.gif").unlink(missing_ok=True)
     (command,) = calls
     assert command[1] == str(playback.PLAYER)
     assert command[2].endswith(".sklog.npz")
@@ -222,3 +244,30 @@ def test_play_command_exports_to_a_temporary_log_and_invokes_the_pinned_player(
         "--fps",
         "12",
     ]
+
+
+def test_play_refuses_unsafe_video_targets(
+    replayed: tuple[StorageRoot, Path, ReplayResult], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Existing, symlinked, or wrongly suffixed --export targets are refused before anything runs."""
+    store, records, result = replayed
+    monkeypatch.setenv("ARM_RC_CTRL_STORAGE_ROOT", str(store.root))
+
+    def forbidden(_command: list[str]) -> object:
+        pytest.fail("the player must not run")
+
+    monkeypatch.setattr(playback, "_run_player", forbidden)
+    base = [
+        "--run", result.pointer.artifact.artifact_id, "--scenario", str(SCENARIO), "--records-root", str(records),
+    ]  # fmt: skip
+    existing = tmp_path / "clip.gif"
+    existing.write_text("old", encoding="utf-8")
+    with pytest.raises(FileExistsError, match="refusing to overwrite"):
+        main_play([*base, "--export", str(existing)])
+    assert existing.read_text(encoding="utf-8") == "old"
+    link = tmp_path / "link.mp4"
+    link.symlink_to(tmp_path / "target.mp4")
+    with pytest.raises(FileExistsError, match="refusing to overwrite"):
+        main_play([*base, "--export", str(link)])
+    with pytest.raises(ValueError, match="must end with"):
+        main_play([*base, "--export", str(tmp_path / "clip.webm")])

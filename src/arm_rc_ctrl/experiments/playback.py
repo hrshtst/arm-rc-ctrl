@@ -153,7 +153,7 @@ def export_run_sklog(store: StorageRoot, pointer_file: Path, out: Path, *, scena
     if not out.name.endswith(_SUFFIX):
         msg = f"the output must end with {_SUFFIX!r}, got {out.name!r}"
         raise ValueError(msg)
-    if out.exists():
+    if out.is_symlink() or out.exists():
         msg = f"refusing to overwrite {out}"
         raise FileExistsError(msg)
     pointer = load_record(pointer_file, RunPointerRecord)
@@ -193,7 +193,11 @@ def export_run_sklog(store: StorageRoot, pointer_file: Path, out: Path, *, scena
     staged = Path(staged_name)
     try:
         log.save(staged)
-        staged.replace(out)
+        try:
+            os.link(staged, out)  # atomic no-clobber: a file that appeared meanwhile is never replaced
+        except FileExistsError:
+            msg = f"refusing to overwrite {out}"
+            raise FileExistsError(msg) from None
     finally:
         staged.unlink(missing_ok=True)
     return out
@@ -249,11 +253,22 @@ def main_play(argv: Sequence[str] | None = None) -> int:
         if args.show_com:
             command += ["--show-com"]
         if args.export is not None:
-            command += ["--export", str(Path(args.export).resolve())]
+            command += ["--export", str(_video_target(Path(args.export)))]
         if args.fps is not None:
             command += ["--fps", str(args.fps)]
         completed = _run_player(command)
     return int(completed.returncode)
+
+
+def _video_target(export: Path) -> Path:
+    """A safe headless-export target: the right suffix, not existing, not a symbolic link."""
+    if export.suffix.lower() not in (".mp4", ".gif"):
+        msg = f"--export must end with .mp4 or .gif, got {export.name!r}"
+        raise ValueError(msg)
+    if export.is_symlink() or export.exists():
+        msg = f"refusing to overwrite {export}"
+        raise FileExistsError(msg)
+    return export.resolve()
 
 
 def _run_player(command: list[str]) -> subprocess.CompletedProcess[bytes]:
