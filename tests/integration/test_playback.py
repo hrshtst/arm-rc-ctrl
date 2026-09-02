@@ -227,7 +227,7 @@ def test_play_command_exports_to_a_temporary_log_and_invokes_the_pinned_player(
     monkeypatch.setattr(playback, "_run_player", fake_run)
     argv = [
         "--run", result.pointer.artifact.artifact_id, "--scenario", str(SCENARIO), "--records-root", str(records),
-        "--speed", "0.5", "--show-com", "--export", str(tmp_path / "clip.gif"), "--fps", "12",
+        "--speed", "0.5", "--show-com", "--panel", "--export", str(tmp_path / "clip.gif"), "--fps", "12",
     ]  # fmt: skip
     assert main_play(argv) == 3  # the player's status propagates
     (tmp_path / "clip.gif").unlink(missing_ok=True)
@@ -236,14 +236,9 @@ def test_play_command_exports_to_a_temporary_log_and_invokes_the_pinned_player(
     assert command[2].endswith(".sklog.npz")
     assert not Path(command[2]).exists()  # the temporary export is cleaned up
     assert command[3:] == [
-        "--speed",
-        "0.5",
-        "--show-com",
-        "--export",
-        str((tmp_path / "clip.gif").resolve()),
-        "--fps",
-        "12",
-    ]
+        "--speed", "0.5", "--show-com", "--panel",
+        "--export", str((tmp_path / "clip.gif").resolve()), "--fps", "12.0",
+    ]  # fmt: skip
 
 
 def test_play_refuses_unsafe_video_targets(
@@ -271,3 +266,46 @@ def test_play_refuses_unsafe_video_targets(
         main_play([*base, "--export", str(link)])
     with pytest.raises(ValueError, match="must end with"):
         main_play([*base, "--export", str(tmp_path / "clip.webm")])
+
+
+@pytest.mark.parametrize(
+    ("option", "value", "message"),
+    [
+        ("--speed", "0", "--speed must be a finite positive number"),
+        ("--speed", "-1", "--speed must be a finite positive number"),
+        ("--speed", "nan", "--speed must be a finite positive number"),
+        ("--speed", "inf", "--speed must be a finite positive number"),
+        ("--fps", "0", "--fps"),
+        ("--fps", "nan", "--fps"),
+    ],
+)
+def test_play_rejects_degenerate_speed_and_fps(
+    replayed: tuple[StorageRoot, Path, ReplayResult],
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    option: str,
+    value: str,
+    message: str,
+) -> None:
+    """Non-finite or non-positive --speed/--fps never reach the player; --fps without --export is refused."""
+    store, records, result = replayed
+    monkeypatch.setenv("ARM_RC_CTRL_STORAGE_ROOT", str(store.root))
+
+    def forbidden(_command: list[str]) -> object:
+        pytest.fail("the player must not run")
+
+    monkeypatch.setattr(playback, "_run_player", forbidden)
+    base = [
+        "--run", result.pointer.artifact.artifact_id, "--scenario", str(SCENARIO), "--records-root", str(records),
+    ]  # fmt: skip
+    argv = [*base, option, value]
+    if option == "--fps":
+        argv += ["--export", str(tmp_path / "clip.gif")]
+    with pytest.raises(SystemExit) as info:
+        main_play(argv)
+    assert info.value.code == 2
+    assert message in capsys.readouterr().err
+    with pytest.raises(SystemExit):
+        main_play([*base, "--fps", "12"])  # --fps without --export
+    assert "--fps only applies to --export" in capsys.readouterr().err

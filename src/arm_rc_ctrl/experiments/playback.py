@@ -19,14 +19,16 @@ inspection of recorded state — not controller re-execution or simulation.
 Command lines::
 
     python scripts/export_run_sklog.py --run run-20260831-... --scenario configs/tasks/task_1a.toml --out run.sklog.npz
-    python scripts/play_run.py --run run-20260831-... --scenario configs/tasks/task_1a.toml
-        [--speed 0.5] [--show-com] [--export run.mp4|run.gif] [--fps 24]
+    python scripts/play_run.py --run run-20260831-...
+        [--scenario configs/tasks/task_1a.toml] [--speed 0.5] [--show-com] [--panel]
+        [--export run.mp4|run.gif] [--fps 24]
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import subprocess
 import sys
@@ -237,11 +239,21 @@ def main_export(argv: Sequence[str] | None = None) -> int:
 def main_play(argv: Sequence[str] | None = None) -> int:
     """Entry point of ``scripts/play_run.py``: export to a temporary location and invoke the pinned player."""
     parser = _export_parser("Export one verified run to a temporary log and play it with the pinned skelarm player.")
-    parser.add_argument("--speed", type=float, default=None, help="initial playback speed multiplier")
+    parser.add_argument("--speed", type=float, default=None, help="initial playback speed multiplier (> 0)")
     parser.add_argument("--show-com", action="store_true", help="overlay the centers of mass")
+    parser.add_argument(
+        "--panel", action="store_true", help="include the simulator-style side panel in --export frames"
+    )
     parser.add_argument("--export", type=Path, default=None, help="headless .mp4/.gif export instead of the GUI")
-    parser.add_argument("--fps", type=int, default=None, help="frame rate of the headless export")
+    parser.add_argument("--fps", type=float, default=None, help="frame rate of the headless export (> 0)")
     args = parser.parse_args(argv)
+    if args.speed is not None and not (math.isfinite(args.speed) and args.speed > 0):
+        parser.error(f"--speed must be a finite positive number, got {args.speed!r}")
+    if args.fps is not None:
+        if args.export is None:
+            parser.error("--fps only applies to --export")
+        if not (math.isfinite(args.fps) and args.fps > 0):
+            parser.error(f"--fps must be a finite positive number, got {args.fps!r}")
     pointer_file = _pointer_from_args(args)
     store = open_storage()
     with tempfile.TemporaryDirectory(prefix="arm-rc-ctrl-play-") as scratch:
@@ -252,6 +264,8 @@ def main_play(argv: Sequence[str] | None = None) -> int:
             command += ["--speed", str(args.speed)]
         if args.show_com:
             command += ["--show-com"]
+        if args.panel:
+            command += ["--panel"]
         if args.export is not None:
             command += ["--export", str(_video_target(Path(args.export)))]
         if args.fps is not None:
