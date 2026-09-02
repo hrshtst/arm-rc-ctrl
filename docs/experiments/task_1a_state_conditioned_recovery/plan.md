@@ -138,41 +138,55 @@ confirmatory outcomes.
 
 ## 5. Training construction
 
-Let the cropped demonstration be `q_ref[k]`. Episode `i = 0` is the original,
-unmodified demonstration. Each synthetic episode `i >= 1` is
+Let the cropped demonstration be $q_k^{\mathrm{ref}}$. Episode $i=0$ is the
+original, unmodified demonstration. Each synthetic episode $i\geq 1$ is
 
-```text
-q_aug[i, k] = q_ref[k] + delta[i, k]
-```
+\[
+q_{i,k}^{\mathrm{aug}} = q_k^{\mathrm{ref}} + \delta_{i,k}.
+\]
 
-with `q_aug[0, k] = q_ref[k]` and `delta[0, k] = 0`.
+The original episode is represented consistently by
+$q_{0,k}^{\mathrm{aug}}=q_k^{\mathrm{ref}}$ and $\delta_{0,k}=0$.
 
-where `delta` is smooth, bounded, seeded, and physically valid. The preferred
-contractive construction uses a correlated latent process and a target-distance
-envelope:
+The perturbation $\delta$ is smooth, bounded, seeded, and physically valid. The
+preferred contractive construction uses a correlated latent process and a
+target-distance envelope:
 
-```text
-z[k + 1] = rho * z[k] + epsilon[k]
-w[k] = clip(d_tip(q_ref[k], target) / d_tip(q_ref[0], target), 0, 1) ** gamma
-delta[k] = w[k] * z[k]
-```
+\[
+\begin{aligned}
+z_{i,k+1} &= \rho z_{i,k} + \epsilon_{i,k}, \\
+w_k &= \left[\operatorname{clip}\!\left(
+  \frac{d_{\mathrm{tip}}(q_k^{\mathrm{ref}},p^\star)}
+       {d_{\mathrm{tip}}(q_0^{\mathrm{ref}},p^\star)},
+  0,1
+\right)\right]^\gamma, \\
+\delta_{i,k} &= w_k z_{i,k}.
+\end{aligned}
+\]
 
 The implementation must make the envelope continuously approach zero and force
 it to zero throughout the final dwell. Samples that violate joint, velocity,
 endpoint, or configured augmentation limits are rejected rather than clipped
 silently. Velocity inputs are recomputed from each augmented position sequence
 with the versioned preprocessing policy; noise is never added independently to
-`dq`.
+$\dot q$.
 
 Teacher forcing then learns
 
-```text
-[normalized q_aug[k], normalized dq_aug[k]] -> q_aug[k + 1]
-```
+\[
+\mathcal{T}\!\left(
+  \begin{bmatrix}
+  q_{i,k}^{\mathrm{aug}} \\
+  \dot q_{i,k}^{\mathrm{aug}}
+  \end{bmatrix}
+\right)
+\longmapsto q_{i,k+1}^{\mathrm{aug}}.
+\]
 
-with one reservoir reset and configured warm-up per episode. The augmentation
-configuration records episode count, seeds, amplitude distribution, correlation
-coefficient, envelope exponent, validity rules, and generated-array digests.
+Training uses one reservoir reset and configured warm-up per episode. The
+augmentation configuration records episode count, seeds, amplitude
+distribution, correlation coefficient, envelope exponent, validity rules, and
+generated-array digests.
 There is still exactly one independent demonstration; reports must distinguish
 that count from the number of synthetic episodes.
 
