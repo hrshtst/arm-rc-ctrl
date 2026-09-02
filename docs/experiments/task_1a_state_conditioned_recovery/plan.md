@@ -141,9 +141,9 @@ confirmatory outcomes.
 Let the cropped demonstration be $q_k^{\mathrm{ref}}$. Episode $i=0$ is the
 original, unmodified demonstration. Each synthetic episode $i\geq 1$ is
 
-\[
+$$
 q_{i,k}^{\mathrm{aug}} = q_k^{\mathrm{ref}} + \delta_{i,k}.
-\]
+$$
 
 The original episode is represented consistently by
 $q_{0,k}^{\mathrm{aug}}=q_k^{\mathrm{ref}}$ and $\delta_{0,k}=0$.
@@ -152,7 +152,7 @@ The perturbation $\delta$ is smooth, bounded, seeded, and physically valid. The
 preferred contractive construction uses a correlated latent process and a
 target-distance envelope:
 
-\[
+$$
 \begin{aligned}
 z_{i,k+1} &= \rho z_{i,k} + \epsilon_{i,k}, \\
 w_k &= \left[\operatorname{clip}\!\left(
@@ -162,7 +162,7 @@ w_k &= \left[\operatorname{clip}\!\left(
 \right)\right]^\gamma, \\
 \delta_{i,k} &= w_k z_{i,k}.
 \end{aligned}
-\]
+$$
 
 The implementation must make the envelope continuously approach zero and force
 it to zero throughout the final dwell. Samples that violate joint, velocity,
@@ -173,7 +173,7 @@ $\dot q$.
 
 Teacher forcing then learns
 
-\[
+$$
 \mathcal{T}\!\left(
   \begin{bmatrix}
   q_{i,k}^{\mathrm{aug}} \\
@@ -181,7 +181,7 @@ Teacher forcing then learns
   \end{bmatrix}
 \right)
 \longmapsto q_{i,k+1}^{\mathrm{aug}}.
-\]
+$$
 
 Training uses one reservoir reset and configured warm-up per episode. The
 augmentation configuration records episode count, seeds, amplitude
@@ -214,11 +214,11 @@ reported explicitly.
 
 Every RC arm uses the same measured-state interface at evaluation time:
 
-\[
+$$
 u_k = \mathcal{T}([q_k^\mathsf{T},\dot q_k^\mathsf{T}]^\mathsf{T}),
 \qquad
 x_{k+1}=f_{\mathrm{ESN}}(x_k,u_k).
-\]
+$$
 
 Positions and velocities are actual simulator feedback, not the previously
 generated reference. Task 1-a has one fixed target, so no one-hot task code is
@@ -246,9 +246,9 @@ warm-up duration. Evaluation uses measured $[q_k,\dot q_k]$ while the tracker
 holds that run's actual initial posture. From task time zero, the absolute RC
 arms compute
 
-\[
+$$
 \hat q^g_{k+1}=W_{\mathrm{out}}[1;x_{k+1}],
-\]
+$$
 
 while the residual arm interprets the same readout shape as an increment. The
 readout consumes the reservoir state and its bias only; raw $u_k$ is not an
