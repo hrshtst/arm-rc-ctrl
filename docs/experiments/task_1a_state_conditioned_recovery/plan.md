@@ -155,7 +155,7 @@ target-distance envelope:
 $$
 \begin{aligned}
 z_{i,k+1} &= \rho z_{i,k} + \epsilon_{i,k}, \\
-w_k &= \left[\operatorname{clip}\!\left(
+w_k &= \left[\mathrm{clip}\!\left(
   \frac{d_{\mathrm{tip}}(q_k^{\mathrm{ref}},p^\star)}
        {d_{\mathrm{tip}}(q_0^{\mathrm{ref}},p^\star)},
   0,1
