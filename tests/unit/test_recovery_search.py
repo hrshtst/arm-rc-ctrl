@@ -11,8 +11,11 @@ from typing import cast
 import optuna
 import pytest
 
+from arm_rc_ctrl.experiments.esn_search import TrialPoint
 from arm_rc_ctrl.experiments.recovery_search import (
     RECOVERY_TRACKERS,
+    AugmentationPoint,
+    RecoveryTrialPoint,
     check_matched_protocols,
     load_recovery_search,
     point_from_params,
@@ -326,3 +329,22 @@ def test_duplicate_comparison_labels_are_refused(tmp_path: Path) -> None:
     file = _anchored(tmp_path, formulation="contractive", augmented_anchor=True, extra=second)
     with pytest.raises(ValueError, match="unique"):
         load_recovery_search(file)
+
+
+def test_residual_formulation_uses_contractive_data_with_the_increment_target(tmp_path: Path) -> None:
+    """The residual arm searches the D1 grids, trains contractive-family data, and reads out increments."""
+    protocol = load_recovery_search(_write(tmp_path, name="r", formulation="residual"))
+    assert protocol.formulation == "residual"
+    point = RecoveryTrialPoint(
+        esn=TrialPoint(100, 0.9, 0.9, 0.1, 0.1, 31, 0.01, 20.0, 20.0),
+        warmup_s=1.0,
+        augmentation=AugmentationPoint(n_synthetic=16, sigma_rad=0.025, phi=0.98, gamma=1.0),
+    )
+    spec = training_spec_for(protocol, point)
+    assert spec.target == "increment_q"
+    assert spec.augmentation is not None
+    assert spec.augmentation.family == "contractive"
+    contractive = load_recovery_search(_write(tmp_path, name="c2", formulation="contractive", sampler_seed=81))
+    check_matched_protocols(protocol, contractive)
+    with pytest.raises(ValueError, match="requires the augmentation grids"):
+        load_recovery_search(_write(tmp_path, name="p2", formulation="residual", augmented=False))

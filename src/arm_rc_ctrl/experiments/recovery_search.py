@@ -3,10 +3,11 @@
 
 """Recovery development search protocols: one study per generator formulation (M3R-012; plan section 9.2).
 
-Each formulation — ``no_augmentation``, ``non_decaying``, ``contractive`` —
-gets its own Optuna study with an identical trial count and an identical ESN
-space; the two augmented studies share their augmentation seed bank and search
-the approved D1 grids as categorical parameters. Parameters that do not apply
+Each formulation — ``no_augmentation``, ``non_decaying``, ``contractive``,
+and the explicitly exploratory ``residual`` arm (M3R-014) — gets its own
+Optuna study with an identical trial count and an identical ESN space; the
+augmented studies share their augmentation seed bank and search the
+approved D1 grids as categorical parameters. Parameters that do not apply
 to a formulation are **absent**, never dummy-filled; every trial evaluates
 both frozen trackers, and the tracker is never an Optuna parameter. The
 development scenarios come from the locked recovery development levels; no
@@ -69,8 +70,10 @@ __all__ = [
 RECOVERY_TRACKERS: Final[tuple[str, ...]] = ("pd_v2", "computed_torque")
 """Both frozen trackers are evaluated for every trial; the tracker is never a search parameter."""
 
-type RecoveryFormulation = Literal["no_augmentation", "non_decaying", "contractive"]
-_AUGMENTED: Final = ("non_decaying", "contractive")
+type RecoveryFormulation = Literal["no_augmentation", "non_decaying", "contractive", "residual"]
+_AUGMENTED: Final = ("non_decaying", "contractive", "residual")
+"""Formulations that search the D1 grids; the residual arm trains on contractive-family data
+with the increment readout (plan sections 6 and 6.1; explicitly exploratory per D4)."""
 _AUGMENTATION_PARAMETERS: Final = ("n_synthetic", "sigma_rad", "phi", "gamma")
 
 
@@ -327,6 +330,7 @@ def training_spec_for(protocol: RecoverySearchProtocol, point: RecoveryTrialPoin
     """The training spec of one trial: warm-up washout plus the formulation's augmentation."""
     augmentation = None
     if point.augmentation is not None:
+        # The residual arm consumes the same contractive-family data (plan section 6, arm 5).
         family: Literal["non_decaying", "contractive"] = (
             "non_decaying" if protocol.formulation == "non_decaying" else "contractive"
         )
@@ -339,7 +343,8 @@ def training_spec_for(protocol: RecoverySearchProtocol, point: RecoveryTrialPoin
             seed_bank=protocol.seed_bank,
             attempt_budget=protocol.attempt_factor * point.augmentation.n_synthetic,
         )
-    return TrainingSpec(washout="warmup_hold", warmup_s=point.warmup_s, augmentation=augmentation)
+    target = "increment_q" if protocol.formulation == "residual" else "next_q"
+    return TrainingSpec(washout="warmup_hold", warmup_s=point.warmup_s, target=target, augmentation=augmentation)
 
 
 def check_matched_protocols(first: RecoverySearchProtocol, second: RecoverySearchProtocol) -> None:

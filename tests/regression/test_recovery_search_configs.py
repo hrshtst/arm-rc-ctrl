@@ -40,7 +40,9 @@ FILES = {
     "no_augmentation": STUDIES / "recovery_search_1a_no_augmentation_v1.toml",
     "non_decaying": STUDIES / "recovery_search_1a_non_decaying_v1.toml",
     "contractive": STUDIES / "recovery_search_1a_contractive_v1.toml",
+    "residual": STUDIES / "recovery_search_1a_residual_v1.toml",
 }
+AUGMENTED = ("non_decaying", "contractive", "residual")
 DEVELOPMENT = REPO_ROOT / "configs" / "evaluations" / "task_1a_recovery_dev_v1.toml"
 MODEL_V4 = REPO_ROOT / "configs" / "models" / "esn_task_1a_v4.toml"
 NOMINAL_V4 = REPO_ROOT / "configs" / "evaluations" / "task_1a_nominal_v4.toml"
@@ -80,7 +82,7 @@ def _find_key(mapping: object, key: str) -> float:
     return hits[0]
 
 
-def test_the_three_studies_are_matched() -> None:
+def test_the_formulation_studies_are_matched() -> None:
     """Identical budgets, spaces, objectives, feasibility, pruners, and start-up counts; one shared bank."""
     protocols = _protocols()
     for first, second in combinations(protocols.values(), 2):
@@ -101,7 +103,7 @@ def test_formulations_names_and_digests_identify_each_arm() -> None:
         assert protocol.formulation == formulation
         assert formulation.replace("_", "-") in protocol.name
         digests.add(recovery_protocol_digest(protocol))
-    assert len(digests) == 3
+    assert len(digests) == len(FILES)
 
 
 def test_search_spaces_cover_the_approved_ranges() -> None:
@@ -110,7 +112,7 @@ def test_search_spaces_cover_the_approved_ranges() -> None:
     for protocol in protocols.values():
         assert set(protocol.space.warmups_s) == APPROVED_WARMUPS_S
     assert protocols["no_augmentation"].space.augmentation is None
-    for formulation in ("non_decaying", "contractive"):
+    for formulation in AUGMENTED:
         grid = protocols[formulation].space.augmentation
         assert grid is not None
         assert set(grid.n_synthetic) == APPROVED_N_SYNTHETIC
@@ -129,7 +131,7 @@ def test_esn_bounds_equal_the_m3_search_v2_space() -> None:
 def test_sampler_seeds_are_a_new_disjoint_namespace() -> None:
     """The three sampler seeds are distinct and disjoint from every recorded M3 and recovery seed."""
     seeds = {p.sampler.seed for p in _protocols().values()}
-    assert len(seeds) == 3
+    assert len(seeds) == len(FILES)
     used: set[int] = set(M3_CONFIRMATORY_SEEDS)
     used.add(SEED_NAMESPACE)
     for file in M3_DEVELOPMENT_FILES:
@@ -183,5 +185,5 @@ def test_anchors_are_the_paired_v4_point() -> None:
             assert anchor.point.augmentation is None
         else:
             assert anchor.point.augmentation == AugmentationPoint(n_synthetic=64, sigma_rad=0.05, phi=0.99, gamma=1.0)
-    augmented = [protocols["non_decaying"].comparison, protocols["contractive"].comparison]
-    assert augmented[0] == augmented[1]
+    anchors = {protocols[formulation].comparison for formulation in AUGMENTED}
+    assert len(anchors) == 1  # the augmented and residual studies queue the identical paired anchor

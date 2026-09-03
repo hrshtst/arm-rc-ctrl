@@ -1,0 +1,88 @@
+# Recovery development search protocol v1, residual formulation (docs/TASKS.md M3R-014; recovery
+# plan sections 6, 6.1, 7.3, and 9.2, approved decision D4). The residual arm trains on the SAME
+# contractive-family augmented data as the contractive study (shared seed bank 1 pairs the episodes
+# by construction) but the readout target is the increment q_{k+1} - q_k and the commanded position
+# is composed as q_measured + r at task time; generator_increment_q stores the raw readout and
+# generator_output_q the composed command. The arm is EXPLICITLY EXPLORATORY (plan section 6, arm 5):
+# it is never substituted for the primary arm after confirmatory evaluation, and before the model
+# freeze it is either predeclared for confirmatory inclusion (only if it passes the same gates) or
+# retained as an exploratory result.
+#
+# Matched to the three absolute-arm studies: identical budget (500), start-up count, ESN bounds,
+# warm-up set, D1 grids, objective, feasibility, attempt factor, and the shared augmentation seed
+# bank; the anchor is the same paired v4 point. Sampler seed 20270104 extends the disjoint
+# 20270101-03 namespace. Development only: no confirmatory seed, level, or outcome is reachable.
+# tests/regression/test_recovery_search_configs.py enforces all of it.
+name = "recovery-search-1a-residual-v1"
+scenario = "../tasks/task_1a.toml"
+model = "../models/esn_task_1a_v4.toml"
+formulation = "residual"
+budget = 500
+seed_bank = 1
+attempt_factor = 4
+development = "../evaluations/task_1a_recovery_dev_v1.toml"
+max_dt_ratio = 3.0
+
+[sampler]
+kind = "tpe"
+seed = 20270104
+n_startup_trials = 55
+
+[pruner]
+# No pruning: evaluation already stops at the first infeasible (scenario, tracker) pair.
+kind = "none"
+
+[objective]
+kind = "worst_cell_median_gap_ratio"
+infeasible_penalty = 10.0
+
+[esn]
+# The common ESN bounds of the M3 search v2 (esn_search_1a_v2.toml), unchanged: the recovery
+# search varies timing and augmentation against the same reservoir space the v4 point came from
+# (tests/regression/test_recovery_search_configs.py asserts the equality).
+n_neurons = { low = 100, high = 400, step = 50 }
+spectral_radius = { low = 0.8, high = 1.3 }
+sparsity = { low = 0.5, high = 0.98 }
+leak_rate = { low = 0.01, high = 0.3, log = true }
+input_scaling = { low = 0.02, high = 0.5, log = true }
+seed = { low = 1, high = 1000 }
+alpha = { low = 1e-3, high = 1.0, log = true }
+velocity_cutoff_hz = { low = 5.0, high = 30.0, log = true }
+acceleration_cutoff_hz = { low = 5.0, high = 30.0, log = true }
+
+[space]
+# The full approved D2 warm-up set; T_w = 0 is the named no-warm-up case.
+warmups_s = [0.0, 0.25, 0.5, 1.0, 2.0]
+# The full approved D1 grids (categorical dimensions; sigma is constant across the
+# synthetic episodes of one configuration).
+n_synthetic = [16, 32, 64]
+sigma_rad = [0.01, 0.025, 0.05, 0.1]
+phi = [0.98, 0.99, 0.995]
+gamma = [0.5, 1.0, 2.0]
+
+
+# The approved anchor: the frozen v4 reservoir/readout point with its selected estimator
+# cutoffs (esn_search_v2 trial 843; configs/evaluations/task_1a_nominal_v4.toml) at the D2
+# anchor warm-up of 1.0 s and the D1 anchor (64, 0.05 rad, gamma 1). D1 leaves phi open; 0.99 is the mid-grid choice.
+[[comparison]]
+label = "anchor-v4-tw1"
+
+[comparison.point]
+warmup_s = 1.0
+
+[comparison.point.esn]
+n_neurons = 250
+spectral_radius = 1.2944675208876626
+sparsity = 0.9791076284866893
+leak_rate = 0.04089985548951509
+input_scaling = 0.021176881502572638
+seed = 896
+alpha = 0.002849478837743603
+velocity_cutoff_hz = 29.980411525699598
+acceleration_cutoff_hz = 10.938122239871603
+
+[comparison.point.augmentation]
+n_synthetic = 64
+sigma_rad = 0.05
+phi = 0.99
+gamma = 1.0
