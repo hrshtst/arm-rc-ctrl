@@ -168,7 +168,7 @@ def test_recipe_validation() -> None:
     foreign = dataclasses.replace(transform, derived_from=("processed-20260830-666666666666",))
     with pytest.raises(ValueError, match="derived_from names datasets outside the recipe"):
         dataclasses.replace(base, transform=foreign)
-    with pytest.raises(ValueError, match=r"fit\.episodes .* must equal the dataset order"):
+    with pytest.raises(ValueError, match=r"fit\.episodes .* must equal the training episode labels"):
         dataclasses.replace(
             base, datasets=(dataclasses.replace(SOURCE, artifact_id="processed-20260830-666666666666"),)
         )

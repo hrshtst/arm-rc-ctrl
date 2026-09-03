@@ -47,6 +47,7 @@ __all__ = [
     "APPROVED_WARMUPS_S",
     "WarmupConfig",
     "build_task_episode",
+    "build_task_episode_arrays",
     "warmup_inputs",
     "warmup_state",
 ]
@@ -102,14 +103,47 @@ def warmup_inputs(encoder: InputEncoder, q0: NDArray[np.float64], n_rows: int) -
     return encoder.encode_many(hold, zeros)
 
 
+def build_task_episode_arrays(
+    t: NDArray[np.float64],
+    q: NDArray[np.float64],
+    dq: NDArray[np.float64],
+    task_code: NDArray[np.float64],
+    encoder: InputEncoder,
+    *,
+    source: str,
+    warmup: WarmupConfig,
+    period_s: float,
+) -> Episode:
+    """The warm-up-prefixed episode of raw task-clock arrays (datasets and synthetic episodes alike).
+
+    The warm-up rows repeat the encoded ``[q_0, 0]`` on ``[-T_w, 0)`` and are
+    excluded from the loss; every task row enters the loss. With ``T_w = 0``
+    the episode is the pure task pairing.
+    """
+    times = np.asarray(t, dtype=np.float64)
+    positions = np.asarray(q, dtype=np.float64)
+    velocities = np.asarray(dq, dtype=np.float64)
+    codes = np.asarray(task_code, dtype=np.float64)
+    if float(times[0]) != 0.0:
+        msg = f"a task episode must start at 0.0 s on the task clock, got {float(times[0])!r}"
+        raise ValueError(msg)
+    n_warm = warmup.n_rows(period_s)
+    q0 = np.asarray(positions[0], dtype=np.float64)
+    warm_in = warmup_inputs(encoder, q0, n_warm)
+    warm_targets = np.tile(q0, (n_warm, 1))
+    task_in = encoder.encode_many(positions[:-1], velocities[:-1], codes[:-1])
+    task_targets = positions[1:]
+    inputs = np.vstack([warm_in, task_in])
+    targets = np.vstack([warm_targets, task_targets])
+    grid = np.concatenate([warmup.times(period_s), times[:-1]])
+    loss_rows = np.concatenate([np.zeros(n_warm, dtype=np.bool_), np.ones(task_in.shape[0], dtype=np.bool_)])
+    return Episode(source=source, t=grid, inputs=inputs, targets=targets, loss_rows=loss_rows)
+
+
 def build_task_episode(
     samples: SampleSet, encoder: InputEncoder, *, source: str, warmup: WarmupConfig, period_s: float
 ) -> Episode:
     """Pair a move/dwell-only task episode with its configured warm-up prefix.
-
-    The warm-up rows repeat the encoded ``[q_0, 0]`` on ``[-T_w, 0)`` and are
-    excluded from the loss; every task row (movement and final dwell) enters
-    the loss. With ``T_w = 0`` the episode is the pure task pairing.
 
     Raises
     ------
@@ -117,9 +151,6 @@ def build_task_episode(
         If the samples contain prime phases, do not start at task time zero,
         or do not match the encoder.
     """
-    if float(samples.t[0]) != 0.0:
-        msg = f"a task episode must start at 0.0 s on the task clock, got {float(samples.t[0])!r}"
-        raise ValueError(msg)
     if bool(np.any(samples.phase == PHASE_PRIME)):
         msg = "a task episode is move/dwell only; prime samples are not allowed (crop the pre-roll first)"
         raise ValueError(msg)
@@ -129,17 +160,9 @@ def build_task_episode(
             f"the encoder expects {encoder.dof} and {encoder.task_code_dim}"
         )
         raise ValueError(msg)
-    n_warm = warmup.n_rows(period_s)
-    q0 = np.asarray(samples.q[0], dtype=np.float64)
-    warm_in = warmup_inputs(encoder, q0, n_warm)
-    warm_targets = np.tile(q0, (n_warm, 1))
-    task_in = encoder.encode_many(samples.q[:-1], samples.dq[:-1], samples.task_code[:-1])
-    task_targets = samples.q[1:]
-    inputs = np.vstack([warm_in, task_in])
-    targets = np.vstack([warm_targets, task_targets])
-    t = np.concatenate([warmup.times(period_s), samples.t[:-1]])
-    loss_rows = np.concatenate([np.zeros(n_warm, dtype=np.bool_), np.ones(task_in.shape[0], dtype=np.bool_)])
-    return Episode(source=source, t=t, inputs=inputs, targets=targets, loss_rows=loss_rows)
+    return build_task_episode_arrays(
+        samples.t, samples.q, samples.dq, samples.task_code, encoder, source=source, warmup=warmup, period_s=period_s
+    )
 
 
 def warmup_state(

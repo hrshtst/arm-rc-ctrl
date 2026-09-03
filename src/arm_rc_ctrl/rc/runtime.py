@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 
     from arm_rc_ctrl.data.samples import SampleSet
     from arm_rc_ctrl.rc.recipe import ModelRecipe
+    from arm_rc_ctrl.scenario import ScenarioConfig
     from arm_rc_ctrl.storage import StorageRoot
 
 __all__ = ["generator_from_recipe", "load_training_samples"]
@@ -59,9 +60,13 @@ def generator_from_recipe(
     *,
     estimator: EstimatorConfig,
     position_bounds: tuple[NDArray[np.float64], NDArray[np.float64]] | None = None,
+    scenario: ScenarioConfig | None = None,
 ) -> RcTargetGenerator:
-    """Refit the recipe (verifying its fit report) and wrap the model as a target generator."""
-    model, _report = recipe.refit(samples)
+    """Refit the recipe (verifying its fit report) and wrap the model as a target generator.
+
+    Augmented recipes regenerate their synthetic episodes and need ``scenario``.
+    """
+    model, _report = recipe.refit(samples, scenario=scenario)
     bounds = None
     if position_bounds is not None:
         bounds = (np.asarray(position_bounds[0], dtype=np.float64), np.asarray(position_bounds[1], dtype=np.float64))
