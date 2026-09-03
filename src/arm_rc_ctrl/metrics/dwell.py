@@ -80,10 +80,7 @@ class DwellMetrics:
             msg = f"dwell durations must be finite and non-negative, got {self}"
             raise ValueError(msg)
         if self.longest_in_tolerance_s > self.window_s + _STAT_TOLERANCE:
-            msg = (
-                f"longest_in_tolerance_s {self.longest_in_tolerance_s!r} cannot exceed the window "
-                f"{self.window_s!r}"
-            )
+            msg = f"longest_in_tolerance_s {self.longest_in_tolerance_s!r} cannot exceed the window {self.window_s!r}"
             raise ValueError(msg)
         velocities = (self.velocity_rms, self.velocity_max)
         if any(not np.isfinite(v) or v < 0 for v in velocities):

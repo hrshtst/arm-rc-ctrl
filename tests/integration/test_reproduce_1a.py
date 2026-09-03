@@ -71,10 +71,19 @@ def test_compare_suites_covers_every_report_field_except_the_rerun_identity() ->
     worst, differences = compare_suites(suite, rebuilt(rmse))
     assert worst == pytest.approx(1e-6)
     assert differences == []
-    counted = replace(first.report, dwell=replace(first.report.dwell, samples=first.report.dwell.samples + 1))
+    # A valid variant under the dwell consistency rules: bump both sample counts together.
+    bumped = replace(
+        first.report.dwell,
+        samples=first.report.dwell.samples + 1,
+        endpoint=replace(first.report.dwell.endpoint, samples=first.report.dwell.endpoint.samples + 1),
+    )
+    counted = replace(first.report, dwell=bumped)
     _, differences = compare_suites(suite, rebuilt(counted))
     samples = first.report.dwell.samples
-    assert differences == [f"{first.arm}/{first.scenario_id}.dwell.samples: {samples + 1} vs {samples}"]
+    assert differences == [
+        f"{first.arm}/{first.scenario_id}.dwell.endpoint.samples: {samples + 1} vs {samples}",
+        f"{first.arm}/{first.scenario_id}.dwell.samples: {samples + 1} vs {samples}",
+    ]
     source = replace(first.report, effort_source="tau_requested")
     _, differences = compare_suites(suite, rebuilt(source))
     assert differences == [f"{first.arm}/{first.scenario_id}.effort_source: 'tau_requested' vs 'tau_applied'"]
