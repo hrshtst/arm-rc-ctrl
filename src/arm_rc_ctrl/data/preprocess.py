@@ -33,7 +33,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import cast
+from typing import Any, ClassVar, Protocol, cast
 
 import numpy as np
 
@@ -81,11 +81,18 @@ from arm_rc_ctrl.storage import ArtifactUri, StorageRoot, open_storage
 
 __all__ = [
     "DEFAULT_CONFIG",
+    "PENDING_RECORD_FILE",
+    "PROVENANCE_FILE",
+    "ArtifactCarrier",
     "NormalizationSettings",
     "PreprocessConfig",
     "PreprocessError",
     "PreprocessResult",
+    "RecordBuilder",
     "ResamplingSettings",
+    "finalize_catalog",
+    "finalize_payload",
+    "finalize_record",
     "main",
     "preprocess_demonstration",
 ]
@@ -93,7 +100,7 @@ __all__ = [
 DEFAULT_CONFIG = Path("configs") / "preprocessing" / "default.toml"
 PROVENANCE_FILE = "provenance.json"
 PENDING_RECORD_FILE = "record.toml"
-"""Copy of the complete record kept beside the payload from finalization on (see ``_finalize_payload``)."""
+"""Copy of the complete record kept beside the payload from finalization on (see ``finalize_payload``)."""
 _TASK_DIM = 2
 
 
@@ -265,8 +272,14 @@ def preprocess_demonstration(
         (staging / PROVENANCE_FILE).write_text(provenance.to_json() + "\n", encoding="utf-8")
         # The complete pending record travels with the payload, so a retry cannot redefine its metadata.
         (staging / PENDING_RECORD_FILE).write_text(to_toml(record), encoding="utf-8")
-        record, provenance, resumed = _finalize_payload(
-            store, staging, record, provenance, rebuild, requested=(license_override, access_override)
+        record, provenance, resumed = finalize_payload(
+            store,
+            staging,
+            record,
+            provenance,
+            rebuild,
+            schema=ProcessedDatasetRecord,
+            requested=(license_override, access_override),
         )
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
@@ -275,8 +288,8 @@ def preprocess_demonstration(
     artifact_id = record.artifact.artifact_id
     final_dir = store.path(ArtifactUri("processed", (artifact_id,)), mode="write")
     record_file = records_root / "data" / "records" / "processed" / f"{artifact_id}.toml"
-    record = _finalize_record(record_file, record, resumed=resumed)
-    _finalize_catalog(records_root, record, record_file)
+    record = finalize_record(record_file, record, schema=ProcessedDatasetRecord, resumed=resumed)
+    finalize_catalog(records_root, record.artifact, record_file)
     return PreprocessResult(record, samples, record_file, final_dir / PROCESSED_PAYLOAD_NAME, provenance, resumed)
 
 
@@ -338,7 +351,18 @@ def _build_record(
     )
 
 
-type RecordBuilder = Callable[[str, ProvenanceRecord, str, str, AccessClass], ProcessedDatasetRecord]
+class ArtifactCarrier(Protocol):
+    """A dataset record dataclass carrying the common artifact envelope (e.g. processed and recovery records)."""
+
+    __dataclass_fields__: ClassVar[dict[str, dataclasses.Field[Any]]]
+
+    @property
+    def artifact(self) -> ArtifactRecord:
+        """The common artifact envelope."""
+        ...
+
+
+type RecordBuilder[T: ArtifactCarrier] = Callable[[str, ProvenanceRecord, str, str, AccessClass], T]
 """Rebuilds the record for (artifact ID, provenance, command, license, access) from the freshly processed samples."""
 
 
@@ -362,15 +386,16 @@ def _finalized_payloads(store: StorageRoot, digest: str) -> tuple[list[Path], li
     return matches, conflicts
 
 
-def _finalize_payload(
+def finalize_payload[T: ArtifactCarrier](
     store: StorageRoot,
     staging: Path,
-    record: ProcessedDatasetRecord,
+    record: T,
     provenance: ProvenanceRecord,
-    rebuild: RecordBuilder,
+    rebuild: RecordBuilder[T],
     *,
+    schema: type[T],
     requested: tuple[str | None, AccessClass | None],
-) -> tuple[ProcessedDatasetRecord, ProvenanceRecord, bool]:
+) -> tuple[T, ProvenanceRecord, bool]:
     """Move the staged payload into place, or adopt the identical payload an earlier invocation finalized.
 
     A finalized payload is located by its digest whatever day it was created on,
@@ -411,7 +436,7 @@ def _finalize_payload(
         raise FileExistsError(msg)
     metadata = _record_metadata(stored_config, where)
     try:
-        pending = load_record(final_dir / PENDING_RECORD_FILE, ProcessedDatasetRecord)
+        pending = load_record(final_dir / PENDING_RECORD_FILE, schema)
     except (OSError, ValueError, TypeError, KeyError) as exc:
         msg = f"{where} its {PENDING_RECORD_FILE} is missing or invalid ({exc}); inspect and remove it manually"
         raise FileExistsError(msg) from exc
@@ -449,10 +474,10 @@ def _record_metadata(config: dict[str, object], where: str) -> dict[str, str]:
     return cast("dict[str, str]", metadata)
 
 
-def _differing_fields(existing: ProcessedDatasetRecord, record: ProcessedDatasetRecord) -> list[str]:
+def _differing_fields[T: ArtifactCarrier](existing: T, record: T) -> list[str]:
     """Names of the top-level (and artifact-level) fields in which two records differ."""
     names: list[str] = []
-    for field in dataclasses.fields(ProcessedDatasetRecord):
+    for field in dataclasses.fields(existing):
         a, b = getattr(existing, field.name), getattr(record, field.name)
         if field.name == "artifact":
             names += [
@@ -465,10 +490,10 @@ def _differing_fields(existing: ProcessedDatasetRecord, record: ProcessedDataset
     return names
 
 
-def _finalize_record(record_file: Path, record: ProcessedDatasetRecord, *, resumed: bool) -> ProcessedDatasetRecord:
+def finalize_record[T: ArtifactCarrier](record_file: Path, record: T, *, schema: type[T], resumed: bool) -> T:
     """Write the record, or on resume accept an existing record equal to the one rebuilt from the stored provenance."""
     if record_file.exists():
-        existing = load_record(record_file, ProcessedDatasetRecord)
+        existing = load_record(record_file, schema)
         differing = _differing_fields(existing, record)
         if not resumed or differing:
             detail = f" (differs in {', '.join(differing)})" if differing else ""
@@ -480,19 +505,19 @@ def _finalize_record(record_file: Path, record: ProcessedDatasetRecord, *, resum
     return record
 
 
-def _finalize_catalog(records_root: Path, record: ProcessedDatasetRecord, record_file: Path) -> None:
+def finalize_catalog(records_root: Path, artifact: ArtifactRecord, record_file: Path) -> None:
     """Append the catalog entry unless an identical one is already present."""
     catalog_file = catalog_path(records_root)
     catalog = load_catalog(catalog_file)
     relative = record_file.relative_to(records_root).as_posix()
-    entry = catalog.find(record.artifact.artifact_id)
-    appended = Catalog(catalog.schema_version, ()).with_record(record.artifact, relative).artifacts[0]
+    entry = catalog.find(artifact.artifact_id)
+    appended = Catalog(catalog.schema_version, ()).with_record(artifact, relative).artifacts[0]
     if entry is not None:
         if entry != appended:
-            msg = f"catalog entry {record.artifact.artifact_id} disagrees with the record"
+            msg = f"catalog entry {artifact.artifact_id} disagrees with the record"
             raise ValueError(msg)
         return
-    write_catalog(catalog_file, catalog.with_record(record.artifact, relative))
+    write_catalog(catalog_file, catalog.with_record(artifact, relative))
 
 
 def main(argv: Sequence[str] | None = None) -> int:
