@@ -38,6 +38,7 @@ from typing import Final, Literal
 import numpy as np
 from numpy.typing import NDArray
 
+from arm_rc_ctrl.config import ConfigError
 from arm_rc_ctrl.data.phases import DEFAULT_TOLERANCE_S, PhaseAnnotationError
 from arm_rc_ctrl.data.records import (
     CANONICAL_UNITS,
@@ -48,10 +49,12 @@ from arm_rc_ctrl.data.records import (
     ArtifactRecord,
     Normalization,
     Preprocessing,
+    ProcessedDatasetRecord,
     Scenario,
     array_specs,
     expected_array_shapes,
     is_artifact_id,
+    load_record,
 )
 from arm_rc_ctrl.data.samples import ARRAY_NAMES, PHASE_DWELL, PHASE_MOVE, PHASE_PRIME, SampleSet
 from arm_rc_ctrl.data.validate import DatasetValidationError, JointLimits, ValidationSpec, dataset_problems
@@ -68,6 +71,7 @@ __all__ = [
     "TaskIntervals",
     "annotate_task_phases",
     "check_task_annotation",
+    "load_processed_record",
     "recovery_dataset_problems",
     "recovery_validation_spec",
     "task_intervals_from_phases",
@@ -457,6 +461,20 @@ class RecoveryDatasetRecord:
         if problems:
             msg = "samples do not match the record:\n" + "\n".join(problems)
             raise ValueError(msg)
+
+
+def load_processed_record(path: Path) -> ProcessedDatasetRecord | RecoveryDatasetRecord:
+    """Load a processed-kind record under whichever processed schema it satisfies (M3 first, then recovery).
+
+    Raises
+    ------
+    ConfigError
+        If the file satisfies neither schema (the recovery schema's error is reported).
+    """
+    try:
+        return load_record(path, ProcessedDatasetRecord)
+    except ConfigError:
+        return load_record(path, RecoveryDatasetRecord)
 
 
 # --- task-time phase annotation ---------------------------------------------------------

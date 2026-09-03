@@ -22,7 +22,6 @@ from arm_rc_ctrl.data.records import (
     Intervals,
     Origin,
     Payload,
-    ProcessedDatasetRecord,
     RawDemonstrationRecord,
     Sampling,
     Scenario,
@@ -38,6 +37,7 @@ from arm_rc_ctrl.data.records import (
     write_catalog,
     write_record,
 )
+from arm_rc_ctrl.data.recovery import load_processed_record
 from arm_rc_ctrl.experiments.run_record import RunPointerRecord
 from arm_rc_ctrl.provenance import ArtifactMismatchError, collect_provenance, sha256_bytes
 from arm_rc_ctrl.repo import repository_root
@@ -443,14 +443,17 @@ def test_committed_catalog_is_valid_and_consistent_with_record_files() -> None:
     catalog = load_catalog(catalog_path(REPO_ROOT))
     schemas: dict[str, type[object]] = {
         "raw": RawDemonstrationRecord,
-        "processed": ProcessedDatasetRecord,
         "run": RunPointerRecord,
         "model": ArtifactRecord,
     }
     for entry in catalog.artifacts:
         record_file = REPO_ROOT / entry.record
         assert record_file.is_file(), entry
-        loaded = load_record(record_file, schemas[entry.kind])
+        loaded = (
+            load_processed_record(record_file)
+            if entry.kind == "processed"
+            else load_record(record_file, schemas[entry.kind])
+        )
         artifact = loaded if isinstance(loaded, ArtifactRecord) else cast("Any", loaded).artifact
         assert artifact.artifact_id == entry.artifact_id
         assert artifact.payload.uri == entry.uri

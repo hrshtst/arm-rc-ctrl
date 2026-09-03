@@ -9,7 +9,8 @@ import json
 
 import pytest
 
-from arm_rc_ctrl.data.records import ProcessedDatasetRecord, load_catalog, load_record
+from arm_rc_ctrl.data.records import ProcessedDatasetRecord, load_catalog
+from arm_rc_ctrl.data.recovery import load_processed_record
 from arm_rc_ctrl.experiments.closed_loop import load_nominal_config
 from arm_rc_ctrl.experiments.esn_freeze import frozen_evaluation, frozen_model
 from arm_rc_ctrl.experiments.esn_search import load_esn_search, point_from_params, protocol_digest
@@ -44,10 +45,12 @@ def test_study_ran_the_committed_protocol_to_its_budget_from_a_clean_checkout() 
     assert report.provenance.project_dirty is False
     assert not CONFIRMATORY_SEEDS & set(report.provenance.seeds.values())
     catalog = load_catalog(REPO_ROOT / "data" / "catalog.toml")
-    processed = [
-        load_record(REPO_ROOT / e.record, ProcessedDatasetRecord) for e in catalog.artifacts if e.kind == "processed"
+    processed = [load_processed_record(REPO_ROOT / e.record) for e in catalog.artifacts if e.kind == "processed"]
+    (dataset,) = [
+        r
+        for r in processed
+        if isinstance(r, ProcessedDatasetRecord) and r.artifact.origin.sources == ("raw-20260830-b5adde395f1c",)
     ]
-    (dataset,) = [r for r in processed if r.artifact.origin.sources == ("raw-20260830-b5adde395f1c",)]
     assert report.dataset == dataset.artifact.artifact_id
     labels = {t.labels.get("armrc.comparison") for t in report.summary.trials}
     assert {c.label for c in protocol.comparison} <= labels

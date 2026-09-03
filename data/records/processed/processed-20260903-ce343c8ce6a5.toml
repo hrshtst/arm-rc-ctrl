@@ -1,0 +1,260 @@
+n_samples = 401
+dof = 2
+task_dim = 2
+task_code_dim = 0
+q0_ref = [
+    0.19999320872391926,
+    1.2000004376175082,
+]
+recovery_schema_version = 1
+
+[artifact]
+artifact_id = "processed-20260903-ce343c8ce6a5"
+kind = "processed"
+created_at = "2026-09-03T06:12:59+00:00"
+license = "CC0-1.0"
+access = "public"
+notes = "Recovery episode cropped at the scripted onset from raw-20260830-b5adde395f1c under scenario task-1a-reach."
+schema_version = 1
+
+[artifact.payload]
+uri = "armrc://processed/processed-20260903-ce343c8ce6a5/samples.npz"
+sha256 = "ce343c8ce6a5d5be266ce6d9fab08128312391b82cfcbbf09d8b1f86ea05eb1e"
+size = 47088
+format = "samples.npz"
+schema_version = 1
+
+[artifact.origin]
+command = "python -m arm_rc_ctrl.data.recover --raw data/records/raw/raw-20260830-b5adde395f1c.toml --scenario configs/tasks/task_1a.toml"
+config_sha256 = "885fa172c5c4aadd845c772ebf4a22e4d3e966aea2350f4652fce6cbd46cb2b1"
+project_commit = "de05cc3997f259892532e5fdde43d15790fb6258"
+project_dirty = false
+sources = [
+    "raw-20260830-b5adde395f1c",
+]
+
+[artifact.origin.dependency_commits]
+rclib = "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b"
+skelarm = "6ccc1eba8ff57178ab8bf456e6ff9a2ec988cc80"
+rtctrl = "c601076ee60ec712c1cb4a85756a186882df2e1b"
+
+[scenario]
+config_path = "configs/tasks/task_1a.toml"
+config_sha256 = "23c89a7f8a15fde55101dbefa4fe8e226b83e46e7967d0d2dac248a886607c0d"
+robot = "planar-2dof"
+task = "task-1a-reach"
+dof = 2
+initial_q = [
+    0.2,
+    1.2,
+]
+target = [
+    0.1,
+    0.45,
+]
+
+[units]
+t = "s"
+q = "rad"
+dq = "rad/s"
+ddq = "rad/s^2"
+tip = "m"
+dtip = "m/s"
+ddtip = "m/s^2"
+task_code = "1"
+phase = "code"
+
+[phases]
+move = 1
+dwell = 2
+
+[preprocessing]
+resample_period_s = 0.01
+smoothing = "butterworth-zero-phase"
+derivative_method = "central-difference"
+interpolation = "linear"
+
+[preprocessing.smoothing_params]
+order = 4.0
+cutoff_hz = 5.0
+
+[onset]
+kind = "scripted"
+raw_artifact_id = "raw-20260830-b5adde395f1c"
+raw_payload_sha256 = "b5adde395f1cde0a39bb95183f740b2fbb82fc7774988de65664d2a49953a713"
+detector = "programmed"
+sampling_period_s = 0.010000000000000009
+proposed_onset_sample = 100
+proposed_onset_s = 1.0000000000000009
+confirmed_onset_sample = 100
+confirmed_onset_s = 1.0000000000000009
+confirmed_by = "script"
+
+[onset.detector_params]
+
+[baseline]
+q_pre = [
+    0.20000000004667204,
+    1.199999999996988,
+]
+tolerance_rad = 0.05
+max_deviation_rad = 6.791322752774942e-06
+status = "passed"
+
+[crop]
+pre_roll = [
+    0.0,
+    1.0000000000000009,
+]
+source_duration_s = 5.0
+
+[crop.task]
+move = [
+    0.0,
+    2.999999999999999,
+]
+dwell = [
+    2.999999999999999,
+    4.0,
+]
+
+[arrays.t]
+shape = [
+    401,
+]
+dtype = "float64"
+sha256 = "d43ccefba9e51846d516ff263e2deabd133784be972b52bd3cd29a40e8418175"
+
+[arrays.q]
+shape = [
+    401,
+    2,
+]
+dtype = "float64"
+sha256 = "9ad60a1991b565e7c88e6439c7bafb130b88eb1ced75292464e341c4f448e3d1"
+
+[arrays.dq]
+shape = [
+    401,
+    2,
+]
+dtype = "float64"
+sha256 = "a42fb24d73020bbb3fe7f84299195a559e49734c3911fa2fefbffc56d04cb6d4"
+
+[arrays.ddq]
+shape = [
+    401,
+    2,
+]
+dtype = "float64"
+sha256 = "ac1d18f422c47cf308f30e1cebbf91b0a870737006bfb37a099028210657a0c9"
+
+[arrays.tip]
+shape = [
+    401,
+    2,
+]
+dtype = "float64"
+sha256 = "faed23b3f85eabc1a62c4519934ad704cddd94060873f50023707f75bbb14adc"
+
+[arrays.dtip]
+shape = [
+    401,
+    2,
+]
+dtype = "float64"
+sha256 = "62573ea334ff5eb4bc1579165268ead77b9ae522ccc483af679be12a54bbce34"
+
+[arrays.ddtip]
+shape = [
+    401,
+    2,
+]
+dtype = "float64"
+sha256 = "cd54424f967d7ba70d0fc9665169179d6265e364a620131f8aab3f7c56f5c4f6"
+
+[arrays.task_code]
+shape = [
+    401,
+    0,
+]
+dtype = "float64"
+sha256 = "ce592961f4db7c1fbb1c6914ec0cba6254aea0792672ea360181fa45008b457c"
+
+[arrays.phase]
+shape = [
+    401,
+]
+dtype = "int64"
+sha256 = "916ec253ec4b9d2b724d9596a01e96d52efd63bb0870d89247251662e122b57a"
+
+[normalization]
+fitted_on = [
+    "processed-20260903-ce343c8ce6a5",
+]
+
+[normalization.channels.q]
+mean = [
+    0.5947601992398863,
+    1.174562368825044,
+]
+scale = [
+    0.24747926057418937,
+    0.015947114643415885,
+]
+replaced_near_zero = []
+
+[normalization.channels.dq]
+mean = [
+    0.1575905510711423,
+    -0.010154849254113807,
+]
+scale = [
+    0.1500790002800312,
+    0.009670818546500074,
+]
+replaced_near_zero = []
+
+[normalization.channels.ddq]
+mean = [
+    8.807029195681043e-06,
+    -5.675089935254393e-07,
+]
+scale = [
+    0.2509442240445641,
+    0.016170390604274283,
+]
+replaced_near_zero = []
+
+[normalization.channels.tip]
+mean = [
+    0.19250900868340656,
+    0.40179554912894055,
+]
+scale = [
+    0.09409894250201284,
+    0.055051932480494066,
+]
+replaced_near_zero = []
+
+[normalization.channels.dtip]
+mean = [
+    -0.058980967055969655,
+    0.03591994415998753,
+]
+scale = [
+    0.05722336917698827,
+    0.03664913936182242,
+]
+replaced_near_zero = []
+
+[normalization.channels.ddtip]
+mean = [
+    -2.554932886538313e-06,
+    2.939354577114914e-06,
+]
+scale = [
+    0.09672736101694979,
+    0.06439652595091158,
+]
+replaced_near_zero = []

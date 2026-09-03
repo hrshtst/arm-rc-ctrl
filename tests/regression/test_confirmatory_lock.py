@@ -12,7 +12,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from arm_rc_ctrl.data.records import ProcessedDatasetRecord, load_catalog, load_record
+from arm_rc_ctrl.data.records import ProcessedDatasetRecord, load_catalog
+from arm_rc_ctrl.data.recovery import load_processed_record
 from arm_rc_ctrl.experiments.baselines import load_frozen_baseline
 from arm_rc_ctrl.experiments.confirmatory import check_against_pilot, load_confirmatory
 from arm_rc_ctrl.experiments.esn_search import load_esn_search
@@ -103,10 +104,12 @@ def test_pilot_is_confirmatory_grade(version: LockVersion) -> None:
     report = load_pilot_report(version.pilot_report)
     assert report.provenance.project_dirty is False
     catalog = load_catalog(REPO_ROOT / "data" / "catalog.toml")
-    processed = [
-        load_record(REPO_ROOT / e.record, ProcessedDatasetRecord) for e in catalog.artifacts if e.kind == "processed"
+    processed = [load_processed_record(REPO_ROOT / e.record) for e in catalog.artifacts if e.kind == "processed"]
+    (dataset,) = [
+        r
+        for r in processed
+        if isinstance(r, ProcessedDatasetRecord) and r.artifact.origin.sources == ("raw-20260830-b5adde395f1c",)
     ]
-    (dataset,) = [r for r in processed if r.artifact.origin.sources == ("raw-20260830-b5adde395f1c",)]
     assert report.dataset == dataset.artifact.artifact_id
     assert [a.sha256 for a in report.provenance.artifacts] == [dataset.artifact.payload.sha256]
     assert render_markdown(report) == version.pilot_markdown.read_text(encoding="utf-8")

@@ -4343,3 +4343,11 @@ record = "data/records/runs/run-20260831-b9ad27b0b0aa.toml"
 uri = "armrc://runs/run-20260831-b9ad27b0b0aa/run.json"
 sha256 = "b9ad27b0b0aaef668ddc44c60ace63641e8a21e21e41605baa09f687312f1e0f"
 created_at = "2026-08-31T08:09:03+00:00"
+
+[[artifacts]]
+artifact_id = "processed-20260903-ce343c8ce6a5"
+kind = "processed"
+record = "data/records/processed/processed-20260903-ce343c8ce6a5.toml"
+uri = "armrc://processed/processed-20260903-ce343c8ce6a5/samples.npz"
+sha256 = "ce343c8ce6a5d5be266ce6d9fab08128312391b82cfcbbf09d8b1f86ea05eb1e"
+created_at = "2026-09-03T06:12:59+00:00"

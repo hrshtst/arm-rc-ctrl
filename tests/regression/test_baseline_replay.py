@@ -29,6 +29,7 @@ from arm_rc_ctrl.data.records import (
     load_record,
     verify_payload,
 )
+from arm_rc_ctrl.data.recovery import load_processed_record
 from arm_rc_ctrl.data.samples import load_samples
 from arm_rc_ctrl.experiments.baselines import (
     FROZEN_BASELINES,
@@ -147,11 +148,11 @@ def task_1a_dataset(tmp_path_factory: pytest.TempPathFactory) -> Dataset:
     """The committed task 1-a dataset read from the configured store; runs go to a temporary store."""
     catalog = load_catalog(REPO_ROOT / "data" / "catalog.toml")
     processed = [
-        load_record(REPO_ROOT / entry.record, ProcessedDatasetRecord)
-        for entry in catalog.artifacts
-        if entry.kind == "processed"
+        load_processed_record(REPO_ROOT / entry.record) for entry in catalog.artifacts if entry.kind == "processed"
     ]
-    (record,) = [r for r in processed if r.artifact.origin.sources == (TASK_1A_RAW_ID,)]
+    (record,) = [
+        r for r in processed if isinstance(r, ProcessedDatasetRecord) and r.artifact.origin.sources == (TASK_1A_RAW_ID,)
+    ]
     try:
         payload = verify_payload(open_storage(), record.artifact)
     except (StorageError, FileNotFoundError, ValueError, RuntimeError) as exc:

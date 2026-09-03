@@ -24,6 +24,7 @@ from arm_rc_ctrl.data.records import (
     load_record,
     verify_payload,
 )
+from arm_rc_ctrl.data.recovery import load_processed_record
 from arm_rc_ctrl.data.samples import load_samples
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.storage import StorageError, StorageRoot, open_storage
@@ -50,17 +51,20 @@ def configured_store() -> StorageRoot:
     return store
 
 
+def _m3_processed_records() -> list[ProcessedDatasetRecord]:
+    """Every catalog entry carrying the M3 schema (recovery datasets carry their own schema)."""
+    catalog = load_catalog(REPO_ROOT / "data" / "catalog.toml")
+    records = [
+        load_processed_record(REPO_ROOT / entry.record) for entry in catalog.artifacts if entry.kind == "processed"
+    ]
+    return [record for record in records if isinstance(record, ProcessedDatasetRecord)]
+
+
 @pytest.fixture(scope="module")
 def committed_processed() -> ProcessedDatasetRecord:
     """The Git-tracked processed record derived from the raw demonstration."""
-    catalog = load_catalog(REPO_ROOT / "data" / "catalog.toml")
-    candidates = [
-        load_record(REPO_ROOT / entry.record, ProcessedDatasetRecord)
-        for entry in catalog.artifacts
-        if entry.kind == "processed"
-    ]
-    matching = [r for r in candidates if r.artifact.origin.sources == (RAW_ID,)]
-    assert len(matching) == 1, "exactly one committed processed record must derive from the demonstration"
+    matching = [r for r in _m3_processed_records() if r.artifact.origin.sources == (RAW_ID,)]
+    assert len(matching) == 1, "exactly one committed M3 processed record must derive from the demonstration"
     return matching[0]
 
 
@@ -69,10 +73,7 @@ def test_committed_records_are_consistent_with_each_other() -> None:
     raw = load_record(RAW_RECORD, RawDemonstrationRecord)
     catalog = load_catalog(REPO_ROOT / "data" / "catalog.toml")
     assert catalog.find(RAW_ID) is not None
-    processed = [
-        load_record(REPO_ROOT / e.record, ProcessedDatasetRecord) for e in catalog.artifacts if e.kind == "processed"
-    ]
-    (record,) = [r for r in processed if r.artifact.origin.sources == (RAW_ID,)]
+    (record,) = [r for r in _m3_processed_records() if r.artifact.origin.sources == (RAW_ID,)]
     assert record.scenario == raw.scenario
     record.check_scenario(SCENARIO)
     assert record.n_samples == 501

@@ -37,6 +37,7 @@ from arm_rc_ctrl.data.recovery import (
     OnsetAnnotation,
     RecoveryDatasetRecord,
     TaskIntervals,
+    load_processed_record,
     recovery_dataset_problems,
     recovery_validation_spec,
     validate_recovery_dataset,
@@ -163,14 +164,9 @@ def test_recovery_record_round_trips_through_toml(tmp_path: Path) -> None:
     assert load_record(path, RecoveryDatasetRecord) == record
 
 
-def test_recovery_and_m3_schemas_are_mutually_exclusive(tmp_path: Path) -> None:
-    """A recovery TOML never loads as an M3 record and vice versa; the M3 schema is untouched."""
-    recovery_path = tmp_path / "recovery.toml"
-    recovery_path.write_text(to_toml(_record()), encoding="utf-8")
-    with pytest.raises(ConfigError):
-        load_record(recovery_path, ProcessedDatasetRecord)
+def _m3_record() -> ProcessedDatasetRecord:
     m3_samples = synthetic_samples()
-    m3 = ProcessedDatasetRecord(
+    return ProcessedDatasetRecord(
         artifact=_artifact(),
         scenario=SCENARIO,
         n_samples=m3_samples.n_samples,
@@ -182,10 +178,32 @@ def test_recovery_and_m3_schemas_are_mutually_exclusive(tmp_path: Path) -> None:
         preprocessing=PREPROCESSING,
         arrays=array_specs(m3_samples),
     )
+
+
+def test_recovery_and_m3_schemas_are_mutually_exclusive(tmp_path: Path) -> None:
+    """A recovery TOML never loads as an M3 record and vice versa; the M3 schema is untouched."""
+    recovery_path = tmp_path / "recovery.toml"
+    recovery_path.write_text(to_toml(_record()), encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_record(recovery_path, ProcessedDatasetRecord)
     m3_path = tmp_path / "processed.toml"
-    m3_path.write_text(to_toml(m3), encoding="utf-8")
+    m3_path.write_text(to_toml(_m3_record()), encoding="utf-8")
     with pytest.raises(ConfigError):
         load_record(m3_path, RecoveryDatasetRecord)
+
+
+def test_load_processed_record_dispatches_between_the_schemas(tmp_path: Path) -> None:
+    """The helper returns whichever processed schema the file satisfies and rejects files satisfying neither."""
+    recovery_path = tmp_path / "recovery.toml"
+    recovery_path.write_text(to_toml(_record()), encoding="utf-8")
+    assert isinstance(load_processed_record(recovery_path), RecoveryDatasetRecord)
+    m3_path = tmp_path / "processed.toml"
+    m3_path.write_text(to_toml(_m3_record()), encoding="utf-8")
+    assert isinstance(load_processed_record(m3_path), ProcessedDatasetRecord)
+    neither = tmp_path / "neither.toml"
+    neither.write_text("x = 1\n", encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_processed_record(neither)
 
 
 def test_scripted_onset_is_locked_to_the_programmed_time() -> None:
