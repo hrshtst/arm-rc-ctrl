@@ -52,10 +52,18 @@ if TYPE_CHECKING:
     from arm_rc_ctrl.scenario import ScenarioConfig
     from arm_rc_ctrl.storage import StorageRoot
 
-__all__ = ["HeldTaskReference", "RecoveryPair", "SliceRunResult", "run_recovery_pair"]
+__all__ = [
+    "DEFAULT_SETTLING_BAND_RAD",
+    "HeldTaskReference",
+    "RecoveryPair",
+    "SliceRunResult",
+    "recovery_outcome",
+    "recovery_report_from_arrays",
+    "run_recovery_pair",
+]
 
 _GRID_TOLERANCE_S = 1e-9
-_DEFAULT_SETTLING_BAND_RAD = 0.05
+DEFAULT_SETTLING_BAND_RAD = 0.05
 
 
 class HeldTaskReference:
@@ -140,7 +148,7 @@ def _bind(scenario: ScenarioConfig, scenario_file: Path, dataset: RecoveryDatase
         raise ValueError(msg)
 
 
-def _outcome(
+def recovery_outcome(
     scenario: ScenarioConfig,
     reference: SampleSet,
     arrays: RunArrays,
@@ -170,7 +178,7 @@ def _outcome(
     return result
 
 
-def _recovery_report(
+def recovery_report_from_arrays(
     scenario: ScenarioConfig,
     reference: SampleSet,
     arrays: RunArrays,
@@ -215,7 +223,7 @@ def run_recovery_pair(
     estimator: EstimatorConfig | None = None,
     initial_q: tuple[float, ...] | None = None,
     force: ForcePulse | None = None,
-    settling_band_rad: float = _DEFAULT_SETTLING_BAND_RAD,
+    settling_band_rad: float = DEFAULT_SETTLING_BAND_RAD,
     now: datetime | None = None,
     command: str = "python -m arm_rc_ctrl.experiments.recovery_slice",
     license_label: str = "LicenseRef-Private",
@@ -277,7 +285,9 @@ def run_recovery_pair(
             {**resolved, "arm": arm}, seeds=seeds, artifacts=[reference_payload], exploratory=exploratory, now=now
         )
         require_clean_for_confirmatory(provenance)
-        outcome = Outcome(termination, _outcome(scenario, reference, arrays, termination, activation_s=activation))
+        outcome = Outcome(
+            termination, recovery_outcome(scenario, reference, arrays, termination, activation_s=activation)
+        )
         pointer, summary, directory = write_run(
             store,
             arrays,
@@ -336,7 +346,7 @@ def run_recovery_pair(
     )
     recovery = None
     if rc_termination.is_completed:
-        recovery = _recovery_report(
+        recovery = recovery_report_from_arrays(
             scenario, reference, rc_arrays, activation_s=activation, settling_band_rad=settling_band_rad
         )
     return RecoveryPair(replay=replay, rc=rc, activation_s=activation, recovery=recovery)
