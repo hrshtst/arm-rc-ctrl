@@ -207,6 +207,31 @@ def test_a_valid_dataset_passes_every_check(tmp_path: Path) -> None:
             assert 0.0 < family.rms_median <= family.peak_max
 
 
+def test_rejections_are_persisted_with_attempt_family_and_reason(tmp_path: Path) -> None:
+    """A configuration with rejected attempts records every rejection, distinguishing the two counts."""
+    record, samples = _fixture(tmp_path)
+    probe = generate_augmentation(
+        samples.t, samples.q, record.crop.task, SCENARIO, GRID[0], derivatives=DERIVATIVES
+    )
+    peaks = sorted(
+        max(episode.non_decaying.delta_peak_rad, episode.contractive.delta_peak_rad) for episode in probe.episodes
+    )
+    threshold = peaks[len(peaks) // 2]
+    bounded = dataclasses.replace(GRID[0], max_abs_perturbation_rad=threshold, attempt_budget=256)
+    report = validate_augmentation(record, samples, SCENARIO, [bounded], provenance=_provenance())
+    (cfg,) = report.configurations
+    assert cfg.rejections
+    assert cfg.family_rejections == len(cfg.rejections)
+    assert cfg.rejected_attempts == len({rejection.attempt for rejection in cfg.rejections})
+    assert cfg.rejected_attempts <= cfg.family_rejections
+    assert all(rejection.attempt >= 1 and rejection.reason for rejection in cfg.rejections)
+    markdown = report_to_markdown(report)
+    assert "Rejected attempts" in markdown
+    assert "family rejections" in markdown
+    with pytest.raises(ValueError, match="rejection accounting"):
+        dataclasses.replace(cfg, rejected_attempts=cfg.rejected_attempts + 1)
+
+
 def test_report_round_trips_and_renders_markdown(tmp_path: Path) -> None:
     """The canonical JSON reloads equal; the Markdown names every check and configuration."""
     record, samples = _fixture(tmp_path)

@@ -58,6 +58,7 @@ from arm_rc_ctrl.rc.augment import (
     AugmentationError,
     AugmentationResult,
     EpisodeArrays,
+    Rejection,
     contraction_envelope,
     generate_augmentation,
     terminal_taper,
@@ -88,7 +89,7 @@ __all__ = [
     "validate_augmentation",
 ]
 
-REPORT_SCHEMA_VERSION: Final = 1
+REPORT_SCHEMA_VERSION: Final = 2
 
 ANCHOR: Final = AugmentationConfig(n_synthetic=64, sigma_rad=0.05, phi=0.99, gamma=1.0, seed_bank=1, attempt_budget=256)
 """The D1 anchor configuration ``(64, 0.05, phi=0.99, gamma=1)``; its episodes are the plotted set."""
@@ -149,15 +150,30 @@ class FamilyStats:
 
 @dataclass(frozen=True)
 class ConfigurationReport:
-    """Checks and statistics of one augmentation configuration."""
+    """Checks, statistics, and full rejection accounting of one augmentation configuration."""
 
     config: AugmentationConfig
     attempts_used: int
-    n_rejections: int
+    rejected_attempts: int
+    """Distinct seeded attempts rejected (an attempt is rejected whole when either family fails)."""
+    family_rejections: int
+    """Family-level rejection records (one attempt can contribute up to two)."""
+    rejections: tuple[Rejection, ...]
+    """Every rejection with its attempt index, family, and reason (rejected attempts stay reviewable)."""
     families: tuple[FamilyStats, ...]
     checks: tuple[CheckResult, ...]
     digests_sha256: str
     """SHA-256 over the canonical JSON of every generated-array digest (the determinism witness)."""
+
+    def __post_init__(self) -> None:
+        """The counts must agree with the persisted rejection records."""
+        attempts = {rejection.attempt for rejection in self.rejections}
+        if self.family_rejections != len(self.rejections) or self.rejected_attempts != len(attempts):
+            msg = (
+                f"rejection accounting mismatch: {self.rejected_attempts} attempts / "
+                f"{self.family_rejections} family records vs {len(attempts)} / {len(self.rejections)} persisted"
+            )
+            raise ValueError(msg)
 
     @property
     def passed(self) -> bool:
@@ -301,7 +317,11 @@ def _configuration_checks(
         _check(
             "rejection-accounting",
             accounting,
-            f"{len(result.episodes)} accepted in {result.attempts_used} attempts, {len(result.rejections)} rejected",
+            (
+                f"{len(result.episodes)} accepted in {result.attempts_used} attempts; "
+                f"{len({r.attempt for r in result.rejections})} attempt(s) rejected "
+                f"({len(result.rejections)} family record(s))"
+            ),
         ),
     )
 
@@ -328,7 +348,9 @@ def validate_augmentation(
                 ConfigurationReport(
                     config=config,
                     attempts_used=0,
-                    n_rejections=0,
+                    rejected_attempts=0,
+                    family_rejections=0,
+                    rejections=(),
                     families=(),
                     checks=(_check("generation", passed=False, detail=str(exc)),),
                     digests_sha256=sha256_bytes(b""),
@@ -342,7 +364,9 @@ def validate_augmentation(
             ConfigurationReport(
                 config=config,
                 attempts_used=result.attempts_used,
-                n_rejections=len(result.rejections),
+                rejected_attempts=len({rejection.attempt for rejection in result.rejections}),
+                family_rejections=len(result.rejections),
+                rejections=tuple(result.rejections),
                 families=tuple(_family_stats(result, family) for family in _FAMILIES),
                 checks=checks,
                 digests_sha256=sha256_bytes(canonical_json(result.digests()).encode("utf-8")),
@@ -419,16 +443,35 @@ def report_to_markdown(report: AugmentationValidationReport) -> str:
         "",
         "## Configurations",
         "",
-        "| N_aug | sigma (rad) | phi | gamma | attempts | rejected | " + " | ".join(_CHECK_NAMES) + " |",
-        "| --- | --- | --- | --- | --- | --- | " + " | ".join("---" for _ in _CHECK_NAMES) + " |",
+        "| N_aug | sigma (rad) | phi | gamma | attempts | rejected attempts | family rejections | "
+        + " | ".join(_CHECK_NAMES)
+        + " |",
+        "| --- | --- | --- | --- | --- | --- | --- | " + " | ".join("---" for _ in _CHECK_NAMES) + " |",
     ]
     for cfg in report.configurations:
         outcomes = {c.name: c for c in cfg.checks}
         cells = [("PASS" if outcomes[name].passed else "FAIL") if name in outcomes else "n/a" for name in _CHECK_NAMES]
         lines.append(
             f"| {cfg.config.n_synthetic} | {cfg.config.sigma_rad} | {cfg.config.phi} | {cfg.config.gamma} "
-            f"| {cfg.attempts_used} | {cfg.n_rejections} | " + " | ".join(cells) + " |"
+            f"| {cfg.attempts_used} | {cfg.rejected_attempts} | {cfg.family_rejections} | "
+            + " | ".join(cells)
+            + " |"
         )
+    rejected = [cfg for cfg in report.configurations if cfg.rejections]
+    if rejected:
+        lines += [
+            "",
+            "## Rejected attempts",
+            "",
+            "Rejections are expected under the bounded resampling protocol; they are recorded, never hidden.",
+            "",
+        ]
+        for cfg in rejected:
+            label = f"({cfg.config.n_synthetic}, {cfg.config.sigma_rad}, {cfg.config.phi}, {cfg.config.gamma})"
+            lines.extend(
+                f"- {label} attempt {rejection.attempt}, {rejection.family}: {rejection.reason}"
+                for rejection in cfg.rejections
+            )
     failures = [
         (f"configuration ({cfg.config.n_synthetic}, {cfg.config.sigma_rad}, {cfg.config.phi}, {cfg.config.gamma})", c)
         for cfg in report.configurations
