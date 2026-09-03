@@ -1,7 +1,7 @@
 # Task 1-a Recovery Experiment
 
 - **Proposed experiment label:** `task_1a_recovery_v1`
-- **Status:** Draft protocol; no implementation or evidence yet
+- **Status:** Protocol approved for implementation; no implementation or evidence yet
 - **Relationship to prior work:** New experiment derived from task 1-a; the M3
   `task_1a_confirmatory_v2` evidence remains frozen and unchanged.
 
@@ -144,9 +144,11 @@ equilibrium.
 
 ### 4.2 Warm-up and activation
 
-Reservoir warm-up occurs before task time, over `[-T_w, 0)`, and is configured
-in the model/evaluation protocol rather than inferred from the demonstration.
-The reservoir starts from its deterministic all-zero state. During warm-up:
+When $T_w>0$, reservoir warm-up occurs before task time, over `[-T_w, 0)`, and
+is configured in the model/evaluation protocol rather than inferred from the
+demonstration. The development comparison also includes $T_w=0$ as the explicit
+no-warm-up case. The reservoir starts from its deterministic all-zero state.
+During a nonzero warm-up:
 
 - each arm holds its own measured initial posture;
 - RC receives the measured `[q, dq]` sequence but does not evaluate its readout;
@@ -162,9 +164,11 @@ outcome rather than a phase boundary. Force-pulse times and metric windows are
 relative to this task clock. Every original or augmented training episode
 independently (1) resets the reservoir state to the all-zero vector and then (2)
 executes the configured warm-up using that episode's initial state before
-teacher forcing begins. The reset is not performed only once for a batch, and no
-reservoir state passes between episodes. Arbitrary fake warm-up sequences are
-excluded from the primary protocol and may be tested only as a named ablation.
+teacher forcing begins. For $T_w=0$, the second step consumes no samples and
+teacher forcing begins from the reset state. The reset is not performed only
+once for a batch, and no reservoir state passes between episodes. Arbitrary fake
+warm-up sequences are excluded from the primary protocol and may be tested only
+as a named ablation.
 
 Warm-up duration is selected using development data, frozen with the recipe,
 and tested for state convergence and sensitivity. It is not chosen from
@@ -450,22 +454,23 @@ These decisions have been reviewed and are no longer implementation choices:
 | Tracking and safety | Retain the frozen PD v2 and computed-torque trackers and symmetric limits of 10 N·m and 5 N·m. Apply identical limits and scenario initialization to every arm. |
 | Evaluation interpretation | Require safety and target dwell, assess the recovery mechanism by paired early command-gap reduction, and retain original-trajectory RMSE only as a diagnostic rather than a success gate. |
 
-### 9.2 Remaining owner approvals
+### 9.2 Approved implementation choices
 
-The following choices must be frozen before implementation begins. Recommended
-defaults are deliberately bounded development choices, not favorable outcomes:
+The owner approved D1--D6 on 2026-09-03. These bounded development choices are
+now part of the protocol lock; they do not imply a favorable outcome:
 
-| ID | Decision | Recommended approval |
+| ID | Decision | Approved protocol |
 | --- | --- | --- |
 | D1 | Augmentation budget and search range | Include the original episode and search $N_{\mathrm{aug}}\in\{16,32,64\}$ accepted synthetic episodes, $\sigma\in\{0.01,0.025,0.05,0.10\}$ rad, and $\gamma\in\{0.5,1,2\}$; use $(64,0.05,1)$ as the anchor. Pair non-decaying and contractive arms by using the same episode seeds and amplitudes. Record rejected episodes and fail a configuration after a declared finite attempt budget rather than resampling indefinitely. |
-| D2 | Warm-up-duration search | Evaluate $T_w\in\{0.25,0.5,1.0,2.0\}$ s with 1.0 s as the anchor, then freeze the shortest duration that satisfies the declared reservoir-state convergence and output-sensitivity checks across development initial postures. |
+| D2 | Warm-up-duration search | Evaluate $T_w\in\{0,0.25,0.5,1.0,2.0\}$ s with 1.0 s as the anchor. $T_w=0$ is the named no-warm-up case: each episode still resets independently, but teacher forcing or task activation follows immediately. Freeze the shortest duration satisfying the common safety, dwell, recovery, and output-sensitivity gates. Reservoir-state convergence is reported as a diagnostic for $T_w>0$ and as not applicable for $T_w=0$; it cannot by itself exclude the no-warm-up case. |
 | D3 | Evaluation split and perturbation envelope | Retain 13 scenarios per class for continuity with M3, but allocate new mutually disjoint augmentation, development, and confirmatory seed namespaces. Begin the common safety pilot from the M3 levels (0.05/0.10 rad posture offsets and 12 N force); freeze one method-independent envelope from the pilot before confirmatory execution. |
 | D4 | Residual-arm scope | Keep residual output development-only initially. Include it in the locked confirmatory suite only if it passes the same safety, target, stability, and seed-panel gates before the protocol freeze; otherwise report it as an exploratory negative or inconclusive result. |
 | D5 | Model-freeze rule | Approve Section 7.3 unchanged: both median paired ratios below 1, at least 75% of posture scenarios improving both early metrics, generated-reference and actual-motion dwell gates, safety limits, and lexicographic selection. Any later numerical revision creates a new protocol version. |
 | D6 | Demonstration source | Use the existing scripted demonstration as the sole independent source for v1 so the timing/augmentation change is isolated. Add a human demonstration later as a separately identified replication dataset, not as additional v1 training data. |
 
-Approval of D1--D6 locks the protocol for implementation. It does not authorize
-the confirmatory run: that remains separately gated by the completed timing
-vertical slice, augmentation validation, development ablation, model freeze,
-and clean-checkout review in Section 8. Until these choices are approved, this
-document remains a proposal and no confirmatory label may be used.
+D1--D6 are approved, so the protocol is locked for implementation. This approval
+does not authorize the confirmatory run: that remains separately gated by the
+completed timing vertical slice, augmentation validation, development ablation,
+model freeze, and clean-checkout review in Section 8. The human demonstration
+will be added later as a separately identified replication dataset and will not
+be mixed into v1 training.
