@@ -323,6 +323,21 @@ def test_derived_fields_reject_tampering() -> None:
         dataclasses.replace(summary, improving=2)
 
 
+def test_json_tampered_dwell_values_cannot_load() -> None:
+    """M3R review: tampered nested dwell values are rejected on load even when the criteria agree."""
+    report = _report()
+    payload = cast("dict[str, object]", json.loads(recovery_report_to_json(report)))
+    negative = json.loads(recovery_report_to_json(report))
+    negative["generated_dwell"]["endpoint"]["mean"] = -0.1
+    with pytest.raises(ValueError, match="non-negative"):
+        from_mapping(cast("dict[str, object]", negative), RecoveryMetricsReport)
+    bad_fraction = json.loads(recovery_report_to_json(report))
+    bad_fraction["generated_dwell"]["in_tolerance_fraction"] = 1.5
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        from_mapping(cast("dict[str, object]", bad_fraction), RecoveryMetricsReport)
+    assert from_mapping(payload, RecoveryMetricsReport) == report  # untampered still loads
+
+
 def test_tampered_settling_band_is_rejected_by_the_schema() -> None:
     """A report whose recorded band disagrees with its settling metrics cannot be constructed."""
     q_ref = _reference()

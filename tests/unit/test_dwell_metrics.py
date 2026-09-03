@@ -5,13 +5,21 @@
 
 from __future__ import annotations
 
+import dataclasses
 import math
 
 import numpy as np
 import pytest
 from numpy.typing import NDArray
 
-from arm_rc_ctrl.metrics.dwell import DwellCriteria, dwell_metrics, endpoint_error_stats, longest_run_duration
+from arm_rc_ctrl.metrics.dwell import (
+    DwellCriteria,
+    DwellMetrics,
+    EndpointErrorStats,
+    dwell_metrics,
+    endpoint_error_stats,
+    longest_run_duration,
+)
 
 TARGET = np.array([0.1, 0.45])
 DIST = np.array([0.0, 0.01, 0.02, 0.005, 0.03])  # planned endpoint distances per sample
@@ -93,6 +101,38 @@ def test_invalid_inputs_are_rejected(kwargs: dict[str, object], message: str) ->
     args.update(kwargs)
     with pytest.raises(ValueError, match=message):
         dwell_metrics(**args)  # type: ignore[arg-type]
+
+
+@pytest.mark.parametrize(
+    ("build", "message"),
+    [
+        (lambda: EndpointErrorStats(-0.1, 0.1, 0.2, 0.1, 3), "non-negative"),
+        (lambda: EndpointErrorStats(0.3, 0.2, 0.2, 0.1, 3), "mean <= rms"),
+        (lambda: EndpointErrorStats(0.1, 0.15, 0.2, 0.5, 3), "p95 <= max"),
+        (lambda: EndpointErrorStats(0.1, 0.15, 0.2, 0.1, 0), ">= 1 sample"),
+        (lambda: _metrics(in_tolerance_fraction=1.5), r"\[0, 1\]"),
+        (lambda: _metrics(longest_in_tolerance_s=0.4), "cannot exceed the window"),
+        (lambda: _metrics(velocity_rms=9.0), "cannot exceed velocity_max"),
+        (lambda: _metrics(samples=7), "equal the endpoint sample count"),
+    ],
+)
+def test_semantic_validation_rejects_tampered_dwell_values(build: object, message: str) -> None:
+    """M3R review: negative errors, invalid fractions, and inconsistent counts cannot be constructed."""
+    with pytest.raises(ValueError, match=message):
+        build()  # type: ignore[operator]
+
+
+def _metrics(**changes: object) -> DwellMetrics:
+    base = DwellMetrics(
+        endpoint=EndpointErrorStats(0.01, 0.012, 0.02, 0.018, 5),
+        in_tolerance_fraction=0.8,
+        longest_in_tolerance_s=0.03,
+        velocity_rms=0.1,
+        velocity_max=0.2,
+        window_s=0.05,
+        samples=5,
+    )
+    return dataclasses.replace(base, **changes)
 
 
 def test_dwell_criteria_evaluate_fraction_and_stationarity() -> None:

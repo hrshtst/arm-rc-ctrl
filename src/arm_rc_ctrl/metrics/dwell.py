@@ -29,6 +29,8 @@ __all__ = [
 
 _PERCENTILE: Final = 95.0
 _PLANE: Final = 2
+_STAT_TOLERANCE: Final = 1e-12
+"""Float slack for mathematically guaranteed orderings (mean <= rms <= max, p95 <= max)."""
 
 
 @dataclass(frozen=True)
@@ -40,6 +42,20 @@ class EndpointErrorStats:
     max: float
     p95: float
     samples: int
+
+    def __post_init__(self) -> None:
+        """Distances are finite and non-negative with the guaranteed orderings over >= 1 sample."""
+        values = (self.mean, self.rms, self.max, self.p95)
+        if any(not np.isfinite(v) or v < 0 for v in values) or self.samples < 1:
+            msg = f"endpoint error stats must be finite and non-negative over >= 1 sample, got {self}"
+            raise ValueError(msg)
+        if (
+            self.mean > self.rms + _STAT_TOLERANCE
+            or self.rms > self.max + _STAT_TOLERANCE
+            or self.p95 > self.max + _STAT_TOLERANCE
+        ):
+            msg = f"endpoint error stats must satisfy mean <= rms <= max and p95 <= max, got {self}"
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True)
@@ -53,6 +69,32 @@ class DwellMetrics:
     velocity_max: float
     window_s: float
     samples: int
+
+    def __post_init__(self) -> None:
+        """Fractions, durations, and velocities are finite and consistent with the window and sample count."""
+        if not 0.0 <= self.in_tolerance_fraction <= 1.0:
+            msg = f"in_tolerance_fraction must lie in [0, 1], got {self.in_tolerance_fraction!r}"
+            raise ValueError(msg)
+        durations = (self.longest_in_tolerance_s, self.window_s)
+        if any(not np.isfinite(v) or v < 0 for v in durations):
+            msg = f"dwell durations must be finite and non-negative, got {self}"
+            raise ValueError(msg)
+        if self.longest_in_tolerance_s > self.window_s + _STAT_TOLERANCE:
+            msg = (
+                f"longest_in_tolerance_s {self.longest_in_tolerance_s!r} cannot exceed the window "
+                f"{self.window_s!r}"
+            )
+            raise ValueError(msg)
+        velocities = (self.velocity_rms, self.velocity_max)
+        if any(not np.isfinite(v) or v < 0 for v in velocities):
+            msg = f"dwell velocities must be finite and non-negative, got {self}"
+            raise ValueError(msg)
+        if self.velocity_rms > self.velocity_max + _STAT_TOLERANCE:
+            msg = f"velocity_rms {self.velocity_rms!r} cannot exceed velocity_max {self.velocity_max!r}"
+            raise ValueError(msg)
+        if self.samples < 1 or self.endpoint.samples != self.samples:
+            msg = f"samples must be >= 1 and equal the endpoint sample count, got {self}"
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True)
