@@ -218,6 +218,15 @@ def test_held_reference_holds_then_plays_the_task_reference(
     zero = HeldTaskReference.from_samples(samples, activation_s=0.0, interpolation="linear")
     q0, _, _ = zero.sample(0.0)
     assert np.allclose(q0, samples.q[0])
+    perturbed = np.array([0.35, 0.55])
+    held = HeldTaskReference.from_samples(samples, activation_s=0.5, interpolation="linear", hold=perturbed)
+    q_perturbed, dq_perturbed, _ = held.sample(0.25)
+    assert np.array_equal(q_perturbed, perturbed)
+    assert not dq_perturbed.any()
+    q_task, _, _ = held.sample(0.5)
+    assert np.allclose(q_task, samples.q[0])
+    with pytest.raises(ValueError, match="hold"):
+        HeldTaskReference.from_samples(samples, activation_s=0.5, hold=np.array([0.1]))
 
 
 @pytest.mark.parametrize("warmup_s", [0.0, 0.25, 1.0])
@@ -286,7 +295,14 @@ def test_perturbed_start_is_shared_and_measured(
         initial_q=initial,
     )
     for result in (pair.replay, pair.rc):
-        assert np.allclose(result.run.arrays.arrays["q"][0], initial)
+        arrays = result.run.arrays.arrays
+        assert np.allclose(arrays["q"][0], initial)
+        hold = arrays["t"] < 0.25
+        assert bool(hold.any())
+        # Both arms hold the *perturbed* posture: the desired command never drifts toward the
+        # reference before activation (the protocol forbids correcting the offset during the hold).
+        assert np.allclose(arrays["q_desired"][hold], initial)
+        assert not arrays["dq_desired"][hold].any()
     assert pair.recovery is not None
     assert pair.recovery.activation_jump_rad > 0.0
     assert pair.recovery.smoothness_actual.samples == samples.n_samples

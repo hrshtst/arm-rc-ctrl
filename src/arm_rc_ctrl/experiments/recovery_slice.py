@@ -59,29 +59,45 @@ _DEFAULT_SETTLING_BAND_RAD = 0.05
 
 
 class HeldTaskReference:
-    """``skelarm`` joint reference: hold the task initial posture until activation, then play the task reference.
+    """``skelarm`` joint reference: hold the episode's initial posture until activation, then play the task reference.
 
-    Before ``activation_s`` the reference is ``(q_0, 0, 0)`` — the common
-    pre-task hold; from activation on it is the cropped task reference shifted
-    onto the run clock (``t - activation_s``).
+    Before ``activation_s`` the reference is ``(hold, 0, 0)`` — the arm's own
+    (possibly perturbed) initial posture, so replay never corrects an
+    evaluation offset before task time zero; from activation on it is the
+    cropped task reference shifted onto the run clock (``t - activation_s``).
     """
 
-    def __init__(self, reference: DemonstrationReference, *, activation_s: float) -> None:
+    def __init__(
+        self,
+        reference: DemonstrationReference,
+        *,
+        activation_s: float,
+        hold: NDArray[np.float64] | None = None,
+    ) -> None:
         if not (math.isfinite(activation_s) and activation_s >= 0):
             msg = f"activation_s must be finite and non-negative, got {activation_s!r}"
             raise ValueError(msg)
         self._reference = reference
         self._activation = activation_s
-        self._hold: NDArray[np.float64] = np.array(reference.q[0], dtype=np.float64)
+        posture = reference.q[0] if hold is None else np.asarray(hold, dtype=np.float64)
+        if posture.shape != (reference.dof,) or not bool(np.all(np.isfinite(posture))):
+            msg = f"hold must be a finite ({reference.dof},) posture, got {posture!r}"
+            raise ValueError(msg)
+        self._hold: NDArray[np.float64] = np.array(posture, dtype=np.float64)
         self._zeros: NDArray[np.float64] = np.zeros_like(self._hold)
 
     @classmethod
     def from_samples(
-        cls, samples: SampleSet, *, activation_s: float, interpolation: str = "linear"
+        cls,
+        samples: SampleSet,
+        *,
+        activation_s: float,
+        interpolation: str = "linear",
+        hold: NDArray[np.float64] | None = None,
     ) -> HeldTaskReference:
         """Build from a cropped task dataset (task clock starting at zero)."""
         reference = DemonstrationReference.from_samples(samples, cast("Any", interpolation))
-        return cls(reference, activation_s=activation_s)
+        return cls(reference, activation_s=activation_s, hold=hold)
 
     @property
     def activation_s(self) -> float:
@@ -272,8 +288,9 @@ def run_recovery_pair(
         )
         return SliceRunResult(pointer, summary, directory, load_run(store, pointer))
 
+    start = np.asarray(scenario.task.initial_q if initial_q is None else initial_q, dtype=np.float64)
     held = HeldTaskReference.from_samples(
-        reference, activation_s=activation, interpolation=dataset.preprocessing.interpolation
+        reference, activation_s=activation, interpolation=dataset.preprocessing.interpolation, hold=start
     )
     replay_controller = LimitedTracker(cast("Any", held), tracker, scenario.limits.torque)
     replay_arrays, replay_termination = simulate(
