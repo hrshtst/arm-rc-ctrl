@@ -1,0 +1,22 @@
+# Development robustness levels of the task 1-a recovery experiment, version 1 (docs/TASKS.md
+# M3R-011). The recovery protocol uses ONE method-independent envelope for development and
+# confirmatory evaluation (recovery plan D3): the levels below equal the locked confirmatory
+# envelope of task_1a_recovery_confirmatory_v1.toml; only the seeds differ, and they are
+# disjoint from the recovery confirmatory seeds (20261101-20261105), every M3 seed, and the
+# augmentation namespace (415926535). 5 seeds x 4 draws keep the M3-shaped allocation
+# (1 nominal, 20 small-posture, 20 large-posture, 4 force, 20 combined = 65 scenarios).
+# force.start_s is TASK-RELATIVE. tests/regression/test_recovery_lock.py enforces consistency.
+name = "task-1a-recovery-dev-v1"
+scenario = "../tasks/task_1a.toml"
+seeds = [20261201, 20261202, 20261203, 20261204, 20261205]
+
+[posture]
+small_magnitude_rad = 0.05
+large_magnitude_rad = 0.1
+draws_per_seed = 4
+
+[force]
+magnitude_n = 12.0
+start_s = 1.0
+duration_s = 0.2
+directions_deg = [0.0, 90.0, 180.0, 270.0]

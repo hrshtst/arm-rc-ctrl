@@ -1,0 +1,35 @@
+# Locked confirmatory protocol of the task 1-a recovery experiment, version 1 (docs/TASKS.md
+# M3R-011; recovery plan sections 7.1 and 9.2 D3). The levels were selected by the recovery
+# pilot docs/experiments/task_1a_state_conditioned_recovery/recovery_pilot_v1.json with the
+# frozen PD v2 and computed-torque replay baselines on the recovery schedule (common T_w hold at
+# q0_ref + offset, activation at task time zero); every case is in that report. The envelope is
+# method-independent and identical for development and confirmatory evaluation; only the seeds
+# differ. force.start_s is TASK-RELATIVE (the recovery slice shifts pulses by the activation
+# boundary). Once locked, these values and seeds may not be used for tuning; the confirmatory
+# suite (M3R-017) is separately authorized and runs exactly once per study version.
+# Seeds are disjoint from the recovery development seeds (20261201-20261205), every M3
+# confirmatory seed (20260901-20260905), every M3 development/study seed (20260830, 20260911,
+# 20260921, 20260922, 20261001-20261004), and the augmentation namespace (415926535);
+# tests/regression/test_recovery_lock.py enforces all of it.
+name = "task-1a-recovery-confirmatory-v1"
+scenario = "../tasks/task_1a.toml"
+locked = true
+pilot_report = "../../docs/experiments/task_1a_state_conditioned_recovery/recovery_pilot_v1.json"
+seeds = [20261101, 20261102, 20261103, 20261104, 20261105]
+
+[posture]
+# Classes 2 and 3: per seed and class, draws_per_seed joint-space offsets with uniformly random
+# direction and Euclidean norm equal to the class magnitude, added to q0_ref and HELD through the
+# pre-task interval. 5 seeds x 4 draws = the M3-shaped 20 scenarios per class.
+small_magnitude_rad = 0.05
+large_magnitude_rad = 0.1
+draws_per_seed = 4
+
+[force]
+# Class 4 (and, combined with the small postures, class 5): 12 N is the largest safe nontrivial
+# level of the recovery pilot (14 N violates a limit for at least one baseline), applied at task
+# time 1.0 s for 0.2 s along the base axes.
+magnitude_n = 12.0
+start_s = 1.0
+duration_s = 0.2
+directions_deg = [0.0, 90.0, 180.0, 270.0]
