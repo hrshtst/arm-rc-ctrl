@@ -32,7 +32,7 @@ from arm_rc_ctrl.data.recovery import (
     RecoveryDatasetRecord,
     TaskIntervals,
 )
-from arm_rc_ctrl.data.samples import SampleSet
+from arm_rc_ctrl.data.samples import SampleSet, save_samples
 from arm_rc_ctrl.experiments.disturbances import ForcePulse
 from arm_rc_ctrl.experiments.recovery_slice import HeldTaskReference, run_recovery_pair
 from arm_rc_ctrl.metrics.recovery import RecoveryMetricsReport
@@ -65,9 +65,9 @@ ESN = EsnConfig(
 )
 
 
-def _samples() -> SampleSet:
+def _samples(start_offset: tuple[float, float] = (0.0, 0.0)) -> SampleSet:
     t = np.arange(N, dtype=np.float64) * DT
-    start = np.array(SCENARIO.task.initial_q)
+    start = np.array(SCENARIO.task.initial_q) + np.array(start_offset)
     goal = np.array([0.8, 0.4])
     s = np.clip(t / TASK.move[1], 0.0, 1.0)
     blend = s * s * (3.0 - 2.0 * s)
@@ -136,7 +136,7 @@ def _record(samples: SampleSet, payload_sha: str) -> RecoveryDatasetRecord:
             confirmed_by="script",
         ),
         baseline=BaselineCheck(
-            q_pre=tuple(SCENARIO.task.initial_q), tolerance_rad=0.05, max_deviation_rad=0.0, status="passed"
+            q_pre=tuple(float(v) for v in samples.q[0]), tolerance_rad=0.05, max_deviation_rad=0.0, status="passed"
         ),
         crop=CropWindow(pre_roll=(0.0, 1.0), source_duration_s=2.0, task=TASK),
         q0_ref=tuple(float(v) for v in samples.q[0]),
@@ -350,6 +350,37 @@ def test_force_pulses_are_scheduled_on_the_task_clock(
         assert isinstance(force_config, dict)
         assert force_config["task"]["start_s"] == pulse.start_s
         assert force_config["run"]["start_s"] == pytest.approx(warmup_s + pulse.start_s)
+
+
+def test_nominal_start_is_the_cropped_posture_not_the_scenario(tmp_path: Path) -> None:
+    """With q0_ref != scenario.task.initial_q, a nominal run starts and holds at q0_ref."""
+    samples = _samples(start_offset=(0.01, -0.02))
+    staged = tmp_path / "samples.npz"
+    save_samples(staged, samples)
+    record = _record(samples, sha256_file(staged))
+    q0_ref = np.asarray(record.q0_ref)
+    assert not np.allclose(q0_ref, SCENARIO.task.initial_q)
+    store_root = tmp_path / "store"
+    store_root.mkdir()
+    store = StorageRoot(store_root, repositories=(REPO_ROOT,))
+    pair = run_recovery_pair(
+        SCENARIO,
+        SCENARIO_FILE,
+        record,
+        samples,
+        _recipe(record, samples, 0.25),
+        TRACKER,
+        store=store,
+        warmup=WarmupConfig(0.25),
+        exploratory=True,
+    )
+    for result in (pair.replay, pair.rc):
+        arrays = result.run.arrays.arrays
+        assert np.array_equal(arrays["q"][0], q0_ref)
+        hold = arrays["t"] < 0.25
+        assert np.allclose(arrays["q_desired"][hold], q0_ref)
+        assert not np.allclose(arrays["q_desired"][hold], SCENARIO.task.initial_q)
+        assert result.summary.provenance.config["initial_q"] == list(record.q0_ref)
 
 
 def test_provenance_records_the_common_schedule(

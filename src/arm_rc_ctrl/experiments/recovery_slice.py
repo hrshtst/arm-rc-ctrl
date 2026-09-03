@@ -242,6 +242,9 @@ def run_recovery_pair(
         raise ValueError(msg)
     activation = warmup.duration_s
     duration = activation + float(reference.t[-1])
+    # The protocol starts every run from q0_ref + delta; nominal runs (initial_q None) therefore
+    # resolve from the dataset's authoritative cropped posture, never from the scenario metadata.
+    start = tuple(float(v) for v in (dataset.q0_ref if initial_q is None else initial_q))
     run_force = (
         None
         if force is None
@@ -258,7 +261,7 @@ def run_recovery_pair(
         "warmup": to_mapping(warmup),
         "activation_s": activation,
         "reference_artifact": reference_artifact,
-        "initial_q": list(scenario.task.initial_q if initial_q is None else initial_q),
+        "initial_q": list(start),
         "duration_s": duration,
         "force": (
             None if force is None or run_force is None else {"task": to_mapping(force), "run": to_mapping(run_force)}
@@ -298,13 +301,15 @@ def run_recovery_pair(
         )
         return SliceRunResult(pointer, summary, directory, load_run(store, pointer))
 
-    start = np.asarray(scenario.task.initial_q if initial_q is None else initial_q, dtype=np.float64)
     held = HeldTaskReference.from_samples(
-        reference, activation_s=activation, interpolation=dataset.preprocessing.interpolation, hold=start
+        reference,
+        activation_s=activation,
+        interpolation=dataset.preprocessing.interpolation,
+        hold=np.asarray(start, dtype=np.float64),
     )
     replay_controller = LimitedTracker(cast("Any", held), tracker, scenario.limits.torque)
     replay_arrays, replay_termination = simulate(
-        scenario, replay_controller, duration_s=duration, initial_q=initial_q, force=run_force
+        scenario, replay_controller, duration_s=duration, initial_q=start, force=run_force
     )
     replay = _persist(replay_arrays, replay_termination, method=f"replay+{tracker.method}", seeds={}, arm="replay")
 
@@ -318,7 +323,7 @@ def run_recovery_pair(
         scenario,
         rc_controller,
         duration_s=duration,
-        initial_q=initial_q,
+        initial_q=start,
         force=run_force,
         channels=GENERATOR_CHANNELS,
     )

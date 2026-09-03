@@ -315,7 +315,7 @@ def generate_timing_traces(
             recipe = _dev_recipe(record, samples, model_config, case.warmup_s)
             recipes[case.warmup_s] = recipe
         initial = (
-            tuple(scenario.task.initial_q)
+            tuple(float(q) for q in record.q0_ref)
             if case.perturbation_rad is None
             else tuple(float(q) + d for q, d in zip(record.q0_ref, case.perturbation_rad, strict=True))
         )
@@ -330,7 +330,7 @@ def generate_timing_traces(
             warmup=WarmupConfig(case.warmup_s),
             exploratory=exploratory,
             estimator=estimator,
-            initial_q=None if case.perturbation_rad is None else initial,
+            initial_q=initial,
             force=case.force,
             now=now,
             command=command,
