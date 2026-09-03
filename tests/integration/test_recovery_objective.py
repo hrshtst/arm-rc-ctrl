@@ -631,3 +631,21 @@ def test_make_recovery_objective_runs_a_sampled_trial(
     }
     assert "n_synthetic" not in trial.params
     assert trial.params["warmup_s"] in {0.0, 0.25, 1.0}
+
+
+def test_residual_points_compose_through_the_objective(
+    fixture_dataset: tuple[RecoveryDatasetRecord, SampleSet], tmp_path: Path
+) -> None:
+    """A residual trial runs real simulations end to end without a telemetry violation.
+
+    Regression for the absolute-mode wiring bug: the objective built its generator without the
+    increment output, so raw increments were commanded as positions and the run-array validation
+    aborted the first residual study invocation on non-finite generator_increment_q.
+    """
+    record, samples = fixture_dataset
+    context = make_context(record, samples)
+    protocol = _protocol(tmp_path, formulation="residual")
+    evaluation = evaluate_recovery_point(protocol, context, AUG_POINT)
+    assert evaluation.components  # at least the first pair simulated without a telemetry violation
+    assert evaluation.fit_rmse is not None
+    assert math.isfinite(evaluation.objective)

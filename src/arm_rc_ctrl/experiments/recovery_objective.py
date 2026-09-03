@@ -622,7 +622,13 @@ def evaluate_recovery_point(
         estimator = CausalDerivativeEstimator(
             point.esn.estimator(max_dt_ratio=protocol.max_dt_ratio).config(scenario.timing.dt), scenario.dof
         )
-        generator = RcTargetGenerator(model, recipe.encoder(), estimator, position_bounds=(lower, upper))
+        generator = RcTargetGenerator(
+            model,
+            recipe.encoder(),
+            estimator,
+            position_bounds=(lower, upper),
+            output="increment" if recipe.training.target == "increment_q" else "absolute",
+        )
         controllers[name] = GeneratorTrackingController(
             generator, gains, scenario.limits.torque, hold_until_s=activation
         )
