@@ -1,0 +1,46 @@
+# Recovery perturbation pilot v1 (docs/TASKS.md M3R-011; recovery plan sections 7.1 and 9.2 D3).
+# Sweeps the frozen replay baselines on the recovery schedule: every run holds its own
+# q0_ref + offset posture through the common T_w = 1.0 s hold (the D2 anchor), activates the
+# cropped reference at task time zero, and takes force pulses on the task clock. Grids and
+# selection rules start from M3's perturbation_pilot_1a_v2.toml: the same posture magnitudes and
+# directions, the same force magnitudes and axis directions, with the pulse at task time 1.0 s
+# (M3's run-clock 2.0 s pulse was 1.0 s after its movement onset) and the same safe/nontrivial
+# rules, now measured on the task clock. The selected envelope is method-independent and justifies
+# configs/evaluations/task_1a_recovery_confirmatory_v1.toml and task_1a_recovery_dev_v1.toml;
+# tests/regression/test_recovery_lock.py keeps those locks consistent with this pilot's report.
+name = "task-1a-recovery-pilot-v1"
+scenario = "../tasks/task_1a.toml"
+baselines = ["pd_v2", "computed_torque"]
+warmup_s = 1.0
+
+[posture]
+# Initial-posture offsets (rad) added to q0_ref along each normalized joint-space direction and
+# HELD through the pre-task interval (the recovery protocol never corrects an offset before
+# activation); recovery is measured from task time zero.
+magnitudes = [0.02, 0.05, 0.06, 0.07, 0.08, 0.09, 0.1, 0.15, 0.2, 0.3, 0.5, 0.8]
+directions = [
+    [1.0, 0.0], [-1.0, 0.0], [0.0, 1.0], [0.0, -1.0],
+    [1.0, 1.0], [-1.0, -1.0], [1.0, -1.0], [-1.0, 1.0],
+]
+
+[force]
+# Constant endpoint force pulses (N) in the base frame; start_s is task-relative (the pulse lands
+# in the movement interval [0, 3] s of the cropped episode).
+magnitudes = [0.5, 1.0, 2.0, 4.0, 8.0, 10.0, 12.0, 14.0, 16.0, 32.0, 64.0]
+directions_deg = [0.0, 90.0, 180.0, 270.0]
+start_s = 1.0
+duration_s = 0.2
+
+[selection]
+# M3's rules on the task clock: a level is SAFE when every baseline completes, satisfies every
+# dwell criterion, and the endpoint returns to within the task tolerance of the reference within
+# the bound after the (task-clock) onset; force levels additionally keep saturation at 0.
+# A posture level is NONTRIVIAL when some baseline needs at least posture_recovery_min_s after
+# activation; a force level when the peak deviation reaches force_deviation_min_m.
+# Selected: small posture = smallest safe nontrivial; large posture = largest safe;
+# force = largest safe nontrivial magnitude.
+posture_recovery_min_s = 0.1
+posture_recovery_max_s = 1.0
+force_recovery_max_s = 1.0
+force_deviation_min_m = 0.01
+force_max_saturation_fraction = 0.0
