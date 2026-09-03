@@ -453,9 +453,7 @@ def report_to_markdown(report: AugmentationValidationReport) -> str:
         cells = [("PASS" if outcomes[name].passed else "FAIL") if name in outcomes else "n/a" for name in _CHECK_NAMES]
         lines.append(
             f"| {cfg.config.n_synthetic} | {cfg.config.sigma_rad} | {cfg.config.phi} | {cfg.config.gamma} "
-            f"| {cfg.attempts_used} | {cfg.rejected_attempts} | {cfg.family_rejections} | "
-            + " | ".join(cells)
-            + " |"
+            f"| {cfg.attempts_used} | {cfg.rejected_attempts} | {cfg.family_rejections} | " + " | ".join(cells) + " |"
         )
     rejected = [cfg for cfg in report.configurations if cfg.rejections]
     if rejected:

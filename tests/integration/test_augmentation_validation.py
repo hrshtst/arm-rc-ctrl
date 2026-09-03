@@ -210,9 +210,7 @@ def test_a_valid_dataset_passes_every_check(tmp_path: Path) -> None:
 def test_rejections_are_persisted_with_attempt_family_and_reason(tmp_path: Path) -> None:
     """A configuration with rejected attempts records every rejection, distinguishing the two counts."""
     record, samples = _fixture(tmp_path)
-    probe = generate_augmentation(
-        samples.t, samples.q, record.crop.task, SCENARIO, GRID[0], derivatives=DERIVATIVES
-    )
+    probe = generate_augmentation(samples.t, samples.q, record.crop.task, SCENARIO, GRID[0], derivatives=DERIVATIVES)
     peaks = sorted(
         max(episode.non_decaying.delta_peak_rad, episode.contractive.delta_peak_rad) for episode in probe.episodes
     )

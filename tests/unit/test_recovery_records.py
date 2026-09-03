@@ -125,6 +125,7 @@ HUMAN_ONSET = dataclasses.replace(
     confirmed_by="human",
 )
 
+
 def _baseline(q_pre: tuple[float, ...], tolerance_rad: float) -> BaselineCheck:
     """A baseline whose recorded deviation is recomputed exactly as the derivation records it."""
     q0_ref = tuple(float(v) for v in _samples().q[0])
@@ -237,9 +238,7 @@ def test_q0_ref_is_the_first_cropped_sample_and_never_q_pre() -> None:
     samples = _samples()
     # An imposter must also fake a consistent baseline deviation to get past construction;
     # check_samples still catches the substitution against the actual arrays.
-    imposter = _record(
-        q0_ref=BASELINE.q_pre, baseline=dataclasses.replace(BASELINE, max_deviation_rad=0.0)
-    )
+    imposter = _record(q0_ref=BASELINE.q_pre, baseline=dataclasses.replace(BASELINE, max_deviation_rad=0.0))
     with pytest.raises(ValueError, match="never"):
         imposter.check_samples(samples)
     flagged = _record(baseline=FLAGGED)

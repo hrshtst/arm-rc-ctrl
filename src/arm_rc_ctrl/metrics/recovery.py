@@ -199,9 +199,7 @@ class AlignmentMetrics:
         if self.samples < 0 or self.skipped < 0:
             msg = f"sample counts must be non-negative, got {self}"
             raise ValueError(msg)
-        if (self.samples == 0) != (self.mean_cosine is None) or (self.samples == 0) != (
-            self.positive_fraction is None
-        ):
+        if (self.samples == 0) != (self.mean_cosine is None) or (self.samples == 0) != (self.positive_fraction is None):
             msg = f"mean_cosine and positive_fraction must be None exactly when samples == 0, got {self}"
             raise ValueError(msg)
         if self.mean_cosine is not None and not -1.0 - 1e-9 <= self.mean_cosine <= 1.0 + 1e-9:
@@ -269,9 +267,7 @@ class SettlingMetrics:
         if not (self.band_rad > 0 and np.isfinite(self.band_rad)):
             msg = f"band_rad must be positive and finite, got {self.band_rad!r}"
             raise ValueError(msg)
-        if self.settling_time_s is not None and not (
-            np.isfinite(self.settling_time_s) and self.settling_time_s >= 0
-        ):
+        if self.settling_time_s is not None and not (np.isfinite(self.settling_time_s) and self.settling_time_s >= 0):
             msg = f"settling_time_s must be finite and non-negative, got {self.settling_time_s!r}"
             raise ValueError(msg)
 
