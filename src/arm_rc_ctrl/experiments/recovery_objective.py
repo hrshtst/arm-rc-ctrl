@@ -41,8 +41,17 @@ from arm_rc_ctrl.data.samples import load_samples
 from arm_rc_ctrl.experiments.baselines import load_frozen_baseline
 from arm_rc_ctrl.experiments.disturbances import ForcePulse
 from arm_rc_ctrl.experiments.esn_objective import classify
-from arm_rc_ctrl.experiments.perturbations import load_development_robustness, robustness_scenarios
-from arm_rc_ctrl.experiments.recovery_search import RECOVERY_TRACKERS, suggest_recovery_point, training_spec_for
+from arm_rc_ctrl.experiments.perturbations import (
+    PerturbationClass,  # component kinds are rebuilt from JSON (annotation resolution needs the runtime name)
+    load_development_robustness,
+    robustness_scenarios,
+)
+from arm_rc_ctrl.experiments.recovery_search import (
+    RECOVERY_TRACKERS,
+    RecoveryTrialPoint,  # loaded from JSON (annotation resolution needs the runtime name)
+    suggest_recovery_point,
+    training_spec_for,
+)
 from arm_rc_ctrl.experiments.recovery_slice import (
     DEFAULT_SETTLING_BAND_RAD,
     HeldTaskReference,
@@ -66,8 +75,8 @@ if TYPE_CHECKING:
 
     from arm_rc_ctrl.controllers.tracking import TrackerConfig
     from arm_rc_ctrl.data.samples import SampleSet
-    from arm_rc_ctrl.experiments.perturbations import PerturbationClass, RobustnessScenario
-    from arm_rc_ctrl.experiments.recovery_search import RecoverySearchProtocol, RecoveryTrialPoint
+    from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
+    from arm_rc_ctrl.experiments.recovery_search import RecoverySearchProtocol
     from arm_rc_ctrl.experiments.run_record import RunArrays
     from arm_rc_ctrl.experiments.termination import Termination
     from arm_rc_ctrl.rc.esn import EsnModel

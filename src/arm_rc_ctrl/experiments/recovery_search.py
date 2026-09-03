@@ -19,6 +19,9 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal
 
+import optuna
+from optuna.trial import TrialState
+
 from arm_rc_ctrl.config import load_config
 from arm_rc_ctrl.experiments.esn_search import EsnSearchSpace, TrialPoint
 from arm_rc_ctrl.experiments.esn_search import (
@@ -44,18 +47,18 @@ from arm_rc_ctrl.rc.warmup import APPROVED_WARMUPS_S
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    import optuna
-
 __all__ = [
     "RECOVERY_TRACKERS",
     "AugmentationGrid",
     "AugmentationPoint",
+    "RecoveryComparison",
     "RecoveryFormulation",
     "RecoveryObjectiveSpec",
     "RecoverySearchProtocol",
     "RecoverySpace",
     "RecoveryTrialPoint",
     "check_matched_protocols",
+    "enqueue_recovery_comparisons",
     "load_recovery_search",
     "point_from_params",
     "recovery_protocol_digest",
@@ -144,6 +147,20 @@ class RecoveryObjectiveSpec:
 
 
 @dataclass(frozen=True)
+class RecoveryComparison:
+    """A labelled point evaluated before any sampled trial (the approved D1/D2 anchors)."""
+
+    label: str
+    point: RecoveryTrialPoint
+
+    def __post_init__(self) -> None:
+        """Labels are non-empty."""
+        if not self.label.strip():
+            msg = "comparison.label must not be empty"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
 class RecoverySearchProtocol:
     """A versioned recovery development search for one generator formulation."""
 
@@ -165,6 +182,8 @@ class RecoverySearchProtocol:
     objective: RecoveryObjectiveSpec = field(default_factory=RecoveryObjectiveSpec)
     feasibility: Feasibility = field(default_factory=lambda: Feasibility(SATURATION_BOUND))
     max_dt_ratio: float = 3.0
+    comparison: tuple[RecoveryComparison, ...] = ()
+    """Labelled anchor points queued before sampling; every value must lie in the searched sets."""
 
     def __post_init__(self) -> None:
         """Formulation-specific dimensions are present exactly when applicable; the saturation bound is fixed."""
@@ -193,6 +212,12 @@ class RecoverySearchProtocol:
         if self.max_dt_ratio < 1:
             msg = f"max_dt_ratio must be >= 1, got {self.max_dt_ratio!r}"
             raise ValueError(msg)
+        labels = [comparison.label for comparison in self.comparison]
+        if len(set(labels)) != len(labels):
+            msg = f"comparison labels must be unique, got {labels}"
+            raise ValueError(msg)
+        for comparison in self.comparison:
+            point_from_params(self, comparison.point.params())  # every anchor lies in the searched sets
 
     def base_model(self) -> ModelConfig:
         """The base model configuration (input transform and readout solver come from here)."""
@@ -225,7 +250,8 @@ class RecoveryTrialPoint:
 
     esn: TrialPoint
     warmup_s: float
-    augmentation: AugmentationPoint | None
+    augmentation: AugmentationPoint | None = None
+    """Absent for the no-augmentation formulation (inapplicable parameters are never dummy-filled)."""
 
     def params(self) -> dict[str, float | int]:
         """Every Optuna parameter of the point; inapplicable parameters are absent."""
@@ -333,3 +359,21 @@ def check_matched_protocols(first: RecoverySearchProtocol, second: RecoverySearc
     if first.formulation in _AUGMENTED and second.formulation in _AUGMENTED and first.seed_bank != second.seed_bank:
         msg = f"the augmented studies must share their seed bank, got {first.seed_bank} and {second.seed_bank}"
         raise ValueError(msg)
+
+
+def enqueue_recovery_comparisons(study: optuna.Study, protocol: RecoverySearchProtocol) -> int:
+    """Queue the protocol's comparison points the study does not hold yet; return how many were queued.
+
+    Points already evaluated (matching parameters) are skipped, and Optuna skips
+    points that are still waiting, so the call is idempotent across resumes.
+    """
+    evaluated = [dict(t.params) for t in study.get_trials(deepcopy=False) if t.state != TrialState.WAITING]
+    queued = 0
+    for comparison in protocol.comparison:
+        params = comparison.point.params()
+        if any(params == p for p in evaluated):
+            continue
+        before = len(study.get_trials(deepcopy=False))
+        study.enqueue_trial(dict(params), user_attrs={"armrc.comparison": comparison.label}, skip_if_exists=True)
+        queued += len(study.get_trials(deepcopy=False)) - before
+    return queued

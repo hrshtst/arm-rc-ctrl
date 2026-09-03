@@ -230,3 +230,90 @@ def test_matched_protocols_share_counts_and_banks(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="budget"):
         check_matched_protocols(contractive, load_recovery_search(mismatched))
     assert recovery_protocol_digest(contractive) != recovery_protocol_digest(non_decaying)
+
+
+_ANCHOR = """
+[[comparison]]
+label = "{label}"
+
+[comparison.point]
+warmup_s = {warmup}
+
+[comparison.point.esn]
+n_neurons = 100
+spectral_radius = 0.9
+sparsity = 0.9
+leak_rate = 0.1
+input_scaling = 0.1
+seed = 31
+alpha = 0.01
+velocity_cutoff_hz = 20.0
+acceleration_cutoff_hz = 20.0
+{augmentation_point}"""
+
+_ANCHOR_AUGMENTATION = """
+[comparison.point.augmentation]
+n_synthetic = 16
+sigma_rad = 0.05
+phi = 0.98
+gamma = 1.0
+"""
+
+
+def _anchored(
+    tmp_path: Path, *, formulation: str, warmup: float = 1.0, augmented_anchor: bool, extra: str = ""
+) -> Path:
+    """A protocol file with one (or more) [[comparison]] anchors appended."""
+    scenario = (REPO_ROOT / "configs" / "tasks" / "task_1a.toml").as_posix()
+    model = (REPO_ROOT / "configs" / "models" / "esn_task_1a_v4.toml").as_posix()
+    development = (REPO_ROOT / "configs" / "evaluations" / "task_1a_recovery_dev_v1.toml").as_posix()
+    text = _BASE.format(
+        name=f"cmp-{formulation}",
+        scenario=scenario,
+        model=model,
+        formulation=formulation,
+        development=development,
+        sampler_seed=7,
+        augmentation=_AUGMENTATION if formulation != "no_augmentation" else "",
+    )
+    text += _ANCHOR.format(
+        label="anchor",
+        warmup=warmup,
+        augmentation_point=_ANCHOR_AUGMENTATION if augmented_anchor else "",
+    )
+    file = tmp_path / f"cmp_{formulation}.toml"
+    file.write_text(text + extra, encoding="utf-8")
+    return file
+
+
+def test_comparison_anchors_load_and_validate(tmp_path: Path) -> None:
+    """An anchor with every value in the searched sets loads; its parameters round-trip as Optuna params."""
+    protocol = load_recovery_search(_anchored(tmp_path, formulation="contractive", augmented_anchor=True))
+    (anchor,) = protocol.comparison
+    assert anchor.label == "anchor"
+    params = anchor.point.params()
+    assert params["warmup_s"] == 1.0
+    assert params["n_synthetic"] == 16
+    assert params["gamma"] == 1.0
+
+
+def test_comparison_values_outside_the_searched_sets_are_refused(tmp_path: Path) -> None:
+    """An approved-but-unsearched warm-up in an anchor is rejected against the protocol's space."""
+    file = _anchored(tmp_path, formulation="contractive", warmup=0.5, augmented_anchor=True)
+    with pytest.raises(ValueError, match="outside"):
+        load_recovery_search(file)
+
+
+def test_inapplicable_comparison_parameters_are_refused(tmp_path: Path) -> None:
+    """A no-augmentation anchor must not carry augmentation values (absent, never dummy-filled)."""
+    file = _anchored(tmp_path, formulation="no_augmentation", augmented_anchor=True)
+    with pytest.raises(ValueError, match="do not apply"):
+        load_recovery_search(file)
+
+
+def test_duplicate_comparison_labels_are_refused(tmp_path: Path) -> None:
+    """Comparison labels identify anchor trials and must be unique."""
+    second = _ANCHOR.format(label="anchor", warmup=0.0, augmentation_point=_ANCHOR_AUGMENTATION)
+    file = _anchored(tmp_path, formulation="contractive", augmented_anchor=True, extra=second)
+    with pytest.raises(ValueError, match="unique"):
+        load_recovery_search(file)
