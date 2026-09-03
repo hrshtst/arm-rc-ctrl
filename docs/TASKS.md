@@ -22,10 +22,10 @@ are complete. Do not mark research software complete merely because it runs once
 
 ## Current focus
 
-- **Next task:** `M3R-002` — implement recovery demonstration-onset and cropped-dataset contracts.
+- **Next task:** M3R-003
 - **Current milestone:** M3R — approved task 1-a state-conditioned recovery experiment.
 - **Active blockers:** None for implementation. `M3R-017` remains separately gated by owner authorization after the development freeze review.
-- **Latest completed work:** `M3R-001` protocol lock approved 2026-09-03; task 1-a playback/reproduction tooling signed off; M3 closed 2026-08-31 and merged in PR #4; M2 closed 2026-09-02 (PR #3); M1 closed 2026-08-31 (PR #2); M0 closed 2026-08-30 (PR #1); `UP-005` remains open.
+- **Latest completed work:** `M3R-002` recovery dataset contracts (2026-09-03); `M3R-001` protocol lock approved 2026-09-03; task 1-a playback/reproduction tooling signed off; M3 closed 2026-08-31 and merged in PR #4; M2 closed 2026-09-02 (PR #3); M1 closed 2026-08-31 (PR #2); M0 closed 2026-08-30 (PR #1); `UP-005` remains open.
 
 ## Milestone gates
 
@@ -35,7 +35,7 @@ are complete. Do not mark research software complete merely because it runs once
 | M1 | Demonstration preprocessing and both direct-replay baselines are reproducible | `DONE` |
 | M2 | Task 1-a ESN completes a provenance-complete nominal closed-loop run | `DONE` |
 | M3 | Frozen task 1-a model and confirmatory robustness report reproduce with one command | `DONE` |
-| M3R | Frozen `task_1a_recovery_v1` evidence reproduces after separate confirmatory authorization | `TODO` |
+| M3R | Frozen `task_1a_recovery_v1` evidence reproduces after separate confirmatory authorization | `IN PROGRESS` |
 | M4 | Planar tasks 1-b through 3 and 4-DOF scaling have frozen protocols and reports | `TODO` |
 | M5 | Python/C++ parity and `rtctrl` 7-DOF simulation timing/safety acceptance pass | `TODO` |
 | M6 | Offline hardware trial receives safety approval and completes with full telemetry | `TODO` |
@@ -190,7 +190,7 @@ owner separately authorizes the locked confirmatory run.
 | ID | Status | Task | Depends on | Acceptance/evidence |
 | --- | --- | --- | --- | --- |
 | M3R-001 | `DONE` | Lock the `task_1a_recovery_v1` protocol and integrate it into the roadmap and ledger | DOC-004 | Owner approved D1--D6 on 2026-09-03; the experiment plan and `docs/PLAN.md` define consistent identity, timing, augmentation, arms, metrics, splits, freeze criteria, and gates without changing M3 artifacts |
-| M3R-002 | `TODO` | Add versioned pre-roll, onset, crop, and task-time dataset contracts | M3R-001 | Tests define scripted-known and human-proposed/confirmed onsets, pre-roll baseline validation, crop metadata, move/dwell-only task phases, strict round trips, invalid annotations, and immutable provenance; $q_0^{\mathrm{ref}}$ is the first cropped sample and never silently replaced by $q^{\mathrm{pre}}$ |
+| M3R-002 | `DONE` | Add versioned pre-roll, onset, crop, and task-time dataset contracts | M3R-001 | `arm_rc_ctrl.data.recovery`: `OnsetAnnotation` binds a scripted (programmed, unadjustable) or human (detector config, proposed/confirmed samples, recorded adjustment) motion onset to the raw artifact and payload digest on the raw sample grid; `BaselineCheck` stores $q^{\mathrm{pre}}$, tolerance, measured deviation, and a passed/flagged status that must match the measurement (material differences are flagged or rejected, never substituted); `TaskIntervals`/`CropWindow` fix the move/dwell-only task clock starting at zero at the confirmed onset plus the consumed pre-roll and source duration; `RecoveryDatasetRecord` (recovery_schema_version 1) cross-validates onset/crop/duration/sources and `check_samples` pins $q_0^{\mathrm{ref}}$ to the first cropped sample; task-phase annotate/check/recover and `recovery_dataset_problems` reject prime samples and missing move/dwell; strict TOML round trips are mutually exclusive with the untouched M3 schema; `tests/unit/test_task_phases.py` + `tests/unit/test_recovery_records.py` (67 cases); gate green 2026-09-03 |
 | M3R-003 | `TODO` | Derive and record the recovery dataset from the existing scripted demonstration | M3R-002 | A non-exploratory command uses the immutable raw record, full pre-roll filter context, programmed onset, and new preprocessing schema to create one verified external payload plus Git pointer; task time starts at zero with movement/dwell only, and deterministic rebuild reproduces its digest |
 | M3R-004 | `TODO` | Implement typed deterministic augmentation configuration and generation | M3R-003 | TDD covers the approved $N_{\mathrm{aug}}$, $\sigma$, $\phi$, and $\gamma$ ranges; independent seeded stationary AR(1) initialization; matched non-decaying/contractive episodes; the shared fixed non-tuned terminal taper locked here (both arms reach exactly zero before dwell with no velocity spike); exact dwell collapse; recomputed velocity; physical-validity rejection; finite attempt budget; array digests and rejection accounting |
 | M3R-005 | `TODO` | Validate and visualize every augmentation family before training | M3R-004 | A reproducible development command checks determinism, bounds, smoothness/correlation, endpoint envelope, dwell collapse, seed separation, and source provenance and writes a human-reviewable report/plot set; failures remain visible and no confirmatory seed is consumed |

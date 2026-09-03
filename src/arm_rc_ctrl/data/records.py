@@ -78,6 +78,7 @@ __all__ = [
     "Scenario",
     "array_specs",
     "catalog_path",
+    "expected_array_shapes",
     "is_artifact_id",
     "load_catalog",
     "load_record",
@@ -581,7 +582,8 @@ class Normalization:
             raise ValueError(msg)
 
 
-def _expected_shapes(n: int, dof: int, task_dim: int, code_dim: int) -> dict[str, tuple[int, ...]]:
+def expected_array_shapes(n: int, dof: int, task_dim: int, code_dim: int) -> dict[str, tuple[int, ...]]:
+    """Canonical array shapes of a processed dataset with the given dimensions."""
     return {
         "t": (n,),
         "q": (n, dof),
@@ -663,7 +665,7 @@ class ProcessedDatasetRecord:
         if tuple(self.arrays) != ARRAY_NAMES:
             msg = f"arrays must be exactly {list(ARRAY_NAMES)} in order, got {list(self.arrays)}"
             raise ValueError(msg)
-        expected = _expected_shapes(self.n_samples, self.dof, self.task_dim, self.task_code_dim)
+        expected = expected_array_shapes(self.n_samples, self.dof, self.task_dim, self.task_code_dim)
         for name, spec in self.arrays.items():
             if spec.shape != expected[name]:
                 msg = f"arrays.{name}.shape must be {list(expected[name])}, got {list(spec.shape)}"
