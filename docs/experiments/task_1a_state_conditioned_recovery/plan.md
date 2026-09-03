@@ -215,7 +215,13 @@ of approximately 0.50, 0.99, and 2.00 s. This augmentation coefficient must not
 be named or logged as the ESN spectral radius.
 
 The implementation must make the envelope continuously approach zero and force
-it to zero throughout the final dwell. Samples that violate joint, velocity,
+it to zero throughout the final dwell. Both augmented arms reach exactly zero
+perturbation before dwell onset through the same fixed, non-tuned smooth
+terminal taper: the non-decaying arm keeps its envelope uncontracted through
+most of the movement and then applies that shared taper, so neither arm ever
+steps discontinuously from a nonzero perturbation to zero (which would inject
+an invalid velocity spike). The taper's exact shape is a protocol detail locked
+during `M3R-004`, not a tuned quantity. Samples that violate joint, velocity,
 endpoint, or configured augmentation limits are rejected rather than clipped
 silently. Velocity inputs are recomputed from each augmented position sequence
 with the versioned preprocessing policy; noise is never added independently to
@@ -254,7 +260,8 @@ For each tracker and identical scenario, compare:
 1. **Replay:** cropped teacher trajectory, with the common pre-task hold.
 2. **RC/no augmentation:** timing redesign only; absolute-position readout.
 3. **RC/non-decaying augmentation:** smooth perturbations whose envelope does
-   not contract during movement; used to isolate the contraction mechanism.
+   not contract during movement (only the shared terminal taper brings it to
+   zero before dwell); used to isolate the contraction mechanism.
 4. **RC/contractive augmentation:** primary proposed method.
 5. **RC/residual output:** the same contractive data with
    $q^d_{k+1}=q_k+r^g_{k+1}$; exploratory and never substituted for the primary
@@ -384,10 +391,13 @@ and keep every desired joint below 0.05 rad/s throughout that interval.
 
 For small- and large-posture scenarios, define paired ratios against replay for
 the activation command jump and for the command-gap integral over the first
-0.5 s. An eligible model demonstrates the proposed mechanism when both median
-ratios are below 1 and at least 75% of paired scenarios improve both quantities.
-These relative criteria require a consistent reduction without prescribing a
-50% reduction before observing development feasibility. Force-only scenarios
+0.5 s. An eligible model demonstrates the proposed mechanism when, **for each
+posture class independently** (never pooled, so strong small-offset results
+cannot hide failure at large offsets) and **for each frozen tracker pair
+separately**: both median ratios are below 1 and at least 15 of the 20
+scenarios improve both quantities. These relative criteria require a consistent
+reduction without prescribing a 50% reduction before observing development
+feasibility. Force-only scenarios
 remain mandatory safety/target tests, but their disturbance-recovery metrics do
 not enter this initial-posture mechanism rule.
 
@@ -461,12 +471,25 @@ now part of the protocol lock; they do not imply a favorable outcome:
 
 | ID | Decision | Approved protocol |
 | --- | --- | --- |
-| D1 | Augmentation budget and search range | Include the original episode and search $N_{\mathrm{aug}}\in\{16,32,64\}$ accepted synthetic episodes, $\sigma\in\{0.01,0.025,0.05,0.10\}$ rad, and $\gamma\in\{0.5,1,2\}$; use $(64,0.05,1)$ as the anchor. Pair non-decaying and contractive arms by using the same episode seeds and amplitudes. Record rejected episodes and fail a configuration after a declared finite attempt budget rather than resampling indefinitely. |
+| D1 | Augmentation budget and search range | Include the original episode and search $N_{\mathrm{aug}}\in\{16,32,64\}$ accepted synthetic episodes, $\sigma\in\{0.01,0.025,0.05,0.10\}$ rad, and $\gamma\in\{0.5,1,2\}$; use $(64,0.05,1)$ as the anchor. $\sigma$ is constant across every synthetic episode of one configuration ($\sigma_i=\sigma$; the seeded latent process already varies realized amplitudes) — it is never drawn per episode from another distribution, and the record stores the configured $\sigma$ plus realized per-episode RMS/peak statistics. Pair non-decaying and contractive arms by using the same episode seeds and amplitudes. Record rejected episodes and fail a configuration after a declared finite attempt budget rather than resampling indefinitely. |
 | D2 | Warm-up-duration search | Evaluate $T_w\in\{0,0.25,0.5,1.0,2.0\}$ s with 1.0 s as the anchor. $T_w=0$ is the named no-warm-up case: each episode still resets independently, but teacher forcing or task activation follows immediately. Freeze the shortest duration satisfying the common safety, dwell, recovery, and output-sensitivity gates. Reservoir-state convergence is reported as a diagnostic for $T_w>0$ and as not applicable for $T_w=0$; it cannot by itself exclude the no-warm-up case. |
 | D3 | Evaluation split and perturbation envelope | Retain M3's 65-scenario class allocation: 1 nominal, 20 small-posture, 20 large-posture, 4 force directions, and 20 combined. Allocate new mutually disjoint augmentation, development, and confirmatory seed namespaces. Begin the common safety pilot from the M3 levels (0.05/0.10 rad posture offsets and 12 N force); freeze one method-independent envelope from the pilot before confirmatory execution. |
 | D4 | Residual-arm scope | Keep residual output development-only initially. Include it in the locked confirmatory suite only if it passes the same safety, target, stability, and seed-panel gates before the protocol freeze; otherwise report it as an exploratory negative or inconclusive result. |
 | D5 | Model-freeze rule | Approve Section 7.3 unchanged: both median paired ratios below 1, at least 75% of posture scenarios improving both early metrics, generated-reference and actual-motion dwell gates, safety limits, and lexicographic selection. Any later numerical revision creates a new protocol version. |
 | D6 | Demonstration source | Use the existing scripted demonstration as the sole independent source for v1 so the timing/augmentation change is isolated. Add a human demonstration later as a separately identified replication dataset, not as additional v1 training data. |
+
+Pre-implementation clarifications approved on 2026-09-03 (protocol details,
+not outcome-based changes): the evaluation split keeps M3's 65-scenario
+allocation (1 nominal, 20 small-posture, 20 large-posture, 4 force, 20
+combined); the eligibility rule of Section 7.3 applies per posture class and
+per tracker pair; both augmented arms share the fixed terminal taper above;
+and the development search uses **one Optuna study per generator formulation**
+(no augmentation, non-decaying, contractive) with identical trial counts,
+common applicable ESN/search bounds, and shared augmentation seed banks for
+the two augmented studies — parameters that do not apply to an arm are absent,
+never dummy-filled; every trial evaluates both frozen trackers, and the
+tracker is not an Optuna parameter. The residual formulation receives its own
+later development study only if `M3R-014` proceeds.
 
 D1--D6 are approved, so the protocol is locked for implementation. This approval
 does not authorize the confirmatory run: that remains separately gated by the
