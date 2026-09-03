@@ -1,0 +1,214 @@
+{
+  "cases": {
+    "force_tw1": {
+      "activation_jump_rad": 0.0014536678900136562,
+      "command_gap_early_integral": 0.00030929748964956405,
+      "fit_rmse_rad": 0.00173404086893538,
+      "force_task": {
+        "duration_s": 0.2,
+        "start_s": 0.5
+      },
+      "generated_dwell_criteria": {
+        "generated_dwell_in_tolerance": true,
+        "generated_dwell_stationary": true
+      },
+      "initial_q": [
+        0.2,
+        1.2
+      ],
+      "plot": "force_tw1.png",
+      "rc_criteria": {
+        "completed": true,
+        "dwell_in_tolerance": true,
+        "dwell_stationary": true
+      },
+      "reference_settling_s": 0.0,
+      "replay_criteria": {
+        "completed": true,
+        "dwell_in_tolerance": true,
+        "dwell_stationary": true
+      },
+      "verified": [
+        "both arms activate at task time zero (activation_s = 1.0)",
+        "both arms hold the initial posture with zero desired velocity through the hold",
+        "no force during the hold; onset at activation + task-relative start"
+      ],
+      "warmup_s": 1.0
+    },
+    "nominal_tw0": {
+      "activation_jump_rad": 0.001972135917545505,
+      "command_gap_early_integral": 0.00024071890596544208,
+      "fit_rmse_rad": 0.000614231454213535,
+      "force_task": null,
+      "generated_dwell_criteria": {
+        "generated_dwell_in_tolerance": true,
+        "generated_dwell_stationary": true
+      },
+      "initial_q": [
+        0.2,
+        1.2
+      ],
+      "plot": "nominal_tw0.png",
+      "rc_criteria": {
+        "completed": true,
+        "dwell_in_tolerance": true,
+        "dwell_stationary": true
+      },
+      "reference_settling_s": 0.0,
+      "replay_criteria": {
+        "completed": true,
+        "dwell_in_tolerance": true,
+        "dwell_stationary": true
+      },
+      "verified": [
+        "both arms activate at task time zero (activation_s = 0.0)"
+      ],
+      "warmup_s": 0.0
+    },
+    "nominal_tw1": {
+      "activation_jump_rad": 0.0014536678900136562,
+      "command_gap_early_integral": 0.00030929748964956405,
+      "fit_rmse_rad": 0.00173404086893538,
+      "force_task": null,
+      "generated_dwell_criteria": {
+        "generated_dwell_in_tolerance": true,
+        "generated_dwell_stationary": true
+      },
+      "initial_q": [
+        0.2,
+        1.2
+      ],
+      "plot": "nominal_tw1.png",
+      "rc_criteria": {
+        "completed": true,
+        "dwell_in_tolerance": true,
+        "dwell_stationary": true
+      },
+      "reference_settling_s": 0.0,
+      "replay_criteria": {
+        "completed": true,
+        "dwell_in_tolerance": true,
+        "dwell_stationary": true
+      },
+      "verified": [
+        "both arms activate at task time zero (activation_s = 1.0)",
+        "both arms hold the initial posture with zero desired velocity through the hold"
+      ],
+      "warmup_s": 1.0
+    },
+    "perturbed_tw1": {
+      "activation_jump_rad": 0.05625709726056052,
+      "command_gap_early_integral": 0.004427842432729805,
+      "fit_rmse_rad": 0.00173404086893538,
+      "force_task": null,
+      "generated_dwell_criteria": {
+        "generated_dwell_in_tolerance": true,
+        "generated_dwell_stationary": true
+      },
+      "initial_q": [
+        0.24999320872391928,
+        1.1600004376175082
+      ],
+      "plot": "perturbed_tw1.png",
+      "rc_criteria": {
+        "completed": true,
+        "dwell_in_tolerance": true,
+        "dwell_stationary": true
+      },
+      "reference_settling_s": 0.0,
+      "replay_criteria": {
+        "completed": true,
+        "dwell_in_tolerance": true,
+        "dwell_stationary": true
+      },
+      "verified": [
+        "both arms activate at task time zero (activation_s = 1.0)",
+        "both arms hold the initial posture with zero desired velocity through the hold",
+        "the perturbed posture is held by both arms (no pre-activation correction)"
+      ],
+      "warmup_s": 1.0
+    }
+  },
+  "dataset": "processed-20260903-ce343c8ce6a5",
+  "payload_sha256": "ce343c8ce6a5d5be266ce6d9fab08128312391b82cfcbbf09d8b1f86ea05eb1e",
+  "provenance": {
+    "artifacts": [
+      {
+        "sha256": "ce343c8ce6a5d5be266ce6d9fab08128312391b82cfcbbf09d8b1f86ea05eb1e",
+        "size": 47088,
+        "uri": "armrc://processed/processed-20260903-ce343c8ce6a5/samples.npz"
+      }
+    ],
+    "builds": [
+      {
+        "editable": false,
+        "extension_sha256": "f91828d8243700f1a283de80f5ef6cd3c756a3af1ba46a60103b5ad33cdebd5b",
+        "name": "rclib",
+        "python_sources_sha256": "458cc468c0af3dcee87c2c710024b487c8cb86075bad7702ac7984259734cfa3",
+        "source_commit": "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b",
+        "source_dirty": false,
+        "version": "0.1.0"
+      },
+      {
+        "editable": false,
+        "extension_sha256": null,
+        "name": "skelarm",
+        "python_sources_sha256": "4257de5cc8dfcedade31d75a8142ec1e4f337723d5191d8a51f52fe5aef3484a",
+        "source_commit": "6ccc1eba8ff57178ab8bf456e6ff9a2ec988cc80",
+        "source_dirty": false,
+        "version": "0.4.1"
+      }
+    ],
+    "config_json": "{\"cases\":[\"nominal_tw0\",\"nominal_tw1\",\"perturbed_tw1\",\"force_tw1\"],\"command\":\"python -m arm_rc_ctrl.experiments.recovery_timing --dataset data/records/processed/processed-20260903-ce343c8ce6a5.toml --scenario configs/tasks/task_1a.toml --out docs/experiments/task_1a_state_conditioned_recovery/timing_traces_v1\",\"dataset\":\"processed-20260903-ce343c8ce6a5\",\"force_task\":{\"duration_s\":0.2,\"force\":[0.0,-6.0],\"start_s\":0.5},\"perturbation_rad\":[0.05,-0.04],\"scenario\":\"23c89a7f8a15fde55101dbefa4fe8e226b83e46e7967d0d2dac248a886607c0d\"}",
+    "config_sha256": "93d6519a53be6847d63f112eae36919e36fd4a4b015b00249f0d87ed3da52897",
+    "created_at": "2026-09-03T11:47:30+00:00",
+    "exploratory": false,
+    "lock_sha256": "ac9811f8142ee767b9ec08c33397c5245704cda02737c132ee0533857ec03409",
+    "platform": {
+      "implementation": "CPython",
+      "machine": "x86_64",
+      "packages": {
+        "arm-rc-ctrl": "0.1.0.dev0",
+        "numpy": "2.5.2",
+        "rclib": "0.1.0",
+        "skelarm": "0.4.1"
+      },
+      "python": "3.12.11",
+      "release": "7.0.0-30-generic",
+      "system": "Linux",
+      "thread_environment": {
+        "OMP_NUM_THREADS": "1"
+      }
+    },
+    "project_commit": "244ebf8e74910a1c49bbc78a6662fa98b70600f9",
+    "project_dirty": false,
+    "schema_version": 1,
+    "seeds": {
+      "reservoir": 896
+    },
+    "submodules": [
+      {
+        "checked_out": "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b",
+        "dirty": false,
+        "name": "rclib",
+        "path": "third_party/rclib",
+        "recorded": "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b"
+      },
+      {
+        "checked_out": "6ccc1eba8ff57178ab8bf456e6ff9a2ec988cc80",
+        "dirty": false,
+        "name": "skelarm",
+        "path": "third_party/skelarm",
+        "recorded": "6ccc1eba8ff57178ab8bf456e6ff9a2ec988cc80"
+      },
+      {
+        "checked_out": "c601076ee60ec712c1cb4a85756a186882df2e1b",
+        "dirty": false,
+        "name": "rtctrl",
+        "path": "third_party/rtctrl",
+        "recorded": "c601076ee60ec712c1cb4a85756a186882df2e1b"
+      }
+    ]
+  },
+  "scenario": "task-1a-reach"
+}
