@@ -1,8 +1,8 @@
 # Reservoir-Computing Robot-Arm Controller: Implementation Plan
 
-**Status:** Initial implementation plan
+**Status:** Implemented through M3; task 1-a recovery extension approved
 
-**Last updated:** 2026-08-29
+**Last updated:** 2026-09-03
 
 **Companion task ledger:** [TASKS.md](TASKS.md)
 
@@ -21,9 +21,11 @@ Development proceeds through increasingly demanding systems:
 5. Online adaptation in simulation and, after explicit safety qualification,
    on hardware.
 
-The first implementation milestone is deliberately narrower: offline learning
-from one demonstration of a 2-DOF, single-target reaching motion (task 1-a).
-Later stages are gated by evidence from that milestone.
+The first completed research milestone was deliberately narrower: offline
+learning from one demonstration of a 2-DOF, single-target reaching motion
+(task 1-a). The next approved experiment, `task_1a_recovery_v1`, tests whether
+state-conditioned augmentation can reduce the initial command gap and preserve
+target convergence. Later stages are gated by evidence from these milestones.
 
 Scientific completion does not require the RC method to outperform every
 baseline. A negative or inconclusive result is valid when the experiment is
@@ -47,8 +49,11 @@ fair, reproducible, and explains the observed limitation.
 - **H1 — one demonstration:** From the demonstrated initial posture, an ESN can
   generate a reference whose tracked motion has bounded joint-space error and
   whose endpoint remains near the demonstrated target.
-- **H2 — local robustness:** Training and augmentation can enlarge the basin of
-  attraction around the demonstrated initial posture.
+- **H2 — local robustness:** Training with smooth state-conditioned augmentation
+  can reduce the initial command gap after a posture perturbation and enlarge the
+  basin of attraction around the demonstrated initial posture while preserving
+  convergence to the common target. The approved protocol is
+  [`experiments/task_1a_state_conditioned_recovery/plan.md`](experiments/task_1a_state_conditioned_recovery/plan.md).
 - **H3 — multiple demonstrations:** Demonstrations from multiple postures can
   produce a target-reaching policy that succeeds from unseen nearby postures.
 - **H4 — task conditioning:** A task-conditioned ESN can switch among targets
@@ -194,9 +199,9 @@ fits only the readout using ridge regression:
 The implementation must follow `rclib`'s bias convention exactly rather than
 manually adding a second readout bias.
 
-### 5.3 Teacher forcing, priming, and dwell
+### 5.3 Completed M3 teacher forcing, priming, and dwell
 
-Every canonical demonstration contains three contiguous intervals:
+The completed M3 task 1-a protocol used three contiguous intervals:
 
 1. **Initial hold:** the teacher holds the initial posture. This supplies a
    deterministic reservoir washout/priming interval.
@@ -215,7 +220,36 @@ robot feedback, never its previously predicted state.
 
 Episode boundaries may not be concatenated without an explicit reservoir reset.
 
-### 5.4 Desired derivatives and low-level tracking
+### 5.4 Approved task 1-a recovery extension
+
+`task_1a_recovery_v1` keeps one independent scripted demonstration but separates
+acquisition pre-roll, reservoir warm-up, and task time. Preprocessing uses the
+stationary pre-roll as filter and onset-detection context, then crops the derived
+episode at the confirmed demonstration motion onset. The first cropped sample
+$q_0^{\mathrm{ref}}$ is the task initial posture and the basis of every evaluation
+offset; the pre-roll baseline never replaces it.
+
+Each training episode and evaluation run independently resets the reservoir to
+zero. A configurable common pre-task hold supplies warm-up only when $T_w>0$;
+the approved development set is $T_w\in\{0,0.25,0.5,1.0,2.0\}$ s. At task time
+zero, replay starts the cropped reference and RC first evaluates its readout.
+Metrics and disturbances use this shared task clock.
+
+Synthetic episodes add seeded, bounded AR(1) Gaussian position perturbations to
+the one demonstration. Contractive augmentation decays those perturbations with
+endpoint distance and forces them to zero during final dwell; a matched
+non-decaying arm isolates that mechanism. Velocity is recomputed from augmented
+position. Absolute next-position prediction remains primary, while a residual
+readout is a gated exploratory ablation.
+
+Run records distinguish the position-valued `generator_output_q`, the residual
+arm's raw `generator_increment_q`, measured motion, and separate warm-up
+telemetry. Selection requires common safety and dwell gates plus paired reduction
+of the activation jump and early command gap; time-aligned trajectory RMSE is a
+diagnostic rather than a success criterion. The experiment-specific document
+defines the approved ranges, arms, splits, formulas, and confirmatory gate.
+
+### 5.5 Desired derivatives and low-level tracking
 
 The target generator returns desired position at every control sample. A causal,
 stateful derivative estimator computes desired velocity and acceleration using
@@ -317,6 +351,11 @@ robot/scenario configuration, sampling clock and units, pseudonymous teacher or
 recording-session ID, task/target/initial posture, notes, and prime/move/dwell
 interval boundaries.
 
+Recovery-protocol records additionally preserve the complete acquisition
+pre-roll, proposed and confirmed motion-onset samples, detector configuration,
+any human adjustment, and the raw-payload digest. Scripted records identify the
+programmed onset. These annotations do not define reservoir warm-up.
+
 Payload creation is transactional: write to an external temporary path,
 validate it, compute its digest, atomically move it to the immutable final URI,
 then write the repository record. Raw recordings are never overwritten. A
@@ -335,7 +374,7 @@ sample dimension:
 | `q`, `dq`, `ddq` | `(N, dof)` | Demonstrated joint state |
 | `tip`, `dtip`, `ddtip` | `(N, task_dim)` | Demonstrated endpoint state |
 | `task_code` | `(N, task_code_dim)` | Empty for task 1-a; one-hot later |
-| `phase` | `(N,)` | `prime`, `move`, or `dwell` encoded by documented integers |
+| `phase` | `(N,)` | Versioned task phases; M3 uses `prime`/`move`/`dwell`, while recovery datasets crop pre-roll and contain `move`/`dwell` |
 
 The artifact record also contains source IDs, filters, resampling period,
 derivative method, normalization statistics, array shapes/dtypes, and checksums.
@@ -353,6 +392,8 @@ simulation/evaluation run records at least:
 
 - measured `t`, `q`, `dq`, and endpoint position;
 - desired `q`, raw/filtered desired derivatives, and low-level tracking error;
+- active-task `generator_output_q`, optional residual
+  `generator_increment_q`, and separately delimited warm-up telemetry;
 - requested/applied torque when exposed by the backend;
 - task code, target, disturbances, saturation, and termination reason;
 - full resolved config, seeds, Git commit, dirty-tree flag, dependency commits,
@@ -472,7 +513,19 @@ Trajectory metrics compare the fixed-duration demonstrated motion. No dynamic
 time warping is used for the primary result because it can hide timing error. It
 may be reported as a labeled diagnostic only.
 
-### 9.2 Robustness protocol
+### 9.2 Task 1-a recovery metrics
+
+The recovery experiment retains task success, safety, dwell, effort, and
+saturation metrics, but evaluates its new mechanism from simultaneous task
+activation. Primary paired diagnostics are the initial desired-command jump and
+the integral of desired-to-actual command gap over the first 0.5 s. Also report
+generator deviation from the original reference, restoring alignment, endpoint
+settling and dwell, smoothness, torque, and every failure. A qualifying model
+must reduce both early metrics consistently relative to replay while its
+generated reference and actual motion converge to the common target. The exact
+eligibility and lexicographic freeze rules are locked in the experiment plan.
+
+### 9.3 Robustness protocol
 
 Evaluate in this order:
 
@@ -494,7 +547,7 @@ scenarios where both runs of a pair succeeded, reporting the failed pairs next
 to them. Development levels and seeds (`configs/evaluations/*_robustness_dev_*.toml`)
 exercise the suite on a frozen recipe before the one-shot confirmatory run.
 
-### 9.3 Later-task metrics
+### 9.4 Later-task metrics
 
 - **Task 1-b:** endpoint target-region dwell success, final error, settling time,
   path length/efficiency, effort, and success from unseen initial postures.
@@ -509,10 +562,12 @@ exercise the suite on a frozen recipe before the one-shot confirmatory run.
 [Optuna](https://optuna.org/) manages algorithmic ESN tuning. The versioned
 search protocol (`configs/studies/esn_search_*.toml`) bounds reservoir size,
 spectral radius, sparsity, leak rate, input scaling, reservoir seed, ridge
-regularization, and the derivative-filter cutoffs of the causal estimator; the
-washout is the demonstration's prime phase (a recipe invariant, section 5.1)
-rather than a tuned duration, and the input transform stays the pilot-selected
-recipe value. Labelled comparison points (the development anchor at the M2
+regularization, and the derivative-filter cutoffs of the causal estimator. In
+the completed M3 study, washout was the demonstration's prime phase and the
+input transform stayed at its pilot-selected recipe value. The recovery study
+instead tunes the approved common pre-task duration including $T_w=0$, while
+keeping reset and activation semantics identical across arms and episodes.
+Labelled comparison points (the development anchor at the M2
 ridge value 1e-2 and at 3e-2, 1e-1, 3e-1) are evaluated before sampling.
 Low-level tracker gains are excluded from ESN studies after baseline
 qualification.
@@ -690,6 +745,21 @@ reporting, and the one-command task 1-a reproduction workflow.
 **Gate:** A fresh checkout plus a configured external store can resolve all DVC
 and artifact records and reproduce the selected model and confirmatory report
 without consulting an untracked notebook or manual step.
+
+### Phase 3R — task 1-a state-conditioned recovery
+
+Implement the approved `task_1a_recovery_v1` protocol: crop acquisition pre-roll
+from task data, make common warm-up and simultaneous activation explicit,
+generate deterministic non-decaying and contractive training episodes, compare
+absolute and gated residual readouts, and evaluate paired early command-gap and
+target-convergence behavior. The detailed protocol remains authoritative for
+the experiment; `TASKS.md` divides it into review-sized implementation and
+evidence steps.
+
+**Gate:** A frozen model satisfies the predeclared development criteria, a
+separately authorized confirmatory suite is run once, and a clean checkout
+reproduces every dataset, recipe, run, metric, report, and visualization. A
+negative result is acceptable and retained.
 
 ### Phase 4 — broader planar tasks
 
