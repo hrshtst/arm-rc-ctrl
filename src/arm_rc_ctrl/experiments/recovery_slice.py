@@ -27,6 +27,7 @@ from arm_rc_ctrl.controllers.estimator import EstimatorConfig
 from arm_rc_ctrl.controllers.reference import DemonstrationReference
 from arm_rc_ctrl.controllers.tracking import LimitedTracker
 from arm_rc_ctrl.data.recovery import RecoveryDatasetRecord, task_intervals_from_phases
+from arm_rc_ctrl.experiments.disturbances import ForcePulse
 from arm_rc_ctrl.experiments.run_record import LoadedRun, RunPointerRecord, RunSummary, load_run, write_run
 from arm_rc_ctrl.experiments.simulation import GENERATOR_CHANNELS, simulate
 from arm_rc_ctrl.experiments.termination import Outcome
@@ -44,7 +45,6 @@ if TYPE_CHECKING:
 
     from arm_rc_ctrl.controllers.tracking import TrackerConfig
     from arm_rc_ctrl.data.samples import SampleSet
-    from arm_rc_ctrl.experiments.disturbances import ForcePulse
     from arm_rc_ctrl.experiments.run_record import RunArrays
     from arm_rc_ctrl.experiments.termination import Termination
     from arm_rc_ctrl.rc.recipe import ModelRecipe
@@ -223,8 +223,11 @@ def run_recovery_pair(
 ) -> RecoveryPair:
     """Run both arms of one scenario on the common schedule, persist them, and evaluate the RC segment.
 
-    ``force`` acts on the run clock; place task-relative pulses at
-    ``activation_s + t``. The recipe's training warm-up must equal the run
+    ``force`` is scheduled on the **task clock** (the protocol defines
+    disturbances relative to task time zero): the pulse is shifted by
+    ``activation_s`` onto the run clock internally, so it can never land in
+    the pre-task hold, and provenance retains both the task-relative and the
+    resolved run timing. The recipe's training warm-up must equal the run
     warm-up so the evaluation schedule matches what the model saw.
     """
     _bind(scenario, scenario_file, dataset, reference)
@@ -239,6 +242,11 @@ def run_recovery_pair(
         raise ValueError(msg)
     activation = warmup.duration_s
     duration = activation + float(reference.t[-1])
+    run_force = (
+        None
+        if force is None
+        else ForcePulse(start_s=force.start_s + activation, duration_s=force.duration_s, force=force.force)
+    )
     reference_artifact = dataset.artifact.artifact_id
     payload = dataset.artifact.payload
     est = EstimatorConfig(nominal_dt_s=scenario.timing.dt) if estimator is None else estimator
@@ -252,7 +260,7 @@ def run_recovery_pair(
         "reference_artifact": reference_artifact,
         "initial_q": list(scenario.task.initial_q if initial_q is None else initial_q),
         "duration_s": duration,
-        "force": None if force is None else to_mapping(force),
+        "force": None if force is None or run_force is None else {"task": to_mapping(force), "run": to_mapping(run_force)},
         "command": command,
     }
     reference_payload = ArtifactReference(payload.uri, payload.sha256, payload.size)
@@ -275,7 +283,7 @@ def run_recovery_pair(
             duration_s=duration,
             target=scenario.task.target,
             task_code=(),
-            disturbances=() if force is None else (force.to_disturbance(),),
+            disturbances=() if run_force is None else (run_force.to_disturbance(),),
             termination=termination,
             outcome=outcome,
             provenance=provenance,
@@ -294,7 +302,7 @@ def run_recovery_pair(
     )
     replay_controller = LimitedTracker(cast("Any", held), tracker, scenario.limits.torque)
     replay_arrays, replay_termination = simulate(
-        scenario, replay_controller, duration_s=duration, initial_q=initial_q, force=force
+        scenario, replay_controller, duration_s=duration, initial_q=initial_q, force=run_force
     )
     replay = _persist(replay_arrays, replay_termination, method=f"replay+{tracker.method}", seeds={}, arm="replay")
 
@@ -305,7 +313,12 @@ def run_recovery_pair(
     )
     rc_controller = GeneratorTrackingController(generator, tracker, scenario.limits.torque, hold_until_s=activation)
     rc_arrays, rc_termination = simulate(
-        scenario, rc_controller, duration_s=duration, initial_q=initial_q, force=force, channels=GENERATOR_CHANNELS
+        scenario,
+        rc_controller,
+        duration_s=duration,
+        initial_q=initial_q,
+        force=run_force,
+        channels=GENERATOR_CHANNELS,
     )
     rc = _persist(
         rc_arrays,

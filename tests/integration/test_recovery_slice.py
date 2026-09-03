@@ -33,6 +33,7 @@ from arm_rc_ctrl.data.recovery import (
     TaskIntervals,
 )
 from arm_rc_ctrl.data.samples import SampleSet
+from arm_rc_ctrl.experiments.disturbances import ForcePulse
 from arm_rc_ctrl.experiments.recovery_slice import HeldTaskReference, run_recovery_pair
 from arm_rc_ctrl.metrics.recovery import RecoveryMetricsReport
 from arm_rc_ctrl.provenance import sha256_file
@@ -306,6 +307,49 @@ def test_perturbed_start_is_shared_and_measured(
     assert pair.recovery is not None
     assert pair.recovery.activation_jump_rad > 0.0
     assert pair.recovery.smoothness_actual.samples == samples.n_samples
+
+
+@pytest.mark.parametrize("warmup_s", [0.0, 1.0])
+def test_force_pulses_are_scheduled_on_the_task_clock(
+    fixture_dataset: tuple[RecoveryDatasetRecord, SampleSet], tmp_path: Path, warmup_s: float
+) -> None:
+    """A task-relative pulse lands at activation_s + start for every warm-up and never inside the hold."""
+    record, samples = fixture_dataset
+    store_root = tmp_path / "store"
+    store_root.mkdir()
+    store = StorageRoot(store_root, repositories=(REPO_ROOT,))
+    pulse = ForcePulse(start_s=0.2, duration_s=0.1, force=(0.0, -3.0))
+    pair = run_recovery_pair(
+        SCENARIO,
+        SCENARIO_FILE,
+        record,
+        samples,
+        _recipe(record, samples, warmup_s),
+        TRACKER,
+        store=store,
+        warmup=WarmupConfig(warmup_s),
+        exploratory=True,
+        force=pulse,
+    )
+    for result in (pair.replay, pair.rc):
+        arrays = result.run.arrays.arrays
+        t = arrays["t"]
+        applied = np.abs(arrays["ext_force"]).sum(axis=1) > 0
+        assert bool(applied.any())
+        applied_times = t[applied]
+        # Boundary-robust: the pulse starts at activation + task start, lasts its duration to
+        # within one control period, is contiguous, and never overlaps the hold.
+        assert float(applied_times[0]) == pytest.approx(warmup_s + pulse.start_s, abs=1e-9)
+        assert float(applied_times[-1] - applied_times[0]) == pytest.approx(pulse.duration_s, abs=DT + 1e-9)
+        assert int(np.count_nonzero(applied)) == int(np.count_nonzero(np.diff(applied_times) > 0)) + 1
+        assert bool(np.all(np.diff(np.argwhere(applied).ravel()) == 1))  # contiguous block
+        assert not bool(applied[t < warmup_s].any())  # never during the hold
+        (disturbance,) = result.summary.disturbances
+        assert disturbance.start_s == pytest.approx(warmup_s + pulse.start_s)
+        force_config = result.summary.provenance.config["force"]
+        assert isinstance(force_config, dict)
+        assert force_config["task"]["start_s"] == pulse.start_s
+        assert force_config["run"]["start_s"] == pytest.approx(warmup_s + pulse.start_s)
 
 
 def test_provenance_records_the_common_schedule(
