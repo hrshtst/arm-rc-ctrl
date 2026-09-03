@@ -1,6 +1,6 @@
-# Task 1-a State-Conditioned Recovery Experiment
+# Task 1-a Recovery Experiment
 
-- **Proposed experiment label:** `task_1a_state_conditioned_recovery_v1`
+- **Proposed experiment label:** `task_1a_recovery_v1`
 - **Status:** Draft protocol; no implementation or evidence yet
 - **Relationship to prior work:** New experiment derived from task 1-a; the M3
   `task_1a_confirmatory_v2` evidence remains frozen and unchanged.
@@ -24,7 +24,7 @@ from being mistaken for a retuning of the M3 result.
 
 The task remains `task_1a` because the robot, target, and reaching objective do
 not change. Experiment, study, model, evaluation, and report artifacts use the
-`task_1a_state_conditioned_recovery_v1` family name and advance their own
+`task_1a_recovery_v1` family name and advance their own
 versions independently.
 
 ## 2. Hypotheses
@@ -64,6 +64,9 @@ the role of a signal, not a different robot.
 | $T_w$ | Reservoir warm-up duration before task time zero | s |
 | $q_k,\dot q_k$ | Measured robot joint position and velocity supplied as feedback during evaluation | $n_q$, rad and rad/s |
 | $q_k^{\mathrm{ref}}$ | Cropped demonstrated joint trajectory used by direct replay | $n_q$, rad |
+| $q_0^{\mathrm{ref}}$ | Task initial posture: first sample of the cropped, processed reference | $n_q$, rad |
+| $q^{\mathrm{pre}}$ | Robust pre-roll baseline used only for validation and onset detection | $n_q$, rad |
+| $\Delta q^{\mathrm{eval}}$ | Initial-posture offset specified by an evaluation scenario | $n_q$, rad |
 | $\dot q_k^{\mathrm{ref}}$ | Velocity derived from the cropped demonstration by the versioned preprocessing policy | $n_q$, rad/s |
 | $q_{i,k}^{\mathrm{aug}}$ | Position in augmented training episode $i$ | $n_q$, rad |
 | $\dot q_{i,k}^{\mathrm{aug}}$ | Velocity recomputed from augmented position episode $i$ | $n_q$, rad/s |
@@ -100,21 +103,41 @@ residual vector from being mislabeled as an ESN position output.
 
 ### 4.1 Recording and preprocessing
 
-A manual or scripted recording should include a stationary pre-roll for
-segmentation, synchronization, filtering, and initial-velocity estimation. A
-scripted demonstration configures a 1.0 s pre-roll exactly. For a manual
-demonstration, the operator is instructed to hold for about 1.0 s or longer,
-but that nominal instruction is not treated as measured timing: the raw
-session records the complete hold, and motion onset is proposed from the speed
-profile and confirmed by a human. The teacher is not required to synchronize
-motion onset with the recording start.
+A manual or scripted recording should include a stationary pre-roll as
+acquisition context. It provides samples for characterizing stationary
+measurement noise and the pre-roll baseline $q^{\mathrm{pre}}$, locating motion
+onset, initializing filters and derivative estimation without a task-boundary
+transient, and accommodating the fact that a human cannot synchronize motion
+onset exactly with recording start. It is not an RC washout interval and is not
+part of the reaching task to be learned. In particular, $q^{\mathrm{pre}}$ does
+not define or replace the task initial posture $q_0^{\mathrm{ref}}$.
 
-The derived training episode begins at the confirmed task onset and contains
-the reach plus final dwell. It has no embedded reservoir-washout phase. Existing
-raw records and M3 processed artifacts are immutable; a new processed-artifact
+A scripted demonstration also includes a configured 1.0 s pre-roll. Although
+its motion onset is known, retaining the pre-roll exercises the same acquisition
+and preprocessing path and supplies valid filter history. A manual-demonstration
+operator is instructed to hold for about 1.0 s or longer, but that nominal
+instruction is not treated as measured timing: the raw session records the
+complete hold, and motion onset is proposed from the speed profile and confirmed
+by a human. The teacher is not required to synchronize motion onset with the
+recording start.
+
+Preprocessing uses the pre-roll as left-hand context for filtering and derivative
+estimation, then crops it from the derived training episode. The crop boundary is
+the confirmed **demonstration motion onset**. Cropping prevents an incidental or
+operator-dependent recording delay from becoming learned task content or an
+implicit reservoir warm-up. The derived episode therefore contains the reach
+plus final dwell and has no embedded reservoir-washout phase. Existing raw
+records and M3 processed artifacts are immutable; a new processed-artifact
 schema/version records the source interval, crop, derivative policy, and final
 dwell. A legacy raw `prime` annotation may be consumed as recording pre-roll,
 but its duration does not define model warm-up.
+
+The first sample after this crop is the authoritative task initial posture
+$q_0^{\mathrm{ref}}$. The pre-roll baseline is used to propose and validate the
+crop; if it differs materially from $q_0^{\mathrm{ref}}$, the recording is
+flagged for review or rejected rather than silently substituting one for the
+other. The record stores the proposed and confirmed onset sample, detector
+configuration, any human adjustment, and the raw-payload digest.
 
 The final dwell remains part of learning because it demonstrates the target
 equilibrium.
@@ -130,15 +153,18 @@ The reservoir starts from its deterministic all-zero state. During warm-up:
 - replay performs the same hold and has no privileged recovery interval;
 - task metrics and task disturbances are disabled.
 
-At task time `t = 0`, RC and replay activate simultaneously. Replay begins the
-cropped demonstration reference; RC evaluates its readout from the warmed
-reservoir state. Force-pulse times and metric windows are relative to this task
-clock. Every original or augmented training episode independently (1) resets
-the reservoir state to the all-zero vector and then (2) executes the configured
-warm-up using that episode's initial state before teacher forcing begins. The
-reset is not performed only once for a batch, and no reservoir state passes
-between episodes. Arbitrary fake warm-up sequences are excluded from the
-primary protocol and may be tested only as a named ablation.
+At **task activation**, `t = 0`, RC and replay activate simultaneously. Replay
+begins the cropped demonstration reference at its confirmed motion onset; RC
+evaluates its readout from the warmed reservoir state. Thus demonstration motion
+onset is aligned with the end of the common pre-task hold. The robot's measured
+**actual-motion onset** may occur later because of tracker dynamics and is an
+outcome rather than a phase boundary. Force-pulse times and metric windows are
+relative to this task clock. Every original or augmented training episode
+independently (1) resets the reservoir state to the all-zero vector and then (2)
+executes the configured warm-up using that episode's initial state before
+teacher forcing begins. The reset is not performed only once for a batch, and no
+reservoir state passes between episodes. Arbitrary fake warm-up sequences are
+excluded from the primary protocol and may be tested only as a named ablation.
 
 Warm-up duration is selected using development data, frozen with the recipe,
 and tested for state convergence and sensitivity. It is not chosen from
@@ -295,6 +321,18 @@ Initial offsets used to construct augmented episodes are also disjoint from
 evaluation directions and seeds. A safety pilot defines common perturbation
 levels for every method; method-specific envelopes are not allowed.
 
+Every posture-perturbed evaluation starts from
+
+$$
+q^{\mathrm{init}}=q_0^{\mathrm{ref}}+\Delta q^{\mathrm{eval}}.
+$$
+
+The nominal scenario has $\Delta q^{\mathrm{eval}}=0$. Small- and large-posture
+classes differ only in their locked offset magnitudes/directions; they are never
+based on the first raw pre-roll sample or on $q^{\mathrm{pre}}$. All paired arms
+in a scenario start from and hold the same $q^{\mathrm{init}}$ during the common
+pre-task hold.
+
 Development work may tune ESN parameters, warm-up duration, augmentation
 amplitude/correlation/envelope, derivative filters, and ridge regularization.
 The protocol, recipe, scenarios, and analysis code are frozen before the
@@ -355,12 +393,15 @@ RMS. The report retains the complete distributions, original-trajectory RMSE,
 smoothness, restoring alignment, and all failures. Confirmatory outcomes cannot
 change these gates or their ordering.
 
-Reports show curves in this fixed order:
-`reference`, `replay_actual`, `rc_output`, `rc_actual`; `rc_output` is dashed.
-New task-time run records store an explicit `generator_output_q` channel. It is
-never populated with a hold command and must not be called ESN output when the
-readout was inactive. Warm-up telemetry is stored separately with its interval
-and activation boundary.
+Reports show curves in this fixed order: `reference`, `replay_actual`,
+`generator_output_q`, `rc_actual`; `generator_output_q` is dashed and labeled
+"RC generated reference" for humans. New task-time run records store this
+explicit position-valued channel. For an absolute-position arm it is the direct
+ESN readout; for the residual arm it is the composed command
+$q_k+r^g_{k+1}$, while the raw increment is stored separately as
+`generator_increment_q`. Neither channel is populated with a hold command, and
+a value must not be called an ESN readout while the readout is inactive. Warm-up
+telemetry is stored separately with its interval and activation boundary.
 
 ## 8. Reproducibility and decision gates
 
