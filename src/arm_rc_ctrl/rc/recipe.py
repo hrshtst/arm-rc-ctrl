@@ -16,11 +16,9 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, cast
 
-import tomli_w
-
-from arm_rc_ctrl.config import load_config, to_mapping
+from arm_rc_ctrl.config import load_config
 from arm_rc_ctrl.data.records import (
     Normalization,
     Preprocessing,
@@ -28,10 +26,13 @@ from arm_rc_ctrl.data.records import (
     is_artifact_id,
     require_relative_posix,
 )
+from arm_rc_ctrl.data.records import to_toml as records_to_toml
+from arm_rc_ctrl.data.recovery import RecoveryDatasetRecord
 from arm_rc_ctrl.dependencies import submodule_revisions, submodule_version
 from arm_rc_ctrl.rc.esn import EsnConfig, EsnModel
 from arm_rc_ctrl.rc.teacher_forcing import INPUT_CHANNELS, Episode, InputEncoder, InputTransform, build_episode
 from arm_rc_ctrl.rc.training import FitReport, train_readout
+from arm_rc_ctrl.rc.warmup import WarmupConfig, build_task_episode
 from arm_rc_ctrl.validation import COMMIT_HEX_LENGTH, SHA256_HEX_LENGTH, is_hex
 
 if TYPE_CHECKING:
@@ -105,21 +106,33 @@ class RclibIdentity:
 
 @dataclass(frozen=True)
 class TrainingSpec:
-    """How episodes are built; task 1-a supports exactly one representation."""
+    """How episodes are built; absolute next-position output with a versioned washout policy."""
 
     input_channels: tuple[str, ...] = INPUT_CHANNELS
     target: str = "next_q"
     """Absolute next demonstrated joint position (the only supported output representation)."""
     washout: str = "prime_phase"
-    """Washout rows are those whose input sample lies in the prime interval."""
+    """``prime_phase`` (M3: washout rows lie in the prime interval) or ``warmup_hold`` (M3R-006:
+    the washout repeats the episode's encoded ``[q_0, 0]`` for the configured warm-up)."""
+    warmup_s: float | None = None
+    """Warm-up duration (approved D2 value) for ``warmup_hold``; must be ``None`` for ``prime_phase``."""
 
     def __post_init__(self) -> None:
-        """Only the implemented representation is accepted."""
-        if self.input_channels != INPUT_CHANNELS or self.target != "next_q" or self.washout != "prime_phase":
-            msg = (
-                f"unsupported training spec {self!r}; supported: input_channels {INPUT_CHANNELS}, "
-                "target 'next_q', washout 'prime_phase'"
-            )
+        """Only the implemented representations are accepted."""
+        if self.input_channels != INPUT_CHANNELS or self.target != "next_q":
+            msg = f"unsupported training spec {self!r}; supported: input_channels {INPUT_CHANNELS}, target 'next_q'"
+            raise ValueError(msg)
+        if self.washout == "prime_phase":
+            if self.warmup_s is not None:
+                msg = "warmup_s is only meaningful for the 'warmup_hold' washout"
+                raise ValueError(msg)
+        elif self.washout == "warmup_hold":
+            if self.warmup_s is None:
+                msg = "the 'warmup_hold' washout requires warmup_s (an approved D2 duration)"
+                raise ValueError(msg)
+            WarmupConfig(self.warmup_s)  # rejects durations outside the approved set
+        else:
+            msg = f"unsupported washout {self.washout!r}; supported: 'prime_phase', 'warmup_hold'"
             raise ValueError(msg)
 
 
@@ -197,7 +210,9 @@ class ModelRecipe:
         """The input encoder the episodes and the runtime generator share."""
         return InputEncoder(self.transform, self.dof, self.task_code_dim)
 
-    def check_dataset_record(self, source: DatasetSource, record: ProcessedDatasetRecord) -> None:
+    def check_dataset_record(
+        self, source: DatasetSource, record: ProcessedDatasetRecord | RecoveryDatasetRecord
+    ) -> None:
         """Fail unless ``record`` is the dataset the recipe names and was processed the way the recipe expects."""
         artifact = record.artifact
         if artifact.artifact_id != source.artifact_id or artifact.payload.sha256 != source.payload_sha256:
@@ -246,8 +261,7 @@ class ModelRecipe:
         if missing:
             msg = f"samples are missing for datasets {missing}"
             raise ValueError(msg)
-        encoder = self.encoder()
-        return [build_episode(samples[d.artifact_id], encoder, source=d.artifact_id) for d in self.datasets]
+        return _build_episodes(self.training, self.datasets, samples, self.encoder(), self.preprocessing)
 
     def require_rclib(self, installed: RclibIdentity | None = None) -> None:
         """Fail unless the installed ``rclib`` (default: this checkout's pin) is the one the recipe was made with."""
@@ -298,6 +312,24 @@ def _compare_fit(actual: FitReport, expected: FitReport, tolerance: FitTolerance
     return mismatches
 
 
+def _build_episodes(
+    spec: TrainingSpec,
+    sources: Sequence[DatasetSource],
+    samples: Mapping[str, SampleSet],
+    encoder: InputEncoder,
+    preprocessing: Preprocessing,
+) -> list[Episode]:
+    """Build the training episodes under the spec's washout policy (shared by training and refit)."""
+    if spec.washout == "warmup_hold":
+        warmup = WarmupConfig(cast("float", spec.warmup_s))
+        period = preprocessing.resample_period_s
+        return [
+            build_task_episode(samples[s.artifact_id], encoder, source=s.artifact_id, warmup=warmup, period_s=period)
+            for s in sources
+        ]
+    return [build_episode(samples[s.artifact_id], encoder, source=s.artifact_id) for s in sources]
+
+
 def create_recipe(
     name: str,
     esn: EsnConfig,
@@ -319,7 +351,7 @@ def create_recipe(
     if not sources or missing:
         msg = f"sources must be non-empty and every dataset needs samples; missing {missing}"
         raise ValueError(msg)
-    episodes = [build_episode(samples[s.artifact_id], encoder, source=s.artifact_id) for s in sources]
+    episodes = _build_episodes(spec, sources, samples, encoder, preprocessing)
     model = EsnModel(esn, input_dim=encoder.input_dim, output_dim=dof)
     report = train_readout(model, episodes)
     recipe = ModelRecipe(
@@ -347,7 +379,7 @@ def write_recipe(path: Path, recipe: ModelRecipe) -> None:
         "# Deterministic model recipe (docs/PLAN.md section 8): rebuild and refit, never unpickle.\n"
         "# Written by arm_rc_ctrl.rc.recipe; do not edit.\n"
     )
-    path.write_text(header + tomli_w.dumps(to_mapping(recipe)), encoding="utf-8")
+    path.write_text(header + records_to_toml(recipe), encoding="utf-8")
 
 
 def load_recipe(path: Path) -> ModelRecipe:

@@ -22,7 +22,7 @@ import sys
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, cast
 
 from arm_rc_ctrl.config import load_config, to_mapping
 from arm_rc_ctrl.data.records import ProcessedDatasetRecord, load_record, verify_payload
@@ -135,10 +135,25 @@ class TrainingResult:
     samples: dict[str, SampleSet]
 
 
+def _strip_none(value: object) -> object:
+    """Drop ``None`` fields, mirroring the recipe's stored TOML form (TOML cannot represent None)."""
+    if isinstance(value, dict):
+        items = cast("dict[str, object]", value)
+        return {k: _strip_none(v) for k, v in items.items() if v is not None}
+    if isinstance(value, list):
+        return [_strip_none(v) for v in cast("list[object]", value)]
+    return value
+
+
 def recipe_id(recipe: ModelRecipe, created_at: str) -> str:
-    """Content-addressed recipe ID ``model-<YYYYMMDD>-<12 hex of the canonical recipe JSON>``."""
+    """Content-addressed recipe ID ``model-<YYYYMMDD>-<12 hex of the canonical recipe JSON>``.
+
+    The canonical JSON strips ``None`` fields so the identity hashes exactly
+    what the recipe TOML stores; optional schema additions with ``None``
+    defaults therefore never change existing recipe IDs.
+    """
     stamp = validate_utc_timestamp(created_at)
-    digest = hashlib.sha256(canonical_json(to_mapping(recipe)).encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(canonical_json(_strip_none(to_mapping(recipe))).encode("utf-8")).hexdigest()
     return f"model-{stamp:%Y%m%d}-{digest[:12]}"
 
 
