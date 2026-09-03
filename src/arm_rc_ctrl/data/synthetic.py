@@ -13,7 +13,13 @@ from skelarm import StateLog
 
 from arm_rc_ctrl.data.samples import PHASE_DWELL, PHASE_MOVE, PHASE_PRIME, SampleSet
 
-__all__ = ["synthetic_arrays", "synthetic_demonstration_log", "synthetic_samples"]
+__all__ = [
+    "synthetic_arrays",
+    "synthetic_demonstration_log",
+    "synthetic_samples",
+    "synthetic_task_arrays",
+    "synthetic_task_samples",
+]
 
 
 def synthetic_arrays(
@@ -44,6 +50,39 @@ def synthetic_arrays(
 def synthetic_samples(n: int = 6, dof: int = 2, task_dim: int = 2, code_dim: int = 0) -> SampleSet:
     """A valid :class:`SampleSet` built from :func:`synthetic_arrays`."""
     return SampleSet.from_arrays(synthetic_arrays(n, dof, task_dim, code_dim))
+
+
+def synthetic_task_arrays(
+    n: int = 101, dof: int = 2, period_s: float = 0.01, dwell_start_s: float = 0.8
+) -> dict[str, NDArray[Any]]:
+    """Move/dwell-only task-clock arrays (no prime): a smoothstep reach that holds through the dwell."""
+    t: NDArray[Any] = np.arange(n, dtype=np.float64) * period_s
+    if not 0.0 < dwell_start_s < float(t[-1]):
+        msg = f"dwell_start_s must lie inside the episode (0, {float(t[-1])}), got {dwell_start_s}"
+        raise ValueError(msg)
+    start = 0.3 + 0.3 * np.arange(dof, dtype=np.float64)
+    goal = start + np.array([0.5 - 0.7 * j for j in range(dof)], dtype=np.float64)
+    s = np.clip(t / dwell_start_s, 0.0, 1.0)
+    blend = s * s * (3.0 - 2.0 * s)
+    q: NDArray[Any] = start[None, :] + blend[:, None] * (goal - start)[None, :]
+    tip: NDArray[Any] = np.stack([np.cos(t + k) for k in range(2)], axis=1)
+    phase: NDArray[Any] = np.where(t < dwell_start_s, PHASE_MOVE, PHASE_DWELL).astype(np.int64)
+    return {
+        "t": t,
+        "q": q,
+        "dq": np.gradient(q, period_s, axis=0),
+        "ddq": np.zeros_like(q),
+        "tip": tip,
+        "dtip": np.gradient(tip, period_s, axis=0),
+        "ddtip": np.zeros_like(tip),
+        "task_code": np.zeros((n, 0), dtype=np.float64),
+        "phase": phase,
+    }
+
+
+def synthetic_task_samples(n: int = 101, dof: int = 2, period_s: float = 0.01, dwell_start_s: float = 0.8) -> SampleSet:
+    """A valid move/dwell-only :class:`SampleSet` built from :func:`synthetic_task_arrays`."""
+    return SampleSet.from_arrays(synthetic_task_arrays(n, dof, period_s, dwell_start_s))
 
 
 def synthetic_demonstration_log(*, dt: float = 0.01, duration: float = 0.3) -> StateLog:

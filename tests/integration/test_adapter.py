@@ -388,3 +388,16 @@ def test_registered_builder_accepts_the_computed_torque_tracker(
     assert controller.tracker_config.method == "computed_torque"
     controller.reset(skeleton)
     assert np.all(np.isfinite(controller.control(0.0, skeleton)))
+
+
+def test_zero_hold_activates_generation_at_the_first_sample(
+    generator_and_scenario: tuple[RcTargetGenerator, ScenarioConfig, SampleSet],
+) -> None:
+    """M3R-006: with hold_until_s = 0 (the no-warm-up case) the adapter never holds and never primes."""
+    generator, scenario, _ = generator_and_scenario
+    tracker = load_config(REPO_ROOT / "configs" / "controllers" / "pd.toml", TrackerConfig)
+    controller = GeneratorTrackingController(generator, tracker, scenario.limits.torque, hold_until_s=0.0)
+    logged = _simulate(controller, scenario, 0.05)
+    assert np.all(logged["phase"] == Phase.GENERATE)
+    assert np.all(logged["generating"] == 1.0)
+    assert controller.boundary_jump is not None
