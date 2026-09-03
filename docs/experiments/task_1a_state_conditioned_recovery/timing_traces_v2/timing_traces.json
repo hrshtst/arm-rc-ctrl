@@ -1,0 +1,214 @@
+{
+  "cases": {
+    "force_tw1": {
+      "activation_jump_rad": 0.0014586091509032055,
+      "command_gap_early_integral": 0.0003098794335106914,
+      "fit_rmse_rad": 0.0017340408689392546,
+      "force_task": {
+        "duration_s": 0.2,
+        "start_s": 0.5
+      },
+      "generated_dwell_criteria": {
+        "generated_dwell_in_tolerance": true,
+        "generated_dwell_stationary": true
+      },
+      "initial_q": [
+        0.19999320872391926,
+        1.2000004376175082
+      ],
+      "plot": "force_tw1.png",
+      "rc_criteria": {
+        "completed": true,
+        "dwell_in_tolerance": true,
+        "dwell_stationary": true
+      },
+      "reference_settling_s": 0.0,
+      "replay_criteria": {
+        "completed": true,
+        "dwell_in_tolerance": true,
+        "dwell_stationary": true
+      },
+      "verified": [
+        "both arms activate at task time zero (activation_s = 1.0)",
+        "both arms hold the initial posture with zero desired velocity through the hold",
+        "no force during the hold; onset at activation + task-relative start"
+      ],
+      "warmup_s": 1.0
+    },
+    "nominal_tw0": {
+      "activation_jump_rad": 0.0019717391162212814,
+      "command_gap_early_integral": 0.0002409072587444144,
+      "fit_rmse_rad": 0.0006142314542119148,
+      "force_task": null,
+      "generated_dwell_criteria": {
+        "generated_dwell_in_tolerance": true,
+        "generated_dwell_stationary": true
+      },
+      "initial_q": [
+        0.19999320872391926,
+        1.2000004376175082
+      ],
+      "plot": "nominal_tw0.png",
+      "rc_criteria": {
+        "completed": true,
+        "dwell_in_tolerance": true,
+        "dwell_stationary": true
+      },
+      "reference_settling_s": 0.0,
+      "replay_criteria": {
+        "completed": true,
+        "dwell_in_tolerance": true,
+        "dwell_stationary": true
+      },
+      "verified": [
+        "both arms activate at task time zero (activation_s = 0.0)"
+      ],
+      "warmup_s": 0.0
+    },
+    "nominal_tw1": {
+      "activation_jump_rad": 0.0014586091509032055,
+      "command_gap_early_integral": 0.0003098794335106914,
+      "fit_rmse_rad": 0.0017340408689392546,
+      "force_task": null,
+      "generated_dwell_criteria": {
+        "generated_dwell_in_tolerance": true,
+        "generated_dwell_stationary": true
+      },
+      "initial_q": [
+        0.19999320872391926,
+        1.2000004376175082
+      ],
+      "plot": "nominal_tw1.png",
+      "rc_criteria": {
+        "completed": true,
+        "dwell_in_tolerance": true,
+        "dwell_stationary": true
+      },
+      "reference_settling_s": 0.0,
+      "replay_criteria": {
+        "completed": true,
+        "dwell_in_tolerance": true,
+        "dwell_stationary": true
+      },
+      "verified": [
+        "both arms activate at task time zero (activation_s = 1.0)",
+        "both arms hold the initial posture with zero desired velocity through the hold"
+      ],
+      "warmup_s": 1.0
+    },
+    "perturbed_tw1": {
+      "activation_jump_rad": 0.05625709726092167,
+      "command_gap_early_integral": 0.0044278424327704015,
+      "fit_rmse_rad": 0.0017340408689392546,
+      "force_task": null,
+      "generated_dwell_criteria": {
+        "generated_dwell_in_tolerance": true,
+        "generated_dwell_stationary": true
+      },
+      "initial_q": [
+        0.24999320872391928,
+        1.1600004376175082
+      ],
+      "plot": "perturbed_tw1.png",
+      "rc_criteria": {
+        "completed": true,
+        "dwell_in_tolerance": true,
+        "dwell_stationary": true
+      },
+      "reference_settling_s": 0.0,
+      "replay_criteria": {
+        "completed": true,
+        "dwell_in_tolerance": true,
+        "dwell_stationary": true
+      },
+      "verified": [
+        "both arms activate at task time zero (activation_s = 1.0)",
+        "both arms hold the initial posture with zero desired velocity through the hold",
+        "the perturbed posture is held by both arms (no pre-activation correction)"
+      ],
+      "warmup_s": 1.0
+    }
+  },
+  "dataset": "processed-20260903-ce343c8ce6a5",
+  "payload_sha256": "ce343c8ce6a5d5be266ce6d9fab08128312391b82cfcbbf09d8b1f86ea05eb1e",
+  "provenance": {
+    "artifacts": [
+      {
+        "sha256": "ce343c8ce6a5d5be266ce6d9fab08128312391b82cfcbbf09d8b1f86ea05eb1e",
+        "size": 47088,
+        "uri": "armrc://processed/processed-20260903-ce343c8ce6a5/samples.npz"
+      }
+    ],
+    "builds": [
+      {
+        "editable": false,
+        "extension_sha256": "f91828d8243700f1a283de80f5ef6cd3c756a3af1ba46a60103b5ad33cdebd5b",
+        "name": "rclib",
+        "python_sources_sha256": "458cc468c0af3dcee87c2c710024b487c8cb86075bad7702ac7984259734cfa3",
+        "source_commit": "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b",
+        "source_dirty": false,
+        "version": "0.1.0"
+      },
+      {
+        "editable": false,
+        "extension_sha256": null,
+        "name": "skelarm",
+        "python_sources_sha256": "4257de5cc8dfcedade31d75a8142ec1e4f337723d5191d8a51f52fe5aef3484a",
+        "source_commit": "6ccc1eba8ff57178ab8bf456e6ff9a2ec988cc80",
+        "source_dirty": false,
+        "version": "0.4.1"
+      }
+    ],
+    "config_json": "{\"cases\":[\"nominal_tw0\",\"nominal_tw1\",\"perturbed_tw1\",\"force_tw1\"],\"command\":\"python -m arm_rc_ctrl.experiments.recovery_timing --dataset data/records/processed/processed-20260903-ce343c8ce6a5.toml --scenario configs/tasks/task_1a.toml --out docs/experiments/task_1a_state_conditioned_recovery/timing_traces_v2\",\"dataset\":\"processed-20260903-ce343c8ce6a5\",\"estimator\":{\"acceleration_cutoff_hz\":10.938122239871603,\"max_dt_ratio\":3.0,\"nominal_dt_s\":0.01,\"velocity_cutoff_hz\":29.980411525699598},\"force_task\":{\"duration_s\":0.2,\"force\":[0.0,-6.0],\"start_s\":0.5},\"model\":{\"esn\":{\"readout\":{\"alpha\":0.002849478837743603,\"include_bias\":true,\"solver\":\"cholesky\",\"tolerance\":1e-10},\"reservoir\":{\"include_bias\":true,\"input_scaling\":0.021176881502572638,\"leak_rate\":0.04089985548951509,\"n_neurons\":250,\"seed\":896,\"sparsity\":0.9791076284866893,\"spectral_radius\":1.2944675208876626}},\"input_transform\":{\"dq_scale\":12.0,\"policy\":\"fixed_scale\",\"q_scale\":0.3},\"name\":\"esn-task-1a-v4\"},\"perturbation_rad\":[0.05,-0.04],\"scenario\":\"23c89a7f8a15fde55101dbefa4fe8e226b83e46e7967d0d2dac248a886607c0d\",\"tracker\":{\"kd\":[3.206354655071141,0.11992321023424186],\"kp\":[103.66390204385338,26.057552331473403],\"type\":\"pd\"}}",
+    "config_sha256": "e77c7fd3cb5689fa23537395cd58034dc81ffa38ed909e33824efc467216f262",
+    "created_at": "2026-09-03T12:14:52+00:00",
+    "exploratory": false,
+    "lock_sha256": "ac9811f8142ee767b9ec08c33397c5245704cda02737c132ee0533857ec03409",
+    "platform": {
+      "implementation": "CPython",
+      "machine": "x86_64",
+      "packages": {
+        "arm-rc-ctrl": "0.1.0.dev0",
+        "numpy": "2.5.2",
+        "rclib": "0.1.0",
+        "skelarm": "0.4.1"
+      },
+      "python": "3.12.11",
+      "release": "7.0.0-30-generic",
+      "system": "Linux",
+      "thread_environment": {
+        "OMP_NUM_THREADS": "1"
+      }
+    },
+    "project_commit": "865aae0dcf49447df6998e8ba83ea5b8cb2211f2",
+    "project_dirty": false,
+    "schema_version": 1,
+    "seeds": {
+      "reservoir": 896
+    },
+    "submodules": [
+      {
+        "checked_out": "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b",
+        "dirty": false,
+        "name": "rclib",
+        "path": "third_party/rclib",
+        "recorded": "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b"
+      },
+      {
+        "checked_out": "6ccc1eba8ff57178ab8bf456e6ff9a2ec988cc80",
+        "dirty": false,
+        "name": "skelarm",
+        "path": "third_party/skelarm",
+        "recorded": "6ccc1eba8ff57178ab8bf456e6ff9a2ec988cc80"
+      },
+      {
+        "checked_out": "c601076ee60ec712c1cb4a85756a186882df2e1b",
+        "dirty": false,
+        "name": "rtctrl",
+        "path": "third_party/rtctrl",
+        "recorded": "c601076ee60ec712c1cb4a85756a186882df2e1b"
+      }
+    ]
+  },
+  "scenario": "task-1a-reach"
+}
