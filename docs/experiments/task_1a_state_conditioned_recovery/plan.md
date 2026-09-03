@@ -74,7 +74,7 @@ the role of a signal, not a different robot.
 | $z_{i,k}$ | Correlated latent perturbation process before applying its envelope | $n_q$, rad |
 | $\xi_{i,k}$ | Independent standard-Gaussian innovation sampled for episode $i$ | $n_q$, dimensionless |
 | $\epsilon_{i,k}$ | Scaled Gaussian innovation that drives the latent process | $n_q$, rad |
-| $\sigma_i$ | Per-joint marginal perturbation scale configured for episode $i$ | scalar, rad |
+| $\sigma$ | Per-joint marginal perturbation scale, constant across every synthetic episode of one configuration | scalar, rad |
 | $\phi$ | Temporal correlation coefficient of the augmentation process; distinct from ESN spectral radius | dimensionless |
 | $w_k$ | Target-distance augmentation envelope | scalar in $[0,1]$ |
 | $\gamma$ | Exponent controlling how quickly the envelope contracts near the target | positive scalar |
@@ -193,7 +193,7 @@ target-distance envelope:
 $$
 \begin{aligned}
 \xi_{i,k} &\sim \mathcal{N}(0,I), \\
-\epsilon_{i,k} &= \sigma_i\sqrt{1-\phi^2}\,\xi_{i,k}, \\
+\epsilon_{i,k} &= \sigma\sqrt{1-\phi^2}\,\xi_{i,k}, \\
 z_{i,k+1} &= \phi z_{i,k} + \epsilon_{i,k}, \\
 w_k &= \left[\mathrm{clip}\!\left(
   \frac{d_{\mathrm{tip}}(q_k^{\mathrm{ref}},p^\star)}
@@ -205,9 +205,9 @@ w_k &= \left[\mathrm{clip}\!\left(
 $$
 
 The latent state is initialized independently from its stationary distribution,
-$z_{i,0}\sim\mathcal{N}(0,\sigma_i^2 I)$. Thus the innovations are Gaussian,
+$z_{i,0}\sim\mathcal{N}(0,\sigma^2 I)$. Thus the innovations are Gaussian,
 but the AR(1) filter makes the position perturbation temporally smooth. The
-$\sqrt{1-\phi^2}$ factor keeps its marginal scale approximately $\sigma_i$ when
+$\sqrt{1-\phi^2}$ factor keeps its marginal scale approximately $\sigma$ when
 $\phi$ changes, separating the amplitude choice from the correlation-time
 choice. Development evaluates $\phi\in\{0.98,0.99,0.995\}$, with 0.99 as the
 anchor. At the 0.01 s task period these values correspond to correlation times
@@ -401,9 +401,12 @@ feasibility. Force-only scenarios
 remain mandatory safety/target tests, but their disturbance-recovery metrics do
 not enter this initial-posture mechanism rule.
 
-Among models satisfying these gates, selection is lexicographic: minimize the
-median early command-gap ratio, then endpoint settling time, then applied-torque
-RMS. The report retains the complete distributions, original-trajectory RMSE,
+Among models satisfying these gates, selection is lexicographic over the four
+eligibility cells (small/large posture class crossed with the PD v2 and
+computed-torque tracker pairs): minimize the worst (largest) of the four cell
+medians of the early command-gap ratio, then the worst cell median of endpoint
+settling time, then the worst cell median of applied-torque RMS, each taken
+over the same four cells. The report retains the complete distributions, original-trajectory RMSE,
 smoothness, restoring alignment, and all failures. Confirmatory outcomes cannot
 change these gates or their ordering.
 
@@ -471,11 +474,11 @@ now part of the protocol lock; they do not imply a favorable outcome:
 
 | ID | Decision | Approved protocol |
 | --- | --- | --- |
-| D1 | Augmentation budget and search range | Include the original episode and search $N_{\mathrm{aug}}\in\{16,32,64\}$ accepted synthetic episodes, $\sigma\in\{0.01,0.025,0.05,0.10\}$ rad, and $\gamma\in\{0.5,1,2\}$; use $(64,0.05,1)$ as the anchor. $\sigma$ is constant across every synthetic episode of one configuration ($\sigma_i=\sigma$; the seeded latent process already varies realized amplitudes) — it is never drawn per episode from another distribution, and the record stores the configured $\sigma$ plus realized per-episode RMS/peak statistics. Pair non-decaying and contractive arms by using the same episode seeds and amplitudes. Record rejected episodes and fail a configuration after a declared finite attempt budget rather than resampling indefinitely. |
+| D1 | Augmentation budget and search range | Include the original episode and search $N_{\mathrm{aug}}\in\{16,32,64\}$ accepted synthetic episodes, $\sigma\in\{0.01,0.025,0.05,0.10\}$ rad, and $\gamma\in\{0.5,1,2\}$; use $(64,0.05,1)$ as the anchor. $\sigma$ is constant across every synthetic episode of one configuration (the seeded latent process already varies realized amplitudes) — it is never drawn per episode from another distribution, and the record stores the configured $\sigma$ plus realized per-episode RMS/peak statistics. Pair non-decaying and contractive arms by using the same episode seeds and amplitudes. Record rejected episodes and fail a configuration after a declared finite attempt budget rather than resampling indefinitely. |
 | D2 | Warm-up-duration search | Evaluate $T_w\in\{0,0.25,0.5,1.0,2.0\}$ s with 1.0 s as the anchor. $T_w=0$ is the named no-warm-up case: each episode still resets independently, but teacher forcing or task activation follows immediately. Freeze the shortest duration satisfying the common safety, dwell, recovery, and output-sensitivity gates. Reservoir-state convergence is reported as a diagnostic for $T_w>0$ and as not applicable for $T_w=0$; it cannot by itself exclude the no-warm-up case. |
 | D3 | Evaluation split and perturbation envelope | Retain M3's 65-scenario class allocation: 1 nominal, 20 small-posture, 20 large-posture, 4 force directions, and 20 combined. Allocate new mutually disjoint augmentation, development, and confirmatory seed namespaces. Begin the common safety pilot from the M3 levels (0.05/0.10 rad posture offsets and 12 N force); freeze one method-independent envelope from the pilot before confirmatory execution. |
 | D4 | Residual-arm scope | Keep residual output development-only initially. Include it in the locked confirmatory suite only if it passes the same safety, target, stability, and seed-panel gates before the protocol freeze; otherwise report it as an exploratory negative or inconclusive result. |
-| D5 | Model-freeze rule | Approve Section 7.3 unchanged: both median paired ratios below 1, at least 75% of posture scenarios improving both early metrics, generated-reference and actual-motion dwell gates, safety limits, and lexicographic selection. Any later numerical revision creates a new protocol version. |
+| D5 | Model-freeze rule | Approve Section 7.3 as clarified on 2026-09-03: for each posture class and each frozen tracker pair independently, both median paired ratios below 1 and at least 15 of 20 scenarios improving both early metrics; generated-reference and actual-motion dwell gates; safety limits; and lexicographic selection on the worst of the four class-by-tracker cell medians (command-gap ratio, then settling time, then applied-torque RMS). Any later numerical revision creates a new protocol version. |
 | D6 | Demonstration source | Use the existing scripted demonstration as the sole independent source for v1 so the timing/augmentation change is isolated. Add a human demonstration later as a separately identified replication dataset, not as additional v1 training data. |
 
 Pre-implementation clarifications approved on 2026-09-03 (protocol details,
