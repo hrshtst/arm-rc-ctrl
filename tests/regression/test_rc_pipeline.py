@@ -128,7 +128,8 @@ def test_pipeline_is_deterministic_in_process(tmp_path: Path) -> None:
     assert first_training.recipe == second_training.recipe
     assert first_training.report.recipe_id == second_training.report.recipe_id
     for name, array in first.rc.run.arrays.arrays.items():
-        assert np.array_equal(array, second.rc.run.arrays.arrays[name]), name
+        # equal_nan: the masked telemetry channels (M3R-007) are NaN outside their activation side.
+        assert np.array_equal(array, second.rc.run.arrays.arrays[name], equal_nan=array.dtype.kind == "f"), name
     assert first.rc.summary.arrays == second.rc.summary.arrays
     assert first.replay.summary.arrays == second.replay.summary.arrays
     assert _snapshot(first_training, first) == _snapshot(second_training, second)

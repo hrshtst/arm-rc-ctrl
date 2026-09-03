@@ -99,8 +99,22 @@ def test_nominal_run_records_everything(trained: tuple[StorageRoot, Path, Prepro
         now=FIXED_TIME,
     )
     arrays = result.run.arrays.arrays
-    assert set(arrays) == {*REQUIRED_ARRAYS, "tau_applied", "phase", "esn_state_norm"}
-    assert set(OPTIONAL_ARRAYS) - set(arrays) == {"ext_force"}
+    assert set(arrays) == {
+        *REQUIRED_ARRAYS,
+        "tau_applied",
+        "phase",
+        "esn_state_norm",
+        "generator_output_q",
+        "warmup_state_norm",
+        "warmup_esn_input",
+    }
+    assert set(OPTIONAL_ARRAYS) - set(arrays) == {"ext_force", "generator_increment_q"}
+    hold_rows = arrays["phase"] == 0
+    assert np.all(np.isnan(arrays["generator_output_q"][hold_rows]))
+    assert np.all(np.isfinite(arrays["generator_output_q"][~hold_rows]))
+    assert np.all(np.isfinite(arrays["warmup_esn_input"][hold_rows]))
+    assert np.all(np.isnan(arrays["warmup_state_norm"][~hold_rows]))
+    assert result.summary.activation_s == scenario.timing.intervals.prime[1]
     assert result.summary.method == "rc+pd"
     assert result.summary.termination.kind == "completed"
     assert arrays["t"].shape[0] == processed.samples.n_samples

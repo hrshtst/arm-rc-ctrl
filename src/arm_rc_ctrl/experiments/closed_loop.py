@@ -187,6 +187,7 @@ def run_nominal(
         access=cast("Any", access),
         command=command,
         sources=(reference_artifact,),
+        activation_s=hold_until,
         notes=(
             f"RC target generator from recipe {recipe.name!r} tracked by {tracker.method}; "
             f"priming until {hold_until} s; boundary jump {'n/a' if jump is None else f'{jump:.3g} rad'}."

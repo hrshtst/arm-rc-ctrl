@@ -81,8 +81,25 @@ REQUIRED_ARRAYS: Final[tuple[str, ...]] = (
     "task_code",
     "saturation",
 )
-OPTIONAL_ARRAYS: Final[tuple[str, ...]] = ("tau_applied", "ext_force", "phase", "esn_state_norm")
-"""Applied torque, external endpoint force (N) under a disturbance, hold/generate phase, and ESN state norm."""
+OPTIONAL_ARRAYS: Final[tuple[str, ...]] = (
+    "tau_applied",
+    "ext_force",
+    "phase",
+    "esn_state_norm",
+    "generator_output_q",
+    "generator_increment_q",
+    "warmup_state_norm",
+    "warmup_esn_input",
+)
+"""Applied torque, external force, hold/generate phase, ESN state norm, and the M3R task-time telemetry.
+
+``generator_output_q`` (and, for a residual readout, ``generator_increment_q``)
+carry values only while the readout is active; the warm-up channels carry the
+priming input and state norm only before activation. Inactive samples are NaN,
+so a hold command can never be mislabeled as readout output.
+"""
+_READOUT_ARRAYS: Final = ("generator_output_q", "generator_increment_q")
+_WARMUP_ARRAYS: Final = ("warmup_state_norm", "warmup_esn_input")
 _JOINT_ARRAYS: Final = (
     "q",
     "dq",
@@ -138,9 +155,43 @@ class RunArrays:
         expected: dict[str, tuple[int, ...]] = dict.fromkeys(_JOINT_ARRAYS, (n, dof))
         expected.update({"tip": (n, _PLANE), "ext_force": (n, _PLANE), "task_code": (n, code_dim), "saturation": (n,)})
         expected.update({"phase": (n,), "esn_state_norm": (n,)})
+        expected.update({"generator_output_q": (n, dof), "generator_increment_q": (n, dof), "warmup_state_norm": (n,)})
         for name, array in frozen.items():
+            if name == "warmup_esn_input":
+                if array.ndim != 2 or array.shape[0] != n:  # noqa: PLR2004
+                    msg = f"warmup_esn_input must have shape ({n}, input_dim), got {array.shape}"
+                    raise ValueError(msg)
+                continue
             if name != "t" and array.shape != expected[name]:
                 msg = f"{name} must have shape {expected[name]}, got {array.shape}"
+                raise ValueError(msg)
+        self._validate_activation_masks(frozen)
+
+    def _validate_activation_masks(self, frozen: dict[str, NDArray[Any]]) -> None:
+        """Masked channels are defined exactly on their side of the activation boundary (M3R-007)."""
+        masked = [name for name in (*_READOUT_ARRAYS, *_WARMUP_ARRAYS) if name in frozen]
+        if not masked:
+            return
+        if "phase" not in frozen:
+            msg = f"the masked channels {masked} need the phase array to define the activation boundary"
+            raise ValueError(msg)
+        active = frozen["phase"] > 0
+        for name in _READOUT_ARRAYS:
+            if name not in frozen:
+                continue
+            values = frozen[name]
+            if bool(np.any(np.isfinite(values[~active]))):
+                msg = f"{name} carries values while the readout is inactive; hold commands are never readout output"
+                raise ValueError(msg)
+            if not bool(np.all(np.isfinite(values[active]))):
+                msg = f"{name} must be finite at every active sample"
+                raise ValueError(msg)
+        for name in _WARMUP_ARRAYS:
+            if name not in frozen:
+                continue
+            values = frozen[name]
+            if bool(np.any(np.isfinite(values[active]))) or not bool(np.all(np.isfinite(values[~active]))):
+                msg = f"warm-up channel {name} must be finite at every hold sample and NaN after activation"
                 raise ValueError(msg)
 
     @property
@@ -206,6 +257,8 @@ class RunSummary:
     seeds: dict[str, int]
     provenance: ProvenanceRecord
     notes: str = ""
+    activation_s: float | None = None
+    """Task activation boundary on the run clock (the end of the hold/warm-up), when the run has one."""
     schema_version: int = RUN_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
@@ -218,6 +271,9 @@ class RunSummary:
             raise ValueError(msg)
         self._validate_timing_and_target()
         self._validate_arrays_and_consistency()
+        if self.activation_s is not None and not (0.0 <= self.activation_s <= self.duration_s + 1e-9):
+            msg = f"activation_s must lie within [0, duration_s], got {self.activation_s!r}"
+            raise ValueError(msg)
 
     def _validate_timing_and_target(self) -> None:
         if not (self.control_period_s > 0 and np.isfinite(self.control_period_s)):
@@ -335,6 +391,7 @@ def write_run(
     command: str,
     sources: tuple[str, ...] = (),
     notes: str = "",
+    activation_s: float | None = None,
 ) -> tuple[RunPointerRecord, RunSummary, Path]:
     """Persist a run transactionally and return its pointer, summary, and directory."""
     staging = store.root / "runs" / f"staging-{uuid.uuid4().hex}"
@@ -358,6 +415,7 @@ def write_run(
             seeds=dict(provenance.seeds),
             provenance=provenance,
             notes=notes,
+            activation_s=activation_s,
         )
         summary_file = staging / RUN_SUMMARY_FILE
         summary_file.write_text(summary.to_json() + "\n", encoding="utf-8")

@@ -99,11 +99,19 @@ class RcTargetGenerator(TargetGeneratorBase):
     def _telemetry(self, u: NDArray[np.float64], prediction: NDArray[np.float64], mode: float) -> None:
         estimate = self._estimator.last
         channels = estimate.channels() if estimate is not None else {}
+        generating = mode >= 1.0
+        state_norm = float(np.linalg.norm(self._model.state()))
+        dof = self._encoder.dof
         self._last = {
             "esn_input": u,
-            "esn_state_norm": np.array([float(np.linalg.norm(self._model.state()))]),
+            "esn_state_norm": np.array([state_norm]),
             "q_generated": prediction,
             "generating": np.array([mode]),
+            # M3R task-time telemetry: the readout channel exists only while active; the warm-up
+            # channels exist only while the readout is inactive (never a hold command as readout).
+            "generator_output_q": np.array(prediction, dtype=np.float64) if generating else np.full(dof, np.nan),
+            "warmup_state_norm": np.array([np.nan if generating else state_norm]),
+            "warmup_esn_input": np.full(u.shape[0], np.nan) if generating else np.array(u, dtype=np.float64),
             **channels,
         }
 

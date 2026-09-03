@@ -18,7 +18,6 @@ from numpy.typing import NDArray
 from arm_rc_ctrl.config import ConfigError
 from arm_rc_ctrl.data.records import load_record, to_toml, write_record
 from arm_rc_ctrl.experiments.run_record import (
-    OPTIONAL_ARRAYS,
     REQUIRED_ARRAYS,
     Disturbance,
     RunArrays,
@@ -108,7 +107,7 @@ def test_run_arrays_enforce_names_shapes_and_dtypes() -> None:
     arrays = _arrays()
     assert arrays.n_samples == N
     assert arrays.dof == DOF
-    assert list(arrays.specs()) == [*REQUIRED_ARRAYS, *OPTIONAL_ARRAYS]
+    assert list(arrays.specs()) == [*REQUIRED_ARRAYS, "tau_applied", "ext_force", "phase", "esn_state_norm"]
     assert list(_arrays(applied=False).specs()) == list(REQUIRED_ARRAYS)
     with pytest.raises(ValueError, match="read-only"):
         arrays.arrays["q"][0, 0] = 1.0

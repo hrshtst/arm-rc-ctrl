@@ -82,6 +82,10 @@ class ChannelMap:
     saturation: str = "saturation"
     phase: str | None = None
     esn_state_norm: str | None = None
+    generator_output_q: str | None = None
+    generator_increment_q: str | None = None
+    warmup_state_norm: str | None = None
+    warmup_esn_input: str | None = None
 
 
 TRACKER_CHANNELS: Final = ChannelMap()
@@ -95,8 +99,17 @@ GENERATOR_CHANNELS: Final = ChannelMap(
     ddq_desired_raw="ddq_desired_raw",
     phase="phase",
     esn_state_norm="esn_state_norm",
+    generator_output_q="generator_output_q",
+    warmup_state_norm="warmup_state_norm",
+    warmup_esn_input="warmup_esn_input",
 )
-"""RC target generation: estimator raw/filtered derivatives, the hold/generate phase, and the reservoir state norm."""
+"""RC target generation: derivatives, hold/generate phase, state norm, and the M3R task-time telemetry.
+
+``generator_output_q`` carries the readout only while active (NaN during the
+hold); the warm-up channels carry the priming input and state norm only before
+activation. ``generator_increment_q`` stays ``None`` until a residual arm
+produces it.
+"""
 
 
 def endpoint(skeleton: Skeleton) -> NDArray[np.float64]:
@@ -227,6 +240,11 @@ def _row_names(channels: ChannelMap, *, force: bool) -> list[str]:
         names.append("phase")
     if channels.esn_state_norm is not None:
         names.append("esn_state_norm")
+    names.extend(
+        name
+        for name in ("generator_output_q", "generator_increment_q", "warmup_state_norm", "warmup_esn_input")
+        if getattr(channels, name) is not None
+    )
     return names
 
 
@@ -258,6 +276,12 @@ def _append_sample(
         rows["phase"].append(_channel(last, channels.phase, t).reshape(1))
     if channels.esn_state_norm is not None:
         rows["esn_state_norm"].append(_channel(last, channels.esn_state_norm, t).reshape(1))
+    for wide in ("generator_output_q", "generator_increment_q", "warmup_esn_input"):
+        source = getattr(channels, wide)
+        if source is not None:
+            rows[wide].append(_channel(last, source, t))
+    if channels.warmup_state_norm is not None:
+        rows["warmup_state_norm"].append(_channel(last, channels.warmup_state_norm, t).reshape(1))
 
 
 def _stack(rows: dict[str, list[NDArray[np.float64]]]) -> RunArrays:
@@ -269,5 +293,7 @@ def _stack(rows: dict[str, list[NDArray[np.float64]]]) -> RunArrays:
         stacked["phase"] = stacked["phase"].ravel().astype(np.int64)
     if "esn_state_norm" in stacked:
         stacked["esn_state_norm"] = stacked["esn_state_norm"].ravel()
+    if "warmup_state_norm" in stacked:
+        stacked["warmup_state_norm"] = stacked["warmup_state_norm"].ravel()
     stacked["task_code"] = np.zeros((n, 0), dtype=np.float64)
     return RunArrays(stacked)
