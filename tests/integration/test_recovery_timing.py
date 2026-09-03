@@ -11,6 +11,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
+from arm_rc_ctrl.config import load_config
+from arm_rc_ctrl.controllers.estimator import EstimatorConfig
+from arm_rc_ctrl.controllers.tracking import TrackerConfig
 from arm_rc_ctrl.data.derivatives import DerivativeConfig, differentiate
 from arm_rc_ctrl.data.normalization import fit_normalization
 from arm_rc_ctrl.data.records import (
@@ -33,8 +36,14 @@ from arm_rc_ctrl.data.recovery import (
     TaskIntervals,
 )
 from arm_rc_ctrl.data.samples import SampleSet, save_samples
-from arm_rc_ctrl.experiments.recovery_timing import FORCE_PULSE_TASK, PERTURBATION_RAD, main
-from arm_rc_ctrl.provenance import sha256_file
+from arm_rc_ctrl.experiments.recovery_timing import (
+    FORCE_PULSE_TASK,
+    PERTURBATION_RAD,
+    main,
+    resolved_timing_config,
+)
+from arm_rc_ctrl.provenance import canonical_json, sha256_file
+from arm_rc_ctrl.rc.train import load_model_config
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import endpoint_positions, load_scenario
 from arm_rc_ctrl.storage import StorageRoot
@@ -160,6 +169,34 @@ def _record(samples: SampleSet, payload_sha: str, payload_size: int) -> Recovery
     )
 
 
+def test_provenance_identity_binds_model_estimator_and_tracker(tmp_path: Path) -> None:
+    """Changing the resolved model, estimator, or tracker changes the provenance identity."""
+    samples = _samples()
+    staged = tmp_path / "samples.npz"
+    save_samples(staged, samples)
+    record = _record(samples, sha256_file(staged), staged.stat().st_size)
+    model_file = tmp_path / "model.toml"
+    model_file.write_text(MODEL_TOML, encoding="utf-8")
+    model = load_model_config(model_file)
+    other_model_file = tmp_path / "model2.toml"
+    other_model_file.write_text(MODEL_TOML.replace("seed = 17", "seed = 18"), encoding="utf-8")
+    other_model = load_model_config(other_model_file)
+    estimator = EstimatorConfig(nominal_dt_s=DT)
+    tracker = load_config(REPO_ROOT / "configs" / "controllers" / "pd.toml", TrackerConfig)
+    other_tracker = load_config(REPO_ROOT / "configs" / "controllers" / "task_1a_pd_v2.toml", TrackerConfig)
+    base = resolved_timing_config(record, SCENARIO_FILE, model, estimator, tracker, "cmd")
+    assert {"model", "estimator", "tracker", "dataset", "scenario"} <= set(base)
+    variants = (
+        resolved_timing_config(record, SCENARIO_FILE, other_model, estimator, tracker, "cmd"),
+        resolved_timing_config(
+            record, SCENARIO_FILE, model, EstimatorConfig(nominal_dt_s=DT, velocity_cutoff_hz=20.0), tracker, "cmd"
+        ),
+        resolved_timing_config(record, SCENARIO_FILE, model, estimator, other_tracker, "cmd"),
+    )
+    for variant in variants:
+        assert canonical_json(variant) != canonical_json(base)
+
+
 def test_generator_writes_verified_traces_and_refuses_overwrite(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -213,5 +250,7 @@ def test_generator_writes_verified_traces_and_refuses_overwrite(
     assert any("no force during the hold" in fact for fact in cases["force_tw1"]["verified"])
     provenance = summary["provenance"]
     assert record.artifact.artifact_id in json.dumps(provenance)  # the dataset is bound into provenance
+    resolved = json.loads(provenance["config_json"])
+    assert {"model", "estimator", "tracker"} <= set(resolved)  # resolved inputs bound, not just file names
     with pytest.raises(FileExistsError, match="immutable"):
         main(["--dataset", str(record_file), "--scenario", str(SCENARIO_FILE), "--out", str(out)])

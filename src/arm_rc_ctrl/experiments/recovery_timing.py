@@ -33,7 +33,7 @@ import numpy as np
 mpl.use("Agg")
 import matplotlib.pyplot as plt
 
-from arm_rc_ctrl.config import load_config
+from arm_rc_ctrl.config import load_config, to_mapping
 from arm_rc_ctrl.controllers.tracking import TrackerConfig
 from arm_rc_ctrl.data.records import load_record, verify_payload
 from arm_rc_ctrl.data.recovery import RecoveryDatasetRecord
@@ -66,7 +66,15 @@ if TYPE_CHECKING:
     from arm_rc_ctrl.data.samples import SampleSet
     from arm_rc_ctrl.scenario import ScenarioConfig
 
-__all__ = ["FORCE_PULSE_TASK", "PERTURBATION_RAD", "TimingCase", "TimingTraceError", "generate_timing_traces", "main"]
+__all__ = [
+    "FORCE_PULSE_TASK",
+    "PERTURBATION_RAD",
+    "TimingCase",
+    "TimingTraceError",
+    "generate_timing_traces",
+    "main",
+    "resolved_timing_config",
+]
 
 PERTURBATION_RAD: Final[tuple[float, ...]] = (0.05, -0.04)
 """Development perturbation of the initial posture for the perturbed-start case (rad)."""
@@ -257,6 +265,37 @@ def _plot_case(case: TimingCase, pair: RecoveryPair, out_dir: Path) -> Path:
     return path
 
 
+def resolved_timing_config(
+    record: RecoveryDatasetRecord,
+    scenario_file: Path,
+    model_config: ModelConfig,
+    estimator: EstimatorConfig,
+    tracker: TrackerConfig,
+    command: str,
+) -> dict[str, object]:
+    """The fully resolved configuration bound into the trace provenance.
+
+    Binds the canonical mappings of the resolved model, derivative estimator,
+    and tracker (not just their file names), so changing any one of them
+    changes the provenance identity of the evidence.
+    """
+    return {
+        "dataset": record.artifact.artifact_id,
+        "scenario": sha256_file(scenario_file),
+        "model": to_mapping(model_config),
+        "estimator": to_mapping(estimator),
+        "tracker": to_mapping(tracker),
+        "cases": [case.name for case in _cases()],
+        "perturbation_rad": list(PERTURBATION_RAD),
+        "force_task": {
+            "start_s": FORCE_PULSE_TASK.start_s,
+            "duration_s": FORCE_PULSE_TASK.duration_s,
+            "force": list(FORCE_PULSE_TASK.force),
+        },
+        "command": command,
+    }
+
+
 def generate_timing_traces(
     record: RecoveryDatasetRecord,
     samples: SampleSet,
@@ -279,18 +318,7 @@ def generate_timing_traces(
     cases' non-exploratory provenance (the M3 robustness-suite lesson).
     """
     payload = record.artifact.payload
-    resolved = {
-        "dataset": record.artifact.artifact_id,
-        "scenario": sha256_file(scenario_file),
-        "cases": [case.name for case in _cases()],
-        "perturbation_rad": list(PERTURBATION_RAD),
-        "force_task": {
-            "start_s": FORCE_PULSE_TASK.start_s,
-            "duration_s": FORCE_PULSE_TASK.duration_s,
-            "force": list(FORCE_PULSE_TASK.force),
-        },
-        "command": command,
-    }
+    resolved = resolved_timing_config(record, scenario_file, model_config, estimator, tracker, command)
     provenance = collect_provenance(
         resolved,
         seeds={"reservoir": model_config.esn.reservoir.seed},
