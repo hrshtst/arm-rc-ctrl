@@ -260,7 +260,9 @@ def run_recovery_pair(
         "reference_artifact": reference_artifact,
         "initial_q": list(scenario.task.initial_q if initial_q is None else initial_q),
         "duration_s": duration,
-        "force": None if force is None or run_force is None else {"task": to_mapping(force), "run": to_mapping(run_force)},
+        "force": (
+            None if force is None or run_force is None else {"task": to_mapping(force), "run": to_mapping(run_force)}
+        ),
         "command": command,
     }
     reference_payload = ArtifactReference(payload.uri, payload.sha256, payload.size)
