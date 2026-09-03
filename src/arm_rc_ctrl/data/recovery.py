@@ -390,6 +390,13 @@ class RecoveryDatasetRecord:
         if len(self.baseline.q_pre) != self.dof:
             msg = f"baseline.q_pre must have dof={self.dof} entries, got {len(self.baseline.q_pre)}"
             raise ValueError(msg)
+        recomputed = float(np.max(np.abs(np.asarray(self.baseline.q_pre) - np.asarray(self.q0_ref))))
+        if recomputed != self.baseline.max_deviation_rad:
+            msg = (
+                f"baseline.max_deviation_rad {self.baseline.max_deviation_rad!r} does not equal the "
+                f"recomputed deviation {recomputed!r} of q_pre from q0_ref"
+            )
+            raise ValueError(msg)
 
     def _validate_arrays(self) -> None:
         if tuple(self.arrays) != ARRAY_NAMES:
@@ -458,6 +465,10 @@ class RecoveryDatasetRecord:
                 f"q0_ref {self.q0_ref} is not the first cropped sample {q0}; q0_ref is never replaced "
                 "(not by the pre-roll baseline q_pre either)"
             )
+        try:
+            check_task_annotation(samples.t, samples.phase, self.crop.task)
+        except (PhaseAnnotationError, ValueError) as exc:
+            problems.append(f"crop.task disagrees with the stored phase transition: {exc}")
         if problems:
             msg = "samples do not match the record:\n" + "\n".join(problems)
             raise ValueError(msg)

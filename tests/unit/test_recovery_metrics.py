@@ -19,8 +19,13 @@ from arm_rc_ctrl.metrics.effort import effort_metrics
 from arm_rc_ctrl.metrics.recovery import (
     EARLY_WINDOW_S,
     SATURATION_BOUND,
+    AlignmentMetrics,
+    DecayFit,
     GeneratedReferenceCriteria,
     RecoveryMetricsReport,
+    SettlingMetrics,
+    SmoothnessMetrics,
+    WindowSummary,
     activation_jump,
     compute_recovery_metrics,
     gap_series,
@@ -253,6 +258,69 @@ def test_report_rejects_a_shifted_task_clock() -> None:
             dwell_window=(0.8, 1.0),
             settling_band_rad=0.05,
         )
+
+
+def _report() -> RecoveryMetricsReport:
+    q_ref = _reference()
+    q, q_desired = _recovering_run()
+    dq = np.gradient(q, DT, axis=0)
+    dq_desired = np.gradient(q_desired, DT, axis=0)
+    target = np.array([0.2996, 0.4482])
+    return compute_recovery_metrics(
+        T,
+        q,
+        dq,
+        q_desired,
+        dq_desired,
+        np.tile(target, (N, 1)) + 0.001,
+        q_ref,
+        target=target,
+        dwell_window=(0.8, 1.0),
+        settling_band_rad=0.05,
+    )
+
+
+@pytest.mark.parametrize(
+    ("build", "message"),
+    [
+        (lambda: WindowSummary(-0.1, 0.1, 0.2, (0.0, 0.5), 10), "non-negative"),
+        (lambda: WindowSummary(0.1, 0.3, 0.2, (0.0, 0.5), 10), "max >= mean"),
+        (lambda: WindowSummary(0.1, 0.1, 0.2, (0.5, 0.0), 10), "increasing"),
+        (lambda: AlignmentMetrics(1.5, 0.5, 3, 0), r"\[-1, 1\]"),
+        (lambda: AlignmentMetrics(None, 0.5, 3, 0), "None exactly"),
+        (lambda: AlignmentMetrics(0.5, 0.5, 0, 3), "None exactly"),
+        (lambda: DecayFit(float("nan"), 0.1, 5), "finite"),
+        (lambda: DecayFit(1.0, -0.1, 5), "non-negative residual"),
+        (lambda: SettlingMetrics(0.05, -0.1, None), "non-negative"),
+        (lambda: SettlingMetrics(0.0, 0.1, None), "band_rad"),
+        (lambda: SmoothnessMetrics(0.5, 0.1, 0.0, 0.0, 10), "max >= rms"),
+        (lambda: SmoothnessMetrics(0.1, 0.5, -0.1, 0.0, 10), "non-negative"),
+    ],
+)
+def test_semantic_validation_rejects_tampered_nested_metrics(build: object, message: str) -> None:
+    """Every nested metric dataclass rejects negative, non-finite, or internally contradictory values."""
+    with pytest.raises(ValueError, match=message):
+        build()  # type: ignore[operator]
+
+
+def test_derived_fields_reject_tampering() -> None:
+    """Swapped windows, flipped criteria, inconsistent paired summaries, and bad jumps are rejected."""
+    report = _report()
+    with pytest.raises(ValueError, match="start at task time 0 inside"):
+        dataclasses.replace(
+            report, command_gap_early=report.command_gap_full, command_gap_full=report.command_gap_early
+        )
+    flipped = dict(report.generated_dwell_criteria)
+    flipped["generated_dwell_in_tolerance"] = not flipped["generated_dwell_in_tolerance"]
+    with pytest.raises(ValueError, match="contradict"):
+        dataclasses.replace(report, generated_dwell_criteria=flipped)
+    with pytest.raises(ValueError, match="activation_jump_rad"):
+        dataclasses.replace(report, activation_jump_rad=-1.0)
+    summary = paired_summary((1.0, 2.0), (2.0, 2.0))
+    with pytest.raises(ValueError, match="contradict"):
+        dataclasses.replace(summary, median_ratio=0.1)
+    with pytest.raises(ValueError, match="contradict"):
+        dataclasses.replace(summary, improving=2)
 
 
 def test_tampered_settling_band_is_rejected_by_the_schema() -> None:

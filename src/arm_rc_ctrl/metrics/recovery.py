@@ -128,6 +128,19 @@ class WindowSummary:
     window: tuple[float, ...]
     samples: int
 
+    def __post_init__(self) -> None:
+        """Statistics are finite, non-negative, and internally ordered over a real window."""
+        values = (self.integral, self.mean, self.max, *self.window)
+        if any(not np.isfinite(v) for v in values) or self.integral < 0 or self.mean < 0 or self.max < 0:
+            msg = f"window summary values must be finite and non-negative, got {self}"
+            raise ValueError(msg)
+        if len(self.window) != _MIN_WINDOW_SAMPLES or self.window[0] >= self.window[1]:
+            msg = f"window must be an increasing [start, end] pair, got {self.window}"
+            raise ValueError(msg)
+        if self.samples < _MIN_WINDOW_SAMPLES or self.max < self.mean:
+            msg = f"a window summary needs >= {_MIN_WINDOW_SAMPLES} samples and max >= mean, got {self}"
+            raise ValueError(msg)
+
 
 def gap_summary(
     t: NDArray[np.float64], gap: NDArray[np.float64], *, window: tuple[float, float] | None
@@ -181,6 +194,23 @@ class AlignmentMetrics:
     skipped: int
     """Samples excluded because either direction was (numerically) zero."""
 
+    def __post_init__(self) -> None:
+        """Cosines lie in [-1, 1], fractions in [0, 1]; both are None exactly when no sample is usable."""
+        if self.samples < 0 or self.skipped < 0:
+            msg = f"sample counts must be non-negative, got {self}"
+            raise ValueError(msg)
+        if (self.samples == 0) != (self.mean_cosine is None) or (self.samples == 0) != (
+            self.positive_fraction is None
+        ):
+            msg = f"mean_cosine and positive_fraction must be None exactly when samples == 0, got {self}"
+            raise ValueError(msg)
+        if self.mean_cosine is not None and not -1.0 - 1e-9 <= self.mean_cosine <= 1.0 + 1e-9:
+            msg = f"mean_cosine must lie in [-1, 1], got {self.mean_cosine!r}"
+            raise ValueError(msg)
+        if self.positive_fraction is not None and not 0.0 <= self.positive_fraction <= 1.0:
+            msg = f"positive_fraction must lie in [0, 1], got {self.positive_fraction!r}"
+            raise ValueError(msg)
+
 
 def restoring_alignment(
     q_desired: NDArray[np.float64], q: NDArray[np.float64], q_ref: NDArray[np.float64]
@@ -215,6 +245,15 @@ class DecayFit:
     log_residual_rms: float
     samples: int
 
+    def __post_init__(self) -> None:
+        """The fit is finite with a non-negative residual over at least two samples."""
+        if not (np.isfinite(self.rate_per_s) and np.isfinite(self.log_residual_rms)):
+            msg = f"decay fit values must be finite, got {self}"
+            raise ValueError(msg)
+        if self.log_residual_rms < 0 or self.samples < _MIN_WINDOW_SAMPLES:
+            msg = f"a decay fit needs a non-negative residual and >= {_MIN_WINDOW_SAMPLES} samples, got {self}"
+            raise ValueError(msg)
+
 
 @dataclass(frozen=True)
 class SettlingMetrics:
@@ -224,6 +263,17 @@ class SettlingMetrics:
     settling_time_s: float | None
     """First time from which every later sample stays inside the band (``None`` when it never settles)."""
     decay: DecayFit | None
+
+    def __post_init__(self) -> None:
+        """The band is positive and a settling time, when present, is a finite non-negative task time."""
+        if not (self.band_rad > 0 and np.isfinite(self.band_rad)):
+            msg = f"band_rad must be positive and finite, got {self.band_rad!r}"
+            raise ValueError(msg)
+        if self.settling_time_s is not None and not (
+            np.isfinite(self.settling_time_s) and self.settling_time_s >= 0
+        ):
+            msg = f"settling_time_s must be finite and non-negative, got {self.settling_time_s!r}"
+            raise ValueError(msg)
 
 
 def _line_fit(x: NDArray[np.float64], y: NDArray[np.float64]) -> tuple[float, float]:
@@ -281,6 +331,16 @@ class SmoothnessMetrics:
     jerk_max: float
     samples: int
 
+    def __post_init__(self) -> None:
+        """Statistics are finite, non-negative, and ordered (max >= rms) over at least four samples."""
+        values = (self.accel_rms, self.accel_max, self.jerk_rms, self.jerk_max)
+        if any(not np.isfinite(v) or v < 0 for v in values):
+            msg = f"smoothness values must be finite and non-negative, got {self}"
+            raise ValueError(msg)
+        if self.samples < 4 or self.accel_max < self.accel_rms or self.jerk_max < self.jerk_rms:  # noqa: PLR2004
+            msg = f"smoothness needs >= 4 samples with max >= rms, got {self}"
+            raise ValueError(msg)
+
 
 def smoothness_metrics(t: NDArray[np.float64], q: NDArray[np.float64]) -> SmoothnessMetrics:
     """Second/third finite differences of ``q`` on the uniform grid ``t``."""
@@ -314,6 +374,20 @@ class PairedSummary:
     improving: int
     """Scenarios where the rc value is strictly below replay's."""
     n: int
+
+    def __post_init__(self) -> None:
+        """The summary fields must derive from the persisted ratios."""
+        if not self.ratios or any(not np.isfinite(r) or r < 0 for r in self.ratios):
+            msg = f"ratios must be non-empty, finite, and non-negative, got {self.ratios}"
+            raise ValueError(msg)
+        expected_median = float(statistics.median(self.ratios))
+        expected_improving = sum(1 for r in self.ratios if r < 1.0)
+        if self.n != len(self.ratios) or self.median_ratio != expected_median or self.improving != expected_improving:
+            msg = (
+                f"paired summary fields contradict the ratios: n={self.n}, median={self.median_ratio!r}, "
+                f"improving={self.improving} vs derived {len(self.ratios)}, {expected_median!r}, {expected_improving}"
+            )
+            raise ValueError(msg)
 
 
 def paired_summary(rc: tuple[float, ...], replay: tuple[float, ...]) -> PairedSummary:
@@ -382,17 +456,37 @@ class RecoveryMetricsReport:
     alignment: AlignmentMetrics
     reference_settling: SettlingMetrics
     generated_dwell: DwellMetrics
+    criteria: GeneratedReferenceCriteria
     generated_dwell_criteria: dict[str, bool]
     smoothness_desired: SmoothnessMetrics
     smoothness_actual: SmoothnessMetrics
     schema_version: int = RECOVERY_REPORT_SCHEMA_VERSION
 
     def __post_init__(self) -> None:
-        """Require the supported schema version."""
+        """Require the supported schema and internally consistent derived fields."""
         if self.schema_version != RECOVERY_REPORT_SCHEMA_VERSION:
             msg = (
                 f"unsupported recovery report schema_version {self.schema_version}; "
                 f"expected {RECOVERY_REPORT_SCHEMA_VERSION}"
+            )
+            raise ValueError(msg)
+        if not (np.isfinite(self.activation_jump_rad) and self.activation_jump_rad >= 0):
+            msg = f"activation_jump_rad must be finite and non-negative, got {self.activation_jump_rad!r}"
+            raise ValueError(msg)
+        for name, early, full in (
+            ("command_gap", self.command_gap_early, self.command_gap_full),
+            ("reference_deviation", self.reference_deviation_early, self.reference_deviation_full),
+        ):
+            if early.window[0] != 0.0 or early.window[1] > full.window[1] + _GRID_TOLERANCE_S:
+                msg = f"{name}_early window {early.window} must start at task time 0 inside the full {full.window}"
+                raise ValueError(msg)
+            if early.integral > full.integral + _GRID_TOLERANCE_S or early.max > full.max + _GRID_TOLERANCE_S:
+                msg = f"{name}_early cannot exceed the full-run summary: {early} vs {full}"
+                raise ValueError(msg)
+        if self.generated_dwell_criteria != self.criteria.evaluate(self.generated_dwell):
+            msg = (
+                f"generated_dwell_criteria {self.generated_dwell_criteria} contradict the recorded "
+                f"criteria over the recorded dwell metrics"
             )
             raise ValueError(msg)
 
@@ -433,6 +527,7 @@ def compute_recovery_metrics(
         alignment=restoring_alignment(q_desired, q, q_ref),
         reference_settling=settling_metrics(times, deviation, band_rad=settling_band_rad),
         generated_dwell=generated_dwell,
+        criteria=gates,
         generated_dwell_criteria=gates.evaluate(generated_dwell),
         smoothness_desired=smoothness_metrics(times, q_desired),
         smoothness_actual=smoothness_metrics(times, q),

@@ -125,8 +125,17 @@ HUMAN_ONSET = dataclasses.replace(
     confirmed_by="human",
 )
 
-BASELINE = BaselineCheck(q_pre=(0.2001, 1.1999), tolerance_rad=0.01, max_deviation_rad=0.0004, status="passed")
-FLAGGED = BaselineCheck(q_pre=(0.7, 0.4), tolerance_rad=0.01, max_deviation_rad=0.5, status="flagged")
+def _baseline(q_pre: tuple[float, ...], tolerance_rad: float) -> BaselineCheck:
+    """A baseline whose recorded deviation is recomputed exactly as the derivation records it."""
+    q0_ref = tuple(float(v) for v in _samples().q[0])
+    deviation = float(np.max(np.abs(np.asarray(q_pre) - np.asarray(q0_ref))))
+    status = "passed" if deviation <= tolerance_rad else "flagged"
+    return BaselineCheck(q_pre=q_pre, tolerance_rad=tolerance_rad, max_deviation_rad=deviation, status=status)
+
+
+_Q0 = tuple(float(v) for v in _samples().q[0])
+BASELINE = _baseline((_Q0[0] + 0.0002, _Q0[1] - 0.0004), tolerance_rad=0.01)
+FLAGGED = _baseline((0.7, 0.4), tolerance_rad=0.01)
 
 CROP = CropWindow(
     pre_roll=(0.0, 1.0),
@@ -226,7 +235,11 @@ def test_human_onset_records_proposal_confirmation_and_adjustment(tmp_path: Path
 def test_q0_ref_is_the_first_cropped_sample_and_never_q_pre() -> None:
     """A record claiming q_pre as q0_ref fails against the arrays; the flag never rewrites q0_ref."""
     samples = _samples()
-    imposter = _record(q0_ref=BASELINE.q_pre)
+    # An imposter must also fake a consistent baseline deviation to get past construction;
+    # check_samples still catches the substitution against the actual arrays.
+    imposter = _record(
+        q0_ref=BASELINE.q_pre, baseline=dataclasses.replace(BASELINE, max_deviation_rad=0.0)
+    )
     with pytest.raises(ValueError, match="never"):
         imposter.check_samples(samples)
     flagged = _record(baseline=FLAGGED)
@@ -295,6 +308,28 @@ def test_recovery_record_invariants(changes: dict[str, object], message: str) ->
     """Cross-field consistency is enforced at construction."""
     with pytest.raises(ValueError, match=message):
         _record(**changes)
+
+
+def test_baseline_deviation_is_recomputed_at_construction() -> None:
+    """A tampered max_deviation_rad that no longer derives from q_pre and q0_ref is rejected."""
+    consistent_status = BASELINE.status
+    tampered = BaselineCheck(
+        q_pre=BASELINE.q_pre,
+        tolerance_rad=BASELINE.tolerance_rad,
+        max_deviation_rad=BASELINE.max_deviation_rad / 2,
+        status=consistent_status,
+    )
+    with pytest.raises(ValueError, match="recomputed deviation"):
+        _record(baseline=tampered)
+
+
+def test_crop_task_must_agree_with_the_stored_phase_transition() -> None:
+    """check_samples rejects a record whose task intervals disagree with the phase array."""
+    samples = _samples()
+    shifted_task = TaskIntervals(move=(0.0, 0.02), dwell=(0.02, 0.05))
+    record = _record(crop=dataclasses.replace(CROP, task=shifted_task))
+    with pytest.raises(ValueError, match="phase transition"):
+        record.check_samples(samples)
 
 
 def test_wrong_kind_is_rejected() -> None:
