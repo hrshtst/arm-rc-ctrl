@@ -343,12 +343,17 @@ def training_spec_for(protocol: RecoverySearchProtocol, point: RecoveryTrialPoin
 
 
 def check_matched_protocols(first: RecoverySearchProtocol, second: RecoverySearchProtocol) -> None:
-    """Fail unless two formulation studies are matched: identical counts, spaces, banks, and objective."""
+    """Fail unless two formulation studies are matched on every dimension applicable to both.
+
+    Identical budgets, attempt factors, ESN bounds, warm-up sets, objectives, and feasibility; the
+    augmented pair additionally shares its augmentation grids and seed bank. Inapplicable dimensions
+    (the no-augmentation study has no grids) are absent by construction and therefore not compared.
+    """
     pairs = (
         ("budget", first.budget, second.budget),
         ("attempt_factor", first.attempt_factor, second.attempt_factor),
         ("esn space", first.esn, second.esn),
-        ("space", first.space, second.space),
+        ("space.warmups_s", first.space.warmups_s, second.space.warmups_s),
         ("objective", first.objective, second.objective),
         ("feasibility", first.feasibility, second.feasibility),
     )
@@ -356,9 +361,16 @@ def check_matched_protocols(first: RecoverySearchProtocol, second: RecoverySearc
         if a != b:
             msg = f"studies {first.name!r} and {second.name!r} differ in {name}: {a!r} != {b!r}"
             raise ValueError(msg)
-    if first.formulation in _AUGMENTED and second.formulation in _AUGMENTED and first.seed_bank != second.seed_bank:
-        msg = f"the augmented studies must share their seed bank, got {first.seed_bank} and {second.seed_bank}"
-        raise ValueError(msg)
+    if first.formulation in _AUGMENTED and second.formulation in _AUGMENTED:
+        if first.space.augmentation != second.space.augmentation:
+            msg = (
+                f"studies {first.name!r} and {second.name!r} differ in their augmentation grids: "
+                f"{first.space.augmentation!r} != {second.space.augmentation!r}"
+            )
+            raise ValueError(msg)
+        if first.seed_bank != second.seed_bank:
+            msg = f"the augmented studies must share their seed bank, got {first.seed_bank} and {second.seed_bank}"
+            raise ValueError(msg)
 
 
 def enqueue_recovery_comparisons(study: optuna.Study, protocol: RecoverySearchProtocol) -> int:

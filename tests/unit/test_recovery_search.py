@@ -224,6 +224,15 @@ def test_matched_protocols_share_counts_and_banks(tmp_path: Path) -> None:
     contractive = load_recovery_search(_write(tmp_path, name="a", formulation="contractive"))
     non_decaying = load_recovery_search(_write(tmp_path, name="b", formulation="non_decaying", sampler_seed=78))
     check_matched_protocols(contractive, non_decaying)
+    plain = load_recovery_search(
+        _write(tmp_path, name="p", formulation="no_augmentation", sampler_seed=79, augmented=False)
+    )
+    check_matched_protocols(plain, contractive)  # only the dimensions applicable to both are compared
+    narrowed_text = _write(tmp_path, name="d", formulation="non_decaying").read_text(encoding="utf-8")
+    narrowed = tmp_path / "d.toml"
+    narrowed.write_text(narrowed_text.replace("n_synthetic = [16, 32]", "n_synthetic = [16]"), encoding="utf-8")
+    with pytest.raises(ValueError, match="augmentation grids"):
+        check_matched_protocols(contractive, load_recovery_search(narrowed))
     mismatched_text = _write(tmp_path, name="c", formulation="non_decaying").read_text(encoding="utf-8")
     mismatched = tmp_path / "c.toml"
     mismatched.write_text(mismatched_text.replace("budget = 12", "budget = 13"), encoding="utf-8")
