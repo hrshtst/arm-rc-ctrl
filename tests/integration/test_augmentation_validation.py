@@ -293,8 +293,10 @@ def test_command_line_entry_point(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
 
 
 def test_no_confirmatory_seed_is_consumed() -> None:
-    """Every stream starts with the augmentation namespace, never an M3 confirmatory seed."""
+    """The augmentation namespace is disjoint from every M3 confirmatory seed and from date-shaped values."""
     confirmatory = {20260901, 20260902, 20260903, 20260904, 20260905}
-    assert SEED_NAMESPACE == 20260903
+    assert SEED_NAMESPACE == 415926535
+    assert SEED_NAMESPACE not in confirmatory
+    assert not 20200101 <= SEED_NAMESPACE <= 20401231  # never a YYYYMMDD-shaped seed
     for config in (dataclasses.replace(GRID[0], seed_bank=7), GRID[1]):
         assert config.seed_bank not in confirmatory

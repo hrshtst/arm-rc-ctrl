@@ -58,12 +58,14 @@ __all__ = [
     "terminal_taper",
 ]
 
-SEED_NAMESPACE: Final = 20260903
+SEED_NAMESPACE: Final = 415926535
 """Leading entropy word of every augmentation stream: ``default_rng([SEED_NAMESPACE, seed_bank, attempt])``.
 
-The date of the D1 protocol approval. The three-word streams are disjoint from
-M3's two-word ``[seed, stream]`` scenario streams and from the (separately
-allocated) development and confirmatory evaluation namespaces.
+Allocated 2026-09-03 for the augmentation namespace only. Deliberately not a
+date: it is disjoint from every ``YYYYMMDD``-shaped seed (including M3's
+confirmatory seeds 20260901-20260905) and from the separately allocated M3R
+development and confirmatory evaluation namespaces; the three-word streams are
+additionally disjoint from M3's two-word ``[seed, stream]`` scenario streams.
 """
 
 TAPER_DURATION_S: Final = 0.2

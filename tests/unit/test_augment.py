@@ -131,7 +131,7 @@ def test_generation_is_deterministic_and_seed_separated() -> None:
     assert first.digests() == second.digests()
     other = _generate(_config(seed_bank=2))
     assert other.digests() != first.digests()
-    assert SEED_NAMESPACE == 20260903
+    assert SEED_NAMESPACE == 415926535
 
 
 def test_original_episode_is_the_unmodified_demonstration() -> None:
