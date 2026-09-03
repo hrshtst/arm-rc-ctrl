@@ -432,17 +432,40 @@ evidence—not a favorable scientific result. The eventual task ledger should
 split these gates into reviewable, test-first tasks and must not reopen or edit
 M3 artifacts.
 
-## 9. Decisions to approve before implementation
+## 9. Decisions to approve implementation
 
-The owner should explicitly approve:
+### 9.1 Confirmed decisions
 
-- the experiment label and separation from M3;
-- the cropped task-onset rule and common pre-task hold semantics;
-- the primary absolute-output formulation and residual-output status;
-- augmentation parameter ranges and number of synthetic episodes;
-- development/confirmatory seeds and common perturbation envelope;
-- any revision to Section 7.3's development eligibility or model-freeze rule;
-- whether a human demonstration replaces or supplements the scripted source.
+These decisions have been reviewed and are no longer implementation choices:
 
-Until those choices are frozen, this document is a proposal and no
-confirmatory label may be used.
+| Decision | Approved protocol |
+| --- | --- |
+| Experiment identity | Use `task_1a_recovery_v1` as a new experiment family. M3 artifacts and conclusions remain frozen. |
+| Recording semantics | Retain a configured 1.0 s pre-roll for scripted recordings and instruct a manual teacher to hold for about 1.0 s or longer. The raw recording retains the complete interval. |
+| Crop and activation | Use pre-roll samples as preprocessing context, crop the derived task episode at confirmed demonstration motion onset, and activate replay and RC together at task time zero after the common pre-task hold. |
+| Initial posture | Define the task initial posture only as $q_0^{\mathrm{ref}}$. Every perturbed run starts from $q_0^{\mathrm{ref}}+\Delta q^{\mathrm{eval}}$; $q^{\mathrm{pre}}$ is used only for onset detection and validation. |
+| Reservoir lifecycle | Reset the reservoir to its all-zero state and execute the configured warm-up independently for every original or synthetic training episode and every evaluation run. |
+| Augmentation process | Use seeded Gaussian innovations passed through the AR(1) process, with $\phi\in\{0.98,0.99,0.995\}$ and 0.99 as the anchor. Recompute velocity from augmented position; do not perturb velocity independently. |
+| RC interface and logging | All RC arms consume measured $[q,\dot q]$. Absolute position is the primary readout; the residual formulation is an explicitly named ablation. Store `generator_output_q` and, for the residual arm, `generator_increment_q`; do not use `rc_output`. |
+| Tracking and safety | Retain the frozen PD v2 and computed-torque trackers and symmetric limits of 10 N·m and 5 N·m. Apply identical limits and scenario initialization to every arm. |
+| Evaluation interpretation | Require safety and target dwell, assess the recovery mechanism by paired early command-gap reduction, and retain original-trajectory RMSE only as a diagnostic rather than a success gate. |
+
+### 9.2 Remaining owner approvals
+
+The following choices must be frozen before implementation begins. Recommended
+defaults are deliberately bounded development choices, not favorable outcomes:
+
+| ID | Decision | Recommended approval |
+| --- | --- | --- |
+| D1 | Augmentation budget and search range | Include the original episode and search $N_{\mathrm{aug}}\in\{16,32,64\}$ accepted synthetic episodes, $\sigma\in\{0.01,0.025,0.05,0.10\}$ rad, and $\gamma\in\{0.5,1,2\}$; use $(64,0.05,1)$ as the anchor. Pair non-decaying and contractive arms by using the same episode seeds and amplitudes. Record rejected episodes and fail a configuration after a declared finite attempt budget rather than resampling indefinitely. |
+| D2 | Warm-up-duration search | Evaluate $T_w\in\{0.25,0.5,1.0,2.0\}$ s with 1.0 s as the anchor, then freeze the shortest duration that satisfies the declared reservoir-state convergence and output-sensitivity checks across development initial postures. |
+| D3 | Evaluation split and perturbation envelope | Retain 13 scenarios per class for continuity with M3, but allocate new mutually disjoint augmentation, development, and confirmatory seed namespaces. Begin the common safety pilot from the M3 levels (0.05/0.10 rad posture offsets and 12 N force); freeze one method-independent envelope from the pilot before confirmatory execution. |
+| D4 | Residual-arm scope | Keep residual output development-only initially. Include it in the locked confirmatory suite only if it passes the same safety, target, stability, and seed-panel gates before the protocol freeze; otherwise report it as an exploratory negative or inconclusive result. |
+| D5 | Model-freeze rule | Approve Section 7.3 unchanged: both median paired ratios below 1, at least 75% of posture scenarios improving both early metrics, generated-reference and actual-motion dwell gates, safety limits, and lexicographic selection. Any later numerical revision creates a new protocol version. |
+| D6 | Demonstration source | Use the existing scripted demonstration as the sole independent source for v1 so the timing/augmentation change is isolated. Add a human demonstration later as a separately identified replication dataset, not as additional v1 training data. |
+
+Approval of D1--D6 locks the protocol for implementation. It does not authorize
+the confirmatory run: that remains separately gated by the completed timing
+vertical slice, augmentation validation, development ablation, model freeze,
+and clean-checkout review in Section 8. Until these choices are approved, this
+document remains a proposal and no confirmatory label may be used.
