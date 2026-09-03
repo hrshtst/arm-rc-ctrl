@@ -29,7 +29,7 @@ from arm_rc_ctrl.controllers.tracking import LimitedTracker
 from arm_rc_ctrl.data.recovery import RecoveryDatasetRecord, task_intervals_from_phases
 from arm_rc_ctrl.experiments.disturbances import ForcePulse
 from arm_rc_ctrl.experiments.run_record import LoadedRun, RunPointerRecord, RunSummary, load_run, write_run
-from arm_rc_ctrl.experiments.simulation import GENERATOR_CHANNELS, simulate
+from arm_rc_ctrl.experiments.simulation import GENERATOR_CHANNELS, RESIDUAL_CHANNELS, simulate
 from arm_rc_ctrl.experiments.termination import Outcome
 from arm_rc_ctrl.metrics.dwell import dwell_metrics
 from arm_rc_ctrl.metrics.recovery import RecoveryMetricsReport, compute_recovery_metrics
@@ -329,13 +329,14 @@ def run_recovery_pair(
         recipe, {reference_artifact: reference}, estimator=est, position_bounds=(lower, upper)
     )
     rc_controller = GeneratorTrackingController(generator, tracker, scenario.limits.torque, hold_until_s=activation)
+    rc_channels = RESIDUAL_CHANNELS if recipe.training.target == "increment_q" else GENERATOR_CHANNELS
     rc_arrays, rc_termination = simulate(
         scenario,
         rc_controller,
         duration_s=duration,
         initial_q=start,
         force=run_force,
-        channels=GENERATOR_CHANNELS,
+        channels=rc_channels,
     )
     rc = _persist(
         rc_arrays,

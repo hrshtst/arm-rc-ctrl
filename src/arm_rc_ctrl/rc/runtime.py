@@ -71,5 +71,9 @@ def generator_from_recipe(
     if position_bounds is not None:
         bounds = (np.asarray(position_bounds[0], dtype=np.float64), np.asarray(position_bounds[1], dtype=np.float64))
     return RcTargetGenerator(
-        model, recipe.encoder(), CausalDerivativeEstimator(estimator, recipe.dof), position_bounds=bounds
+        model,
+        recipe.encoder(),
+        CausalDerivativeEstimator(estimator, recipe.dof),
+        position_bounds=bounds,
+        output="increment" if recipe.training.target == "increment_q" else "absolute",
     )

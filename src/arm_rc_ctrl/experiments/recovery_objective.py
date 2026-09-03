@@ -58,7 +58,7 @@ from arm_rc_ctrl.experiments.recovery_slice import (
     recovery_outcome,
     recovery_report_from_arrays,
 )
-from arm_rc_ctrl.experiments.simulation import GENERATOR_CHANNELS, simulate
+from arm_rc_ctrl.experiments.simulation import GENERATOR_CHANNELS, RESIDUAL_CHANNELS, simulate
 from arm_rc_ctrl.metrics.effort import effort_metrics
 from arm_rc_ctrl.metrics.recovery import EARLY_WINDOW_S, SATURATION_BOUND, activation_jump, gap_series, gap_summary
 from arm_rc_ctrl.rc.generator import RcTargetGenerator
@@ -78,6 +78,7 @@ if TYPE_CHECKING:
     from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
     from arm_rc_ctrl.experiments.recovery_search import RecoverySearchProtocol
     from arm_rc_ctrl.experiments.run_record import RunArrays
+    from arm_rc_ctrl.experiments.simulation import ChannelMap
     from arm_rc_ctrl.experiments.termination import Termination
     from arm_rc_ctrl.rc.esn import EsnModel
     from arm_rc_ctrl.rc.recipe import ModelRecipe
@@ -524,6 +525,7 @@ def _run_development(
     bound: float,
     penalty: float,
     settling_band_rad: float,
+    channels: ChannelMap,
     report: ReportCallback | None,
 ) -> tuple[list[RecoveryComponent], dict[tuple[str, str], list[float]], list[float], bool, bool]:
     """Run the (scenario, tracker) grid until a pair is infeasible or ``report`` stops the evaluation."""
@@ -546,7 +548,7 @@ def _run_development(
                     duration_s=duration,
                     initial_q=start,
                     force=run_force,
-                    channels=GENERATOR_CHANNELS,
+                    channels=channels,
                 )
                 component = _component(
                     index,
@@ -634,6 +636,7 @@ def evaluate_recovery_point(
         bound=bound,
         penalty=penalty,
         settling_band_rad=settling_band_rad,
+        channels=RESIDUAL_CHANNELS if recipe.training.target == "increment_q" else GENERATOR_CHANNELS,
         report=report,
     )
     feasible = not infeasible_hit and len(components) == total

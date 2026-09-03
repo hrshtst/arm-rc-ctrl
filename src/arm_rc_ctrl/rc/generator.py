@@ -11,6 +11,9 @@ while the desired position stays at the initial posture; from then on
 :meth:`step` reads out the next desired position and the causal estimator
 supplies desired velocity and acceleration. A non-finite prediction, or one
 outside the configured joint bounds, is rejected as a :class:`GeneratorError`.
+In the residual mode (recovery plan section 6.1) the readout is an increment
+``r`` and the commanded position is the composed ``q_measured + r``; the raw
+increment is exposed as its own telemetry channel.
 """
 
 from __future__ import annotations
@@ -40,8 +43,13 @@ class RcTargetGenerator(TargetGeneratorBase):
         estimator: CausalDerivativeEstimator,
         *,
         position_bounds: tuple[NDArray[np.float64], NDArray[np.float64]] | None = None,
+        output: str = "absolute",
     ) -> None:
         super().__init__()
+        if output not in ("absolute", "increment"):
+            msg = f"unsupported output {output!r}; supported: 'absolute', 'increment'"
+            raise ValueError(msg)
+        self._output = output
         if not model.fitted:
             msg = "the ESN readout must be fitted before it can generate targets"
             raise ValueError(msg)
@@ -96,7 +104,14 @@ class RcTargetGenerator(TargetGeneratorBase):
             raise GeneratorError(msg, category="shape")
         return self._encoder.encode(state.q, state.dq, code)
 
-    def _telemetry(self, u: NDArray[np.float64], prediction: NDArray[np.float64], mode: float) -> None:
+    def _telemetry(
+        self,
+        u: NDArray[np.float64],
+        prediction: NDArray[np.float64],
+        mode: float,
+        *,
+        increment: NDArray[np.float64] | None = None,
+    ) -> None:
         estimate = self._estimator.last
         channels = estimate.channels() if estimate is not None else {}
         generating = mode >= 1.0
@@ -110,6 +125,9 @@ class RcTargetGenerator(TargetGeneratorBase):
             # M3R task-time telemetry: the readout channel exists only while active; the warm-up
             # channels exist only while the readout is inactive (never a hold command as readout).
             "generator_output_q": np.array(prediction, dtype=np.float64) if generating else np.full(dof, np.nan),
+            "generator_increment_q": (
+                np.array(increment, dtype=np.float64) if generating and increment is not None else np.full(dof, np.nan)
+            ),
             "warmup_state_norm": np.array([np.nan if generating else state_norm]),
             "warmup_esn_input": np.full(u.shape[0], np.nan) if generating else np.array(u, dtype=np.float64),
             **channels,
@@ -133,11 +151,12 @@ class RcTargetGenerator(TargetGeneratorBase):
         if not np.all(np.isfinite(prediction)):
             msg = f"the ESN produced a non-finite target {prediction.tolist()} at t = {state.t} s"
             raise GeneratorError(msg, category="non_finite")
+        command = np.asarray(state.q, dtype=np.float64) + prediction if self._output == "increment" else prediction
         if self._bounds is not None:
             lower, upper = self._bounds
-            if np.any(prediction < lower) or np.any(prediction > upper):
-                msg = f"the ESN target {prediction.tolist()} leaves the joint bounds at t = {state.t} s"
+            if np.any(command < lower) or np.any(command > upper):
+                msg = f"the ESN target {command.tolist()} leaves the joint bounds at t = {state.t} s"
                 raise GeneratorError(msg, category="bounds")
-        estimate = self._estimator.update(state.t, prediction)
-        self._telemetry(u, prediction, 1.0)
-        return DesiredJointState(prediction, estimate.dq, estimate.ddq)
+        estimate = self._estimator.update(state.t, command)
+        self._telemetry(u, command, 1.0, increment=prediction if self._output == "increment" else None)
+        return DesiredJointState(command, estimate.dq, estimate.ddq)

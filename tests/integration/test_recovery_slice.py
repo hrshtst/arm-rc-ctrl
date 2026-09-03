@@ -412,3 +412,51 @@ def test_provenance_records_the_common_schedule(
         assert result.summary.provenance.artifacts[0].sha256 == record.artifact.payload.sha256
         assert result.pointer.artifact.origin.sources == (record.artifact.artifact_id,)
     assert pair.rc.summary.provenance.seeds == {"reservoir": ESN.reservoir.seed}
+
+
+def test_residual_recipe_composes_and_records_the_increment(
+    fixture_dataset: tuple[RecoveryDatasetRecord, SampleSet], tmp_path: Path
+) -> None:
+    """A residual recipe runs the pair with the increment channel masked, finite, and composed (plan 6.1)."""
+    record, samples = fixture_dataset
+    store_root = tmp_path / "store"
+    store_root.mkdir()
+    store = StorageRoot(store_root, repositories=(REPO_ROOT,))
+    assert record.normalization is not None
+    transform = InputTransform.derive("fixed_scale", record.normalization, fixed_scales={"q": 0.3, "dq": 4.0})
+    recipe, _ = create_recipe(
+        "slice-residual",
+        ESN,
+        sources=[
+            DatasetSource(
+                record.artifact.artifact_id,
+                record.artifact.payload.sha256,
+                f"data/records/processed/{record.artifact.artifact_id}.toml",
+            )
+        ],
+        samples={record.artifact.artifact_id: samples},
+        dof=2,
+        task_code_dim=0,
+        preprocessing=record.preprocessing,
+        transform=transform,
+        training=TrainingSpec(washout="warmup_hold", warmup_s=0.25, target="increment_q"),
+    )
+    pair = run_recovery_pair(
+        SCENARIO,
+        SCENARIO_FILE,
+        record,
+        samples,
+        recipe,
+        TRACKER,
+        store=store,
+        warmup=WarmupConfig(0.25),
+        exploratory=True,
+    )
+    rc = pair.rc.run.arrays.arrays
+    assert "generator_increment_q" in rc
+    hold = rc["t"] < 0.25
+    active = ~hold
+    assert bool(active.any())
+    assert np.all(np.isnan(rc["generator_increment_q"][hold]))
+    assert np.all(np.isfinite(rc["generator_increment_q"][active]))
+    assert np.array_equal(rc["generator_output_q"][active], rc["q"][active] + rc["generator_increment_q"][active])

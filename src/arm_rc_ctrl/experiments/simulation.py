@@ -38,6 +38,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "GENERATOR_CHANNELS",
+    "RESIDUAL_CHANNELS",
     "TRACKER_CHANNELS",
     "ChannelMap",
     "TelemetryController",
@@ -109,6 +110,23 @@ GENERATOR_CHANNELS: Final = ChannelMap(
 hold); the warm-up channels carry the priming input and state norm only before
 activation. ``generator_increment_q`` stays ``None`` until a residual arm
 produces it.
+"""
+
+RESIDUAL_CHANNELS: Final = ChannelMap(
+    q_desired="q_desired",
+    dq_desired="dq_desired",
+    ddq_desired="ddq_desired",
+    dq_desired_raw="dq_desired_raw",
+    ddq_desired_raw="ddq_desired_raw",
+    phase="phase",
+    esn_state_norm="esn_state_norm",
+    generator_output_q="generator_output_q",
+    generator_increment_q="generator_increment_q",
+    warmup_state_norm="warmup_state_norm",
+    warmup_esn_input="warmup_esn_input",
+)
+"""Residual RC target generation (M3R-014): the generator channels plus the raw increment readout,
+which carries the readout only while active (the composed command is ``generator_output_q``).
 """
 
 

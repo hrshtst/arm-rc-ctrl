@@ -8,7 +8,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
-from arm_rc_ctrl.controllers.contracts import RobotState
+from arm_rc_ctrl.controllers.contracts import GeneratorError, RobotState
 from arm_rc_ctrl.controllers.estimator import CausalDerivativeEstimator, EstimatorConfig
 from arm_rc_ctrl.data.samples import SampleSet
 from arm_rc_ctrl.data.synthetic import synthetic_task_arrays, synthetic_task_samples
@@ -177,3 +177,55 @@ def test_increment_target_pairs_rows_with_position_differences() -> None:
     assert np.array_equal(episode.loss_rows, absolute.loss_rows)
     with pytest.raises(ValueError, match="unsupported target"):
         build_task_episode(SAMPLES, ENCODER, source=SOURCE, warmup=WarmupConfig(0.5), period_s=DT, target="delta")
+
+
+def _fitted_model(target: str) -> EsnModel:
+    model = _model()
+    episode = build_task_episode(SAMPLES, ENCODER, source=SOURCE, warmup=WarmupConfig(0.5), period_s=DT, target=target)
+    train_readout(model, [episode])
+    return model
+
+
+def test_increment_output_composes_measured_state_plus_readout() -> None:
+    """The residual mode commands q_measured + r, exposes the raw increment, and masks it while priming."""
+    estimator = EstimatorConfig(nominal_dt_s=DT)
+    absolute = RcTargetGenerator(_fitted_model("increment_q"), ENCODER, CausalDerivativeEstimator(estimator, 2))
+    residual = RcTargetGenerator(
+        _fitted_model("increment_q"), ENCODER, CausalDerivativeEstimator(estimator, 2), output="increment"
+    )
+    start = RobotState(0.0, SAMPLES.q[0], np.zeros(2))
+    absolute.reset(start)
+    residual.reset(start)
+    absolute.prime(start, np.zeros(0))
+    residual.prime(start, np.zeros(0))
+    assert np.all(np.isnan(residual.last["generator_increment_q"]))
+    measured = RobotState(DT, SAMPLES.q[1], SAMPLES.dq[1])
+    raw = absolute.step(measured, np.zeros(0))
+    composed = residual.step(measured, np.zeros(0))
+    assert np.array_equal(composed.q, np.asarray(measured.q) + raw.q)
+    assert np.array_equal(residual.last["generator_increment_q"], raw.q)
+    assert np.array_equal(residual.last["generator_output_q"], composed.q)
+    assert np.all(np.isnan(absolute.last["generator_increment_q"]))
+
+
+def test_increment_bounds_apply_to_the_composed_command() -> None:
+    """Bounds reject the composed command, and only the documented output modes exist."""
+    with pytest.raises(ValueError, match="unsupported output"):
+        RcTargetGenerator(
+            _fitted_model("increment_q"),
+            ENCODER,
+            CausalDerivativeEstimator(EstimatorConfig(nominal_dt_s=DT), 2),
+            output="delta",
+        )
+    tight = (np.array([-1e-6, -1e-6]), np.array([1e-6, 1e-6]))
+    residual = RcTargetGenerator(
+        _fitted_model("increment_q"),
+        ENCODER,
+        CausalDerivativeEstimator(EstimatorConfig(nominal_dt_s=DT), 2),
+        position_bounds=tight,
+        output="increment",
+    )
+    start = RobotState(0.0, SAMPLES.q[0], np.zeros(2))
+    residual.reset(start)
+    with pytest.raises(GeneratorError, match="bounds"):
+        residual.step(RobotState(DT, SAMPLES.q[1], SAMPLES.dq[1]), np.zeros(0))
