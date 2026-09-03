@@ -151,7 +151,8 @@ class TrainingSpec:
 
     input_channels: tuple[str, ...] = INPUT_CHANNELS
     target: str = "next_q"
-    """Absolute next demonstrated joint position (the only supported output representation)."""
+    """``next_q`` (absolute next joint position) or ``increment_q`` (the residual arm's
+    ``q_{k+1} - q_k``; recovery plan section 6.1, requires the ``warmup_hold`` washout)."""
     washout: str = "prime_phase"
     """``prime_phase`` (M3: washout rows lie in the prime interval) or ``warmup_hold`` (M3R-006:
     the washout repeats the episode's encoded ``[q_0, 0]`` for the configured warm-up)."""
@@ -162,10 +163,16 @@ class TrainingSpec:
 
     def __post_init__(self) -> None:
         """Only the implemented representations are accepted."""
-        if self.input_channels != INPUT_CHANNELS or self.target != "next_q":
-            msg = f"unsupported training spec {self!r}; supported: input_channels {INPUT_CHANNELS}, target 'next_q'"
+        if self.input_channels != INPUT_CHANNELS or self.target not in ("next_q", "increment_q"):
+            msg = (
+                f"unsupported training spec {self!r}; supported: input_channels {INPUT_CHANNELS}, "
+                "target 'next_q' or 'increment_q'"
+            )
             raise ValueError(msg)
         if self.washout == "prime_phase":
+            if self.target != "next_q":
+                msg = "the 'increment_q' target requires the 'warmup_hold' washout (recovery plan section 6.1)"
+                raise ValueError(msg)
             if self.warmup_s is not None:
                 msg = "warmup_s is only meaningful for the 'warmup_hold' washout"
                 raise ValueError(msg)
@@ -404,7 +411,14 @@ def _build_episodes(
     warmup = WarmupConfig(cast("float", spec.warmup_s))
     period = preprocessing.resample_period_s
     episodes = [
-        build_task_episode(samples[s.artifact_id], encoder, source=s.artifact_id, warmup=warmup, period_s=period)
+        build_task_episode(
+            samples[s.artifact_id],
+            encoder,
+            source=s.artifact_id,
+            warmup=warmup,
+            period_s=period,
+            target=spec.target,
+        )
         for s in sources
     ]
     augmentation = spec.augmentation
@@ -434,6 +448,7 @@ def _build_episodes(
                 source=f"{source.artifact_id}#{augmentation.family}-{episode.episode:03d}",
                 warmup=warmup,
                 period_s=period,
+                target=spec.target,
             )
         )
     return episodes

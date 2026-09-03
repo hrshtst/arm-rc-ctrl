@@ -162,3 +162,18 @@ def test_ideal_hold_priming_reproduces_the_training_warmup_state() -> None:
     assert np.array_equal(model.state(), expected)
     inputs = warmup_inputs(ENCODER, q0, warmup.n_rows(DT))
     assert np.array_equal(inputs[0], ENCODER.encode(q0, np.zeros(2)))
+
+
+def test_increment_target_pairs_rows_with_position_differences() -> None:
+    """The residual representation: zero increments on warm rows, q_{k+1} - q_k on task rows."""
+    episode = build_task_episode(
+        SAMPLES, ENCODER, source=SOURCE, warmup=WarmupConfig(0.5), period_s=DT, target="increment_q"
+    )
+    absolute = build_task_episode(SAMPLES, ENCODER, source=SOURCE, warmup=WarmupConfig(0.5), period_s=DT)
+    n_w = 50
+    assert np.array_equal(episode.targets[:n_w], np.zeros((n_w, 2)))
+    assert np.array_equal(episode.targets[n_w:], np.diff(SAMPLES.q, axis=0))
+    assert np.array_equal(episode.inputs, absolute.inputs)
+    assert np.array_equal(episode.loss_rows, absolute.loss_rows)
+    with pytest.raises(ValueError, match="unsupported target"):
+        build_task_episode(SAMPLES, ENCODER, source=SOURCE, warmup=WarmupConfig(0.5), period_s=DT, target="delta")

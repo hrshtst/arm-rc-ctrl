@@ -113,13 +113,21 @@ def build_task_episode_arrays(
     source: str,
     warmup: WarmupConfig,
     period_s: float,
+    target: str = "next_q",
 ) -> Episode:
     """The warm-up-prefixed episode of raw task-clock arrays (datasets and synthetic episodes alike).
 
     The warm-up rows repeat the encoded ``[q_0, 0]`` on ``[-T_w, 0)`` and are
     excluded from the loss; every task row enters the loss. With ``T_w = 0``
-    the episode is the pure task pairing.
+    the episode is the pure task pairing. ``target`` selects the readout
+    representation (recovery plan section 6.1): ``next_q`` pairs row ``k``
+    with ``q_{k+1}`` (absolute arms); ``increment_q`` pairs it with
+    ``q_{k+1} - q_k`` (the residual arm), with zero increments on the held
+    warm-up rows.
     """
+    if target not in ("next_q", "increment_q"):
+        msg = f"unsupported target {target!r}; supported: 'next_q', 'increment_q'"
+        raise ValueError(msg)
     times = np.asarray(t, dtype=np.float64)
     positions = np.asarray(q, dtype=np.float64)
     velocities = np.asarray(dq, dtype=np.float64)
@@ -130,9 +138,10 @@ def build_task_episode_arrays(
     n_warm = warmup.n_rows(period_s)
     q0 = np.asarray(positions[0], dtype=np.float64)
     warm_in = warmup_inputs(encoder, q0, n_warm)
-    warm_targets = np.tile(q0, (n_warm, 1))
+    increment = target == "increment_q"
+    warm_targets = np.zeros((n_warm, q0.shape[0])) if increment else np.tile(q0, (n_warm, 1))
     task_in = encoder.encode_many(positions[:-1], velocities[:-1], codes[:-1])
-    task_targets = positions[1:]
+    task_targets = np.diff(positions, axis=0) if increment else positions[1:]
     inputs = np.vstack([warm_in, task_in])
     targets = np.vstack([warm_targets, task_targets])
     grid = np.concatenate([warmup.times(period_s), times[:-1]])
@@ -141,7 +150,13 @@ def build_task_episode_arrays(
 
 
 def build_task_episode(
-    samples: SampleSet, encoder: InputEncoder, *, source: str, warmup: WarmupConfig, period_s: float
+    samples: SampleSet,
+    encoder: InputEncoder,
+    *,
+    source: str,
+    warmup: WarmupConfig,
+    period_s: float,
+    target: str = "next_q",
 ) -> Episode:
     """Pair a move/dwell-only task episode with its configured warm-up prefix.
 
@@ -161,7 +176,15 @@ def build_task_episode(
         )
         raise ValueError(msg)
     return build_task_episode_arrays(
-        samples.t, samples.q, samples.dq, samples.task_code, encoder, source=source, warmup=warmup, period_s=period_s
+        samples.t,
+        samples.q,
+        samples.dq,
+        samples.task_code,
+        encoder,
+        source=source,
+        warmup=warmup,
+        period_s=period_s,
+        target=target,
     )
 
 

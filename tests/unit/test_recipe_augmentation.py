@@ -156,3 +156,20 @@ def test_synthetic_episodes_are_deterministic_and_warmup_shaped() -> None:
     original, synthetic = episodes_a[0], episodes_a[1]
     assert original.source == SOURCE_ID
     assert not np.array_equal(original.targets, synthetic.targets)  # the perturbation reaches the targets
+
+
+def test_increment_target_requires_warmup_hold_and_refits_exactly() -> None:
+    """The residual representation is gated to the recovery washout and reproduces its fit from config."""
+    with pytest.raises(ValueError, match="increment_q"):
+        TrainingSpec(target="increment_q")
+    samples = _samples()
+    spec = TrainingSpec(washout="warmup_hold", warmup_s=0.5, target="increment_q", augmentation=AUGMENTATION)
+    recipe, _model = _build(samples, spec=spec, scenario=SCENARIO)
+    assert recipe.training.target == "increment_q"
+    refit_model, _report = recipe.refit({SOURCE_ID: samples}, scenario=SCENARIO)
+    assert refit_model.fitted
+    episodes = recipe.episodes({SOURCE_ID: samples}, scenario=SCENARIO)
+    assert len(episodes) == 1 + AUGMENTATION.n_synthetic
+    first = episodes[0]
+    assert np.array_equal(first.targets[first.washout_len :], np.diff(samples.q, axis=0))
+    assert np.array_equal(first.targets[: first.washout_len], np.zeros((first.washout_len, 2)))
