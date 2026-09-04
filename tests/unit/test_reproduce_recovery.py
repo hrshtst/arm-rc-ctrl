@@ -15,6 +15,8 @@ from arm_rc_ctrl.experiments.reproduce_recovery import (
     STEPS,
     RecoveryReproduction,
     Reproducer,
+    _rebuilt_cells,  # pyright: ignore[reportPrivateUsage]
+    _stored_components,  # pyright: ignore[reportPrivateUsage]
     animation_names,
     audit_markdown,
     compare_evidence,
@@ -144,3 +146,89 @@ def test_audit_markdown_renders_every_check() -> None:
     assert "`python scripts/reproduce_recovery.py`" in text
     assert "Auditor: (to be filled by the auditor)" in text
     assert "Executor machine:" in text
+
+
+def test_stored_components_parse_the_flattened_trial() -> None:
+    """Every persisted per-pair field round-trips out of the flattened trial record."""
+    from arm_rc_ctrl.experiments.studies import TrialRecord
+
+    trial = TrialRecord(
+        number=17,
+        state="COMPLETE",
+        value=0.5,
+        params={"warmup_s": 0.25},
+        metrics={
+            "components.0.gap_ratio": 0.5,
+            "components.0.activation_jump_rad": 0.03,
+            "components.0.settling_time_s": 0.2,
+        },
+        flags={
+            "feasible": True,
+            "components.0.feasible": True,
+            "components.0.criteria.completed": True,
+            "components.0.generated_criteria.generated_dwell_stationary": True,
+        },
+        labels={
+            "components.0.kind": "posture_small",
+            "components.0.tracker": "pd_v2",
+            "components.0.scenario_id": "s-1",
+            "components.0.termination": "completed",
+        },
+    )
+    stored = _stored_components(trial)
+    fields = stored[("s-1", "pd_v2")]
+    assert fields["kind"] == "posture_small"
+    assert fields["feasible"] is True
+    assert fields["gap_ratio"] == 0.5
+    assert fields["criteria"] == {"completed": True}
+    assert fields["generated_criteria"] == {"generated_dwell_stationary": True}
+    assert "torque_rms" not in fields
+
+
+def test_rebuilt_cells_rederive_medians_and_improvement_counts() -> None:
+    """The eligibility cells recompute from a re-evaluation plus replay activation jumps."""
+    from arm_rc_ctrl.experiments.esn_search import TrialPoint
+    from arm_rc_ctrl.experiments.recovery_objective import RecoveryComponent, RecoveryTrialEvaluation
+    from arm_rc_ctrl.experiments.recovery_search import RecoveryTrialPoint
+
+    def component(scenario_id: str, kind: str, tracker: str, gap: float, jump: float) -> RecoveryComponent:
+        return RecoveryComponent(
+            index=0,
+            scenario_id=scenario_id,
+            kind=kind,  # type: ignore[arg-type]
+            tracker=tracker,
+            initial_q=(0.0, 0.0),
+            termination="completed",
+            criteria={"completed": True},
+            generated_criteria={},
+            feasible=True,
+            reason=None,
+            gap_ratio=gap,
+            activation_jump_rad=jump,
+        )
+
+    components = (
+        component("a", "posture_small", "pd_v2", 0.4, 0.02),
+        component("b", "posture_small", "pd_v2", 0.6, 0.09),
+        component("n", "nominal", "pd_v2", 0.0, 0.0),
+    )
+    evaluation = RecoveryTrialEvaluation(
+        point=RecoveryTrialPoint(esn=TrialPoint(100, 0.9, 0.9, 0.1, 0.1, 31, 0.01, 20.0, 20.0), warmup_s=0.25),
+        objective=0.5,
+        feasible=False,
+        penalized=False,
+        reason="stopped by the pruner",
+        fit_rmse=0.001,
+        scenarios_total=6,
+        components=components,
+        cells={},
+        running=(0.5,),
+        stopped_early=True,
+    )
+    jumps = {("pd_v2", "a"): 0.05, ("pd_v2", "b"): 0.05}
+    cells = _rebuilt_cells(evaluation, jumps)
+    gap_median, jump_median, improving, n = cells["posture_small:pd_v2"]
+    assert gap_median == pytest.approx(0.5)
+    assert jump_median == pytest.approx((0.02 / 0.05 + 0.09 / 0.05) / 2)
+    assert improving == 1  # only scenario "a" improves both metrics
+    assert n == 2

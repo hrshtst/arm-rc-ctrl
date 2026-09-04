@@ -35,6 +35,8 @@ import json
 import math
 import os
 import platform
+import statistics
+import subprocess
 import sys
 import tempfile
 import time
@@ -51,14 +53,27 @@ from arm_rc_ctrl.data.recovery import RecoveryDatasetRecord
 from arm_rc_ctrl.data.samples import load_samples
 from arm_rc_ctrl.dependencies import submodule_revisions, verify_builds
 from arm_rc_ctrl.experiments.evidence import StoredReport, load_report_pointer, open_stored_report
-from arm_rc_ctrl.experiments.recovery_ablation import AblationReport, load_ablation, render_ablation_markdown
+from arm_rc_ctrl.experiments.recovery_ablation import (
+    AblationReport,
+    CandidateTrial,
+    load_ablation,
+    render_ablation_markdown,
+)
 from arm_rc_ctrl.experiments.recovery_freeze import FreezeRecord, load_freeze, render_freeze_markdown
 from arm_rc_ctrl.experiments.recovery_objective import (
+    RATIO_CLASSES,
     RecoveryTrialContext,
+    RecoveryTrialEvaluation,
     evaluate_recovery_point,
     train_recovery_point,
 )
-from arm_rc_ctrl.experiments.recovery_report import PLOT_FILES, build_report_inputs, render_recovery_report
+from arm_rc_ctrl.experiments.recovery_report import (
+    PLOT_FILES,
+    ReportInputs,
+    build_report_inputs,
+    render_recovery_report,
+    write_recovery_plots,
+)
 from arm_rc_ctrl.experiments.recovery_representative import RepresentativeRecord, load_representatives
 from arm_rc_ctrl.experiments.recovery_search import (
     RecoverySearchProtocol,
@@ -99,7 +114,18 @@ __all__ = [
 REPO: Final = repository_root()
 DOCS: Final = REPO / "docs" / "experiments" / "task_1a_state_conditioned_recovery"
 DERIVE_CONFIG: Final = REPO / "configs" / "preprocessing" / "recovery_v1.toml"
-STEPS: Final = ("environment", "storage", "records", "payloads", "data", "episodes", "model", "pairs", "report")
+STEPS: Final = (
+    "environment",
+    "storage",
+    "records",
+    "payloads",
+    "data",
+    "episodes",
+    "model",
+    "pairs",
+    "report",
+    "visualizations",
+)
 _ANCHOR_D1: Final = {"n_synthetic": 64, "sigma_rad": 0.05, "phi": 0.99, "gamma": 1.0}
 _DERIVATIVE_LABELS: Final[dict[str, Literal["central"]]] = {"central-difference": "central"}
 _REPRODUCTION_COMMAND: Final = "python -m arm_rc_ctrl.experiments.reproduce_recovery (reproduction rerun)"
@@ -162,6 +188,102 @@ def compare_evidence(path: str, committed: object, rebuilt: object, differences:
     return 0.0
 
 
+_COMPONENT_METRICS: Final = (
+    "gap_ratio",
+    "activation_jump_rad",
+    "early_gap_integral",
+    "replay_early_gap_integral",
+    "settling_time_s",
+    "torque_rms",
+    "saturation_fraction",
+    "boundary_jump",
+)
+
+
+def _stored_components(trial: TrialRecord) -> dict[tuple[str, str], dict[str, object]]:
+    """The stored per-pair evaluation of one trial, keyed by (scenario, tracker)."""
+    stored: dict[tuple[str, str], dict[str, object]] = {}
+    index = 0
+    while f"components.{index}.kind" in trial.labels:
+        prefix = f"components.{index}"
+        key = (trial.labels[prefix + ".scenario_id"], trial.labels[prefix + ".tracker"])
+        fields: dict[str, object] = {
+            "kind": trial.labels[prefix + ".kind"],
+            "termination": trial.labels[prefix + ".termination"],
+            "feasible": trial.flags[prefix + ".feasible"],
+        }
+        for metric in _COMPONENT_METRICS:
+            value = trial.metrics.get(f"{prefix}.{metric}")
+            if value is not None:
+                fields[metric] = value
+        criteria = {
+            name.rsplit(".", 1)[-1]: ok for name, ok in trial.flags.items() if name.startswith(prefix + ".criteria.")
+        }
+        if criteria:
+            fields["criteria"] = criteria
+        generated = {
+            name.rsplit(".", 1)[-1]: ok
+            for name, ok in trial.flags.items()
+            if name.startswith(prefix + ".generated_criteria.")
+        }
+        if generated:
+            fields["generated_criteria"] = generated
+        stored[key] = fields
+        index += 1
+    return stored
+
+
+def _rebuilt_cells(
+    evaluation: RecoveryTrialEvaluation, replay_jumps: dict[tuple[str, str], float]
+) -> dict[str, tuple[float, float, int, int]]:
+    """Re-derive the eligibility cells (gap median, jump median, improving-both, n) from a re-evaluation."""
+    gaps: dict[str, list[float]] = {}
+    jumps: dict[str, list[float]] = {}
+    improving: dict[str, int] = {}
+    for component in evaluation.components:
+        if str(component.kind) not in RATIO_CLASSES or component.gap_ratio is None:
+            continue
+        rc_jump = component.activation_jump_rad
+        replay_jump = replay_jumps.get((component.tracker, component.scenario_id))
+        if rc_jump is None or replay_jump is None or replay_jump <= 0:
+            msg = f"pair ({component.scenario_id}, {component.tracker}) lacks its activation jumps"
+            raise ReproductionError(msg)
+        cell = f"{component.kind}:{component.tracker}"
+        gaps.setdefault(cell, []).append(component.gap_ratio)
+        jumps.setdefault(cell, []).append(rc_jump / replay_jump)
+        if component.gap_ratio < 1.0 and rc_jump < replay_jump:
+            improving[cell] = improving.get(cell, 0) + 1
+    return {
+        cell: (
+            float(statistics.median(values)),
+            float(statistics.median(jumps[cell])),
+            improving.get(cell, 0),
+            len(values),
+        )
+        for cell, values in sorted(gaps.items())
+    }
+
+
+def _compare_candidate_cells(
+    candidate: CandidateTrial, cells: dict[str, tuple[float, float, int, int]], differences: list[str]
+) -> float:
+    """Compare re-derived eligibility cells against the committed ablation candidate's."""
+    if set(cells) != set(candidate.cells):
+        msg = f"re-derived cells {sorted(cells)} differ from the committed candidate's {sorted(candidate.cells)}"
+        raise ReproductionError(msg)
+    worst = 0.0
+    for name, (gap_median, jump_median, improving, count) in cells.items():
+        committed_cell = candidate.cells[name]
+        worst = max(worst, compare_evidence(f"cell[{name}].gap", committed_cell.gap_median, gap_median, differences))
+        worst = max(worst, compare_evidence(f"cell[{name}].jump", committed_cell.jump_median, jump_median, differences))
+        if committed_cell.improving_both != improving or committed_cell.n != count:
+            differences.append(
+                f"cell[{name}]: improving {improving}/{count} != committed "
+                f"{committed_cell.improving_both}/{committed_cell.n}"
+            )
+    return worst
+
+
 def _need[T](value: T | None, step: str) -> T:
     if value is None:
         msg = f"step {step!r} requires an earlier step that did not run"
@@ -205,6 +327,7 @@ class Reproducer:
     trial: TrialRecord | None = None
     context: RecoveryTrialContext | None = None
     recipe: ModelRecipe | None = None
+    report_inputs: ReportInputs | None = None
 
     def environment(self) -> str:
         """Submodule pins, build identities, and the lock digest match the committed freeze record."""
@@ -392,20 +515,30 @@ class Reproducer:
         evaluation = evaluate_recovery_point(protocol, context, point)
         differences: list[str] = []
         worst = compare_evidence("objective", trial.value, evaluation.objective, differences)
-        stored: dict[tuple[str, str], float] = {}
-        index = 0
-        while f"components.{index}.kind" in trial.labels:
-            prefix = f"components.{index}"
-            ratio = trial.metrics.get(prefix + ".gap_ratio")
-            if ratio is not None:
-                stored[(trial.labels[prefix + ".scenario_id"], trial.labels[prefix + ".tracker"])] = ratio
-            index += 1
-        rebuilt = {(c.scenario_id, c.tracker): c.gap_ratio for c in evaluation.components if c.gap_ratio is not None}
+        stored = _stored_components(trial)
+        rebuilt = {(c.scenario_id, c.tracker): c for c in evaluation.components}
         if set(stored) != set(rebuilt):
-            msg = f"re-evaluation covers {len(rebuilt)} ratio pairs, the stored trial {len(stored)}"
+            msg = f"re-evaluation covers {len(rebuilt)} pairs, the stored trial {len(stored)}"
             raise ReproductionError(msg)
-        for key, value in stored.items():
-            worst = max(worst, compare_evidence(f"gap_ratio[{key}]", value, rebuilt[key], differences))
+        for key, fields in stored.items():
+            component = rebuilt[key]
+            for name, value in fields.items():
+                worst = max(worst, compare_evidence(f"{key}.{name}", value, getattr(component, name), differences))
+        ablation = _need(self.ablation, "model")
+        candidate = next(
+            (c for c in ablation.candidates if c.study == protocol.name and c.number == trial.number), None
+        )
+        if candidate is None:
+            msg = f"the committed ablation holds no candidate for trial {trial.number}"
+            raise ReproductionError(msg)
+        replay_jumps = {
+            (tracker, component.scenario_id): component.activation_jump_rad
+            for tracker in context.trackers
+            for component in context.replay_components(tracker, point.warmup_s)
+            if component.activation_jump_rad is not None
+        }
+        cells = _rebuilt_cells(evaluation, replay_jumps)
+        worst = max(worst, _compare_candidate_cells(candidate, cells, differences))
         if differences:
             msg = f"{len(differences)} categorical differences (first: {differences[0]})"
             raise ReproductionError(msg)
@@ -416,7 +549,8 @@ class Reproducer:
         self.max_deviation = worst if self.max_deviation is None else max(self.max_deviation, worst)
         return (
             f"recipe refitted (fit RMSE {recipe.fit.rmse:.6g} rad); trial {trial.number} re-evaluated over "
-            f"{len(evaluation.components)} pairs; largest deviation {worst:.3e}"
+            f"{len(evaluation.components)} pairs with every stored component field compared and the "
+            f"{len(cells)} eligibility cells re-derived against replay baselines; largest deviation {worst:.3e}"
         )
 
     def pairs(self) -> str:
@@ -497,11 +631,61 @@ class Reproducer:
             msg = "the rendered freeze record differs from the committed model_freeze_v2.md"
             raise ReproductionError(msg)
         inputs = build_report_inputs(self.docs, store=store, records_root=REPO)
+        self.report_inputs = inputs
         rendered = render_recovery_report(inputs, plots=list(PLOT_FILES), animations=animation_names(representative))
         if rendered != (self.docs / "recovery_report_v1.md").read_text(encoding="utf-8"):
             msg = "the rendered report differs from the committed recovery_report_v1.md"
             raise ReproductionError(msg)
         return "ablation, freeze, and recovery reports re-rendered identically"
+
+    def visualizations(self) -> str:
+        """Every committed figure and animation regenerates identically from the verified runs."""
+        representative = _need(self.representative, "visualizations")
+        inputs = self.report_inputs
+        if inputs is None:  # pragma: no cover - the report step precedes this one
+            store = _need(self.store, "visualizations")
+            inputs = build_report_inputs(self.docs, store=store, records_root=REPO)
+        plots_dir = self.scratch / "plots"
+        written = write_recovery_plots(inputs, plots_dir)
+        committed_dir = self.docs / "plots" / "recovery_report_v1"
+        committed_names = sorted(p.name for p in committed_dir.glob("*.png"))
+        if sorted(written) != committed_names:
+            msg = f"regenerated figures {sorted(written)} differ from the committed set {committed_names}"
+            raise ReproductionError(msg)
+        for name in written:
+            if (plots_dir / name).read_bytes() != (committed_dir / name).read_bytes():
+                msg = f"figure {name} does not regenerate byte-for-byte"
+                raise ReproductionError(msg)
+        runs_by_name: dict[str, str] = {}
+        for pair in representative.pairs:
+            if pair.tracker != "pd_v2":
+                continue
+            runs_by_name[f"{pair.kind}_rc_pd.gif"] = pair.rc_run
+            runs_by_name[f"{pair.kind}_replay_pd.gif"] = pair.replay_run
+        animations_dir = self.scratch / "animations"
+        animations_dir.mkdir()
+        for name in animation_names(representative):
+            target = animations_dir / name
+            command = [
+                sys.executable,
+                "scripts/play_run.py",
+                "--run",
+                runs_by_name[name],
+                "--scenario",
+                "configs/tasks/task_1a.toml",
+                "--export",
+                str(target),
+                "--fps",
+                "12",
+            ]
+            completed = subprocess.run(command, check=False, cwd=REPO, capture_output=True, text=True)
+            if completed.returncode != 0:
+                msg = f"animation export {name} failed: {completed.stderr.strip()[:200]}"
+                raise ReproductionError(msg)
+            if target.read_bytes() != (self.docs / "animations" / name).read_bytes():
+                msg = f"animation {name} does not regenerate byte-for-byte"
+                raise ReproductionError(msg)
+        return f"{len(written)} figures and {len(runs_by_name)} animations regenerated byte-for-byte"
 
     def step(self, name: str) -> Check:
         """Run one step and record its outcome."""
