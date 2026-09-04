@@ -58,6 +58,7 @@ if TYPE_CHECKING:
 
 __all__ = [
     "ABLATION_SCHEMA_VERSION",
+    "LIMITATIONS",
     "AblationReport",
     "ArmSummary",
     "CandidateCell",
@@ -386,7 +387,7 @@ def _fmt(value: float | None, digits: int = 4) -> str:
     return "n/a" if value is None else f"{value:.{digits}g}"
 
 
-_LIMITATIONS: Final = (
+LIMITATIONS: Final = (
     (
         "Synthetic-sample-count confound: the augmented arms train on 1 + N_aug episodes (17-65) against the "
         "timing-only arm's single demonstration, so augmentation family and training-set size change together; "
@@ -531,7 +532,7 @@ def render_ablation_markdown(report: AblationReport) -> str:
             lines.append("")
             lines.append(f"({len(eligible) - _TOP_CANDIDATES} further eligible trials are in the JSON report.)")
     lines.extend(["", "## Limitations", ""])
-    lines.extend(f"- {text}" for text in _LIMITATIONS)
+    lines.extend(f"- {text}" for text in LIMITATIONS)
     return "\n".join(lines) + "\n"
 
 
