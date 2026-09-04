@@ -1,0 +1,78 @@
+{
+  "checks": [
+    {
+      "detail": "2 build identities verified; submodules ['rclib', 'rtctrl', 'skelarm'] and uv.lock match the evidence",
+      "elapsed_s": 0.2809216909809038,
+      "name": "environment",
+      "ok": true
+    },
+    {
+      "detail": "external storage root resolved",
+      "elapsed_s": 0.001563213998451829,
+      "name": "storage",
+      "ok": true
+    },
+    {
+      "detail": "4 study pointers, ablation, freeze, representative record, dataset processed-20260903-ce343c8ce6a5, raw raw-20260830-b5adde395f1c, and 16 run pointers verified",
+      "elapsed_s": 0.05946121201850474,
+      "name": "records",
+      "ok": true
+    },
+    {
+      "detail": "4 study payloads, dataset, raw, and 16 run payloads verified; trial 17 bound",
+      "elapsed_s": 1.3149127840297297,
+      "name": "payloads",
+      "ok": true
+    },
+    {
+      "detail": "cropped recovery dataset rebuilt with digest ce343c8ce6a5 (identical)",
+      "elapsed_s": 0.29214832396246493,
+      "name": "data",
+      "ok": true
+    },
+    {
+      "detail": "anchor augmentation episodes regenerated with digest 173fcbb82952 (identical)",
+      "elapsed_s": 1.9575958050554618,
+      "name": "episodes",
+      "ok": true
+    },
+    {
+      "detail": "recipe refitted (fit RMSE 0.00203332 rad); trial 17 re-evaluated over 130 pairs; largest deviation 0.000e+00",
+      "elapsed_s": 50.664278037962504,
+      "name": "model",
+      "ok": true
+    },
+    {
+      "detail": "16 runs rerun under the reproduction label; array digests identical; largest metric deviation 0.000e+00 (tolerance 0.000e+00)",
+      "elapsed_s": 7.971407873905264,
+      "name": "pairs",
+      "ok": true
+    },
+    {
+      "detail": "ablation, freeze, and recovery reports re-rendered identically",
+      "elapsed_s": 0.06867148401215672,
+      "name": "report",
+      "ok": true
+    }
+  ],
+  "elapsed_s": 62.61107990203891,
+  "environment": {
+    "OMP_NUM_THREADS": "1",
+    "machine": "x86_64",
+    "platform": "Linux-7.0.0-30-generic-x86_64-with-glibc2.43",
+    "processor": "",
+    "python": "3.12.11"
+  },
+  "inputs": {
+    "dataset": "processed-20260903-ce343c8ce6a5",
+    "evidence_project_commit": "0e15b6270deb41bd64bb182e4caa705d99eac608",
+    "raw": "raw-20260830-b5adde395f1c",
+    "reproduction_project_commit": "7818c52db6e4b2e5fc887b8c2f9ffba4bc4a4471",
+    "reproduction_project_dirty": "False",
+    "storage_root": "<configured external root>"
+  },
+  "max_deviation": 0.0,
+  "ok": true,
+  "schema_version": 1,
+  "started_at": "2026-09-04T04:46:03.065168+00:00"
+}
