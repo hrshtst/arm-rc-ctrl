@@ -1,0 +1,38 @@
+method = "replay+pd"
+scenario = "task-1a-reach"
+termination_kind = "completed"
+success = true
+duration_s = 4.25
+n_samples = 426
+arrays_sha256 = "5c03455b5584489e443597592799ba1722c35e3cda0a7a3f83c62523ec3cb49c"
+
+[artifact]
+artifact_id = "run-20260904-c8c77a5bc624"
+kind = "run"
+created_at = "2026-09-04T03:58:15+00:00"
+license = "LicenseRef-Private"
+access = "private"
+notes = "Recovery slice replay arm: common hold until 0.25 s, activation at task time zero."
+schema_version = 1
+
+[artifact.payload]
+uri = "armrc://runs/run-20260904-c8c77a5bc624/run.json"
+sha256 = "c8c77a5bc624db9ede2cc7c143bf210b564289a23412f15dbd91acc5204417c2"
+size = 7580
+format = "run.json"
+schema_version = 1
+
+[artifact.origin]
+command = "python -m arm_rc_ctrl.experiments.recovery_representative --docs docs/experiments/task_1a_state_conditioned_recovery --dataset data/records/processed/processed-20260903-ce343c8ce6a5.toml --output docs/experiments/task_1a_state_conditioned_recovery/recovery_representative_v1.json"
+config_sha256 = "f0647cd087d973fdceb07858e79b39c036d769636b5111edf5b391a9254dd426"
+project_commit = "bb0536c292f2528e4f1fe509c9006901c855b021"
+project_dirty = false
+sources = [
+    "processed-20260903-ce343c8ce6a5",
+]
+run_id = "run-20260904-c8c77a5bc624"
+
+[artifact.origin.dependency_commits]
+rclib = "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b"
+skelarm = "6ccc1eba8ff57178ab8bf456e6ff9a2ec988cc80"
+rtctrl = "c601076ee60ec712c1cb4a85756a186882df2e1b"

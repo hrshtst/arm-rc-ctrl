@@ -4351,3 +4351,131 @@ record = "data/records/processed/processed-20260903-ce343c8ce6a5.toml"
 uri = "armrc://processed/processed-20260903-ce343c8ce6a5/samples.npz"
 sha256 = "ce343c8ce6a5d5be266ce6d9fab08128312391b82cfcbbf09d8b1f86ea05eb1e"
 created_at = "2026-09-03T06:12:59+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260904-9c32cf3d8fba"
+kind = "run"
+record = "data/records/runs/run-20260904-9c32cf3d8fba.toml"
+uri = "armrc://runs/run-20260904-9c32cf3d8fba/run.json"
+sha256 = "9c32cf3d8fbabd17423e8de65b20a4ae4e3e43aae979d71d0a1105903889ca5f"
+created_at = "2026-09-04T03:58:15+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260904-27f7ccb98e4f"
+kind = "run"
+record = "data/records/runs/run-20260904-27f7ccb98e4f.toml"
+uri = "armrc://runs/run-20260904-27f7ccb98e4f/run.json"
+sha256 = "27f7ccb98e4f2efed18e9b82cca2cd177fb3ef5a019cfe1fb550bd7dc7fccb96"
+created_at = "2026-09-04T03:58:15+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260904-83f433d2ffdf"
+kind = "run"
+record = "data/records/runs/run-20260904-83f433d2ffdf.toml"
+uri = "armrc://runs/run-20260904-83f433d2ffdf/run.json"
+sha256 = "83f433d2ffdfe0c784c106a6794c0fed9e672328a27fe1d9529def21d189f12e"
+created_at = "2026-09-04T03:58:15+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260904-a77deb2cda71"
+kind = "run"
+record = "data/records/runs/run-20260904-a77deb2cda71.toml"
+uri = "armrc://runs/run-20260904-a77deb2cda71/run.json"
+sha256 = "a77deb2cda71d755ca4dabb7eee7c98ee7af1e9671e1012fdb3ad9238ec03b8c"
+created_at = "2026-09-04T03:58:15+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260904-c8c77a5bc624"
+kind = "run"
+record = "data/records/runs/run-20260904-c8c77a5bc624.toml"
+uri = "armrc://runs/run-20260904-c8c77a5bc624/run.json"
+sha256 = "c8c77a5bc624db9ede2cc7c143bf210b564289a23412f15dbd91acc5204417c2"
+created_at = "2026-09-04T03:58:15+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260904-449a5c19f80a"
+kind = "run"
+record = "data/records/runs/run-20260904-449a5c19f80a.toml"
+uri = "armrc://runs/run-20260904-449a5c19f80a/run.json"
+sha256 = "449a5c19f80a74d1d9ddb8530fbc4d990aef5e7e8d76a7885573a0d54a41296f"
+created_at = "2026-09-04T03:58:15+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260904-dd2f51194b0c"
+kind = "run"
+record = "data/records/runs/run-20260904-dd2f51194b0c.toml"
+uri = "armrc://runs/run-20260904-dd2f51194b0c/run.json"
+sha256 = "dd2f51194b0c0e5f1679f807fa7e5d757e315de8c96af2ff54ecaf3fd1ce6367"
+created_at = "2026-09-04T03:58:15+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260904-1c2b3d7fae9c"
+kind = "run"
+record = "data/records/runs/run-20260904-1c2b3d7fae9c.toml"
+uri = "armrc://runs/run-20260904-1c2b3d7fae9c/run.json"
+sha256 = "1c2b3d7fae9c789352a8811beb9031ee0c44846e52775d01bb36e89d15f68270"
+created_at = "2026-09-04T03:58:15+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260904-866853da673d"
+kind = "run"
+record = "data/records/runs/run-20260904-866853da673d.toml"
+uri = "armrc://runs/run-20260904-866853da673d/run.json"
+sha256 = "866853da673d6b180a921e605b00fa4ea0e065ad993582fcaddb82095fddc13a"
+created_at = "2026-09-04T03:58:15+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260904-d9c6c77c5564"
+kind = "run"
+record = "data/records/runs/run-20260904-d9c6c77c5564.toml"
+uri = "armrc://runs/run-20260904-d9c6c77c5564/run.json"
+sha256 = "d9c6c77c5564e5d478e4dbf548dbecb377296b5369ac35c1ef9ec7fed26086bf"
+created_at = "2026-09-04T03:58:15+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260904-08994fcffcd0"
+kind = "run"
+record = "data/records/runs/run-20260904-08994fcffcd0.toml"
+uri = "armrc://runs/run-20260904-08994fcffcd0/run.json"
+sha256 = "08994fcffcd015ea05c70b3e166a4112ee656a4df8ca1d8e41d7e23a013e1d37"
+created_at = "2026-09-04T03:58:15+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260904-c42620144fcc"
+kind = "run"
+record = "data/records/runs/run-20260904-c42620144fcc.toml"
+uri = "armrc://runs/run-20260904-c42620144fcc/run.json"
+sha256 = "c42620144fcc3fe77de95b3130efb8bbfe5a1660797cbb63eeeea529473f613b"
+created_at = "2026-09-04T03:58:15+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260904-34dd8feced9e"
+kind = "run"
+record = "data/records/runs/run-20260904-34dd8feced9e.toml"
+uri = "armrc://runs/run-20260904-34dd8feced9e/run.json"
+sha256 = "34dd8feced9e525203e12ad564bb5fff3c59804b708ef326edb12f1bf2dbddca"
+created_at = "2026-09-04T03:58:15+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260904-14646a0ce72e"
+kind = "run"
+record = "data/records/runs/run-20260904-14646a0ce72e.toml"
+uri = "armrc://runs/run-20260904-14646a0ce72e/run.json"
+sha256 = "14646a0ce72e21c3aa47fed398c146e688fff3ce7279aad97f4ed3c522b75f53"
+created_at = "2026-09-04T03:58:15+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260904-6a6e61d824c1"
+kind = "run"
+record = "data/records/runs/run-20260904-6a6e61d824c1.toml"
+uri = "armrc://runs/run-20260904-6a6e61d824c1/run.json"
+sha256 = "6a6e61d824c1116c9f7bad2634aa58bc58e22c615bf0b3df49fbc05d4702a2b3"
+created_at = "2026-09-04T03:58:15+00:00"
+
+[[artifacts]]
+artifact_id = "run-20260904-b319c0e0b6be"
+kind = "run"
+record = "data/records/runs/run-20260904-b319c0e0b6be.toml"
+uri = "armrc://runs/run-20260904-b319c0e0b6be/run.json"
+sha256 = "b319c0e0b6be4c587741f57c6b83abaccb4d2e2cb55ad6e4636b415c1e822b01"
+created_at = "2026-09-04T03:58:15+00:00"

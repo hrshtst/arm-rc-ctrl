@@ -1,0 +1,38 @@
+method = "rc+pd"
+scenario = "task-1a-reach"
+termination_kind = "completed"
+success = true
+duration_s = 4.25
+n_samples = 426
+arrays_sha256 = "aa1821cbdc13120ec90a3c337bbfe3fbaf0f68adfa5bc65182a61cba507d2f12"
+
+[artifact]
+artifact_id = "run-20260904-27f7ccb98e4f"
+kind = "run"
+created_at = "2026-09-04T03:58:15+00:00"
+license = "LicenseRef-Private"
+access = "private"
+notes = "Recovery slice rc arm: common hold until 0.25 s, activation at task time zero."
+schema_version = 1
+
+[artifact.payload]
+uri = "armrc://runs/run-20260904-27f7ccb98e4f/run.json"
+sha256 = "27f7ccb98e4f2efed18e9b82cca2cd177fb3ef5a019cfe1fb550bd7dc7fccb96"
+size = 8236
+format = "run.json"
+schema_version = 1
+
+[artifact.origin]
+command = "python -m arm_rc_ctrl.experiments.recovery_representative --docs docs/experiments/task_1a_state_conditioned_recovery --dataset data/records/processed/processed-20260903-ce343c8ce6a5.toml --output docs/experiments/task_1a_state_conditioned_recovery/recovery_representative_v1.json"
+config_sha256 = "ea1bc82c6223e6015bcc6d38cb9b40bdc07a48ed8be855895dffb23349126d17"
+project_commit = "bb0536c292f2528e4f1fe509c9006901c855b021"
+project_dirty = false
+sources = [
+    "processed-20260903-ce343c8ce6a5",
+]
+run_id = "run-20260904-27f7ccb98e4f"
+
+[artifact.origin.dependency_commits]
+rclib = "a015aca1ec9eaabb9ad4e384bf33e2e76018bf8b"
+skelarm = "6ccc1eba8ff57178ab8bf456e6ff9a2ec988cc80"
+rtctrl = "c601076ee60ec712c1cb4a85756a186882df2e1b"
