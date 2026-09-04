@@ -18,7 +18,7 @@ DOCS = repository_root() / "docs" / "experiments" / "task_1a_state_conditioned_r
 
 def test_freeze_record_binds_the_committed_evidence() -> None:
     """The record's digests and counts match the committed ablation and study reports byte for byte."""
-    record = load_freeze(DOCS / "model_freeze_v1.json")  # strict load re-derives the outcome invariants
+    record = load_freeze(DOCS / "model_freeze_v2.json")  # strict load re-derives the outcome invariants
     assert record.outcome == "negative"
     assert record.selection is None
     assert record.panel is None
@@ -27,6 +27,7 @@ def test_freeze_record_binds_the_committed_evidence() -> None:
     assert record.eligible_trials == ()
     assert record.dataset == "processed-20260903-ce343c8ce6a5"
     assert record.ablation_sha256 == sha256_file(DOCS / record.ablation_file)
+    assert record.ablation_file == "development_ablation_v2.json"
     by_formulation = {s.formulation: s for s in record.studies}
     assert set(by_formulation) == {"no_augmentation", "non_decaying", "contractive", "residual"}
     assert by_formulation["no_augmentation"].n_feasible == 134
@@ -35,12 +36,13 @@ def test_freeze_record_binds_the_committed_evidence() -> None:
     assert residual.note is not None
     assert "D4" in residual.note
     for study in record.studies:
+        assert study.file.endswith(".toml")  # pointer records, never full payloads
         assert (DOCS / study.file).exists()
 
 
 def test_freeze_markdown_states_the_closed_confirmatory_gate() -> None:
     """The rendered record keeps the negative outcome and its consequence explicit for the review."""
-    text = (DOCS / "model_freeze_v1.md").read_text(encoding="utf-8")
+    text = (DOCS / "model_freeze_v2.md").read_text(encoding="utf-8")
     assert "NEGATIVE RESULT" in text
     assert "confirmatory gate stays closed" in text
     assert "reservoir-seed-panel stability precedes any freeze" in text

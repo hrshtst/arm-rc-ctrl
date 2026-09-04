@@ -6,8 +6,8 @@ Per posture class and frozen tracker pair independently: median early command-ga
 
 ## Inputs
 
-- Dataset `processed-20260903-ce343c8ce6a5`; commit `252c2ea05eca`.
-- Development ablation `development_ablation_v1.json` (sha256 `6b327d77e2e4`).
+- Dataset `processed-20260903-ce343c8ce6a5`; commit `0e15b6270deb`.
+- Development ablation `development_ablation_v2.json` (sha256 `ff1e945287e8`).
 
 | study | formulation | feasible trials | in the rule | note |
 | --- | --- | --- | --- | --- |
