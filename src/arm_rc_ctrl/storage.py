@@ -57,7 +57,17 @@ ENV_VAR = "ARM_RC_CTRL_STORAGE_ROOT"
 DEFAULT_ROOT = Path("/external/arm-rc-ctrl")
 CONFIG_RELATIVE_PATH = Path("arm-rc-ctrl") / "storage.toml"
 URI_SCHEME = "armrc"
-BUCKETS: tuple[str, ...] = ("raw", "processed", "runs", "models", "mlflow", "optuna", "dvc-cache", "dvc-store")
+BUCKETS: tuple[str, ...] = (
+    "raw",
+    "processed",
+    "runs",
+    "models",
+    "reports",
+    "mlflow",
+    "optuna",
+    "dvc-cache",
+    "dvc-store",
+)
 
 _SEGMENT_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*$")
 _URI_PREFIX = f"{URI_SCHEME}://"
