@@ -142,3 +142,5 @@ def test_audit_markdown_renders_every_check() -> None:
     assert "| environment | True | 0.1 | ok |" in text
     assert "- dataset: `processed-test`" in text
     assert "`python scripts/reproduce_recovery.py`" in text
+    assert "Auditor: (to be filled by the auditor)" in text
+    assert "Executor machine:" in text

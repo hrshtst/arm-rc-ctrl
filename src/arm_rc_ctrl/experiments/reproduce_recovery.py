@@ -557,13 +557,18 @@ def reproduce(
     )
 
 
-def audit_markdown(result: RecoveryReproduction, *, command: str) -> str:
+def audit_markdown(
+    result: RecoveryReproduction, *, command: str, auditor: str = "(to be filled by the auditor)"
+) -> str:
     """A compact audit note of one reproduction invocation."""
+    machine = f"{result.environment.get('platform', '')} / {result.environment.get('machine', '')}"
     lines = [
         "# Task 1-a recovery reproduction",
         "",
         f"- Started: {result.started_at}; elapsed {result.elapsed_s:.1f} s; ok: {result.ok}.",
         f"- Command: `{command}`",
+        f"- Executor machine: `{machine}`.",
+        f"- Auditor: {auditor} (cross-machine execution preferred; plan M3R-020).",
         f"- Largest metric deviation: {result.max_deviation!r}.",
         "",
         "| step | ok | elapsed (s) | detail |",
