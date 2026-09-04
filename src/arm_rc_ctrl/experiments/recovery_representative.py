@@ -30,7 +30,11 @@ from typing import TYPE_CHECKING, Final, cast
 from arm_rc_ctrl.config import from_mapping, to_mapping
 from arm_rc_ctrl.experiments.evidence import load_report_pointer, open_stored_report
 from arm_rc_ctrl.experiments.recovery_objective import RecoveryTrialContext, train_recovery_point
-from arm_rc_ctrl.experiments.recovery_search import load_recovery_search, point_from_params
+from arm_rc_ctrl.experiments.recovery_search import (
+    RECOVERY_TRACKERS,
+    load_recovery_search,
+    point_from_params,
+)
 from arm_rc_ctrl.experiments.recovery_slice import run_recovery_pair
 from arm_rc_ctrl.experiments.run_record import record_run_pointer
 from arm_rc_ctrl.metrics.recovery import RecoveryMetricsReport  # rebuilt from JSON
@@ -127,10 +131,15 @@ class RepresentativeRecord:
         if set(self.scenarios) != set(REPRESENTATIVE_CLASSES):
             msg = f"scenarios must cover exactly {REPRESENTATIVE_CLASSES}, got {sorted(self.scenarios)}"
             raise ValueError(msg)
-        expected = {(scenario_id, kind) for kind, scenario_id in self.scenarios.items()}
-        seen = {(pair.scenario_id, pair.kind) for pair in self.pairs}
-        if seen != expected:
-            msg = f"pairs cover {sorted(seen)}, expected {sorted(expected)}"
+        expected = {
+            (self.scenarios[kind], kind, tracker) for kind in REPRESENTATIVE_CLASSES for tracker in RECOVERY_TRACKERS
+        }
+        seen = [(pair.scenario_id, pair.kind, pair.tracker) for pair in self.pairs]
+        if len(seen) != len(set(seen)) or set(seen) != expected:
+            msg = (
+                f"pairs must cover exactly the {len(expected)} (scenario, class, tracker) combinations "
+                f"of every representative class under both frozen trackers; got {sorted(seen)}"
+            )
             raise ValueError(msg)
         run_ids = [run for pair in self.pairs for run in (pair.replay_run, pair.rc_run)]
         if len(set(run_ids)) != len(run_ids):

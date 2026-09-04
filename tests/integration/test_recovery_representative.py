@@ -320,3 +320,27 @@ def test_pairs_run_persist_and_install(tmp_path: Path) -> None:
     assert load_representatives(output) == result
     with pytest.raises(FileExistsError, match="refusing"):
         install_representatives(records_root, output, result, pointers)
+
+
+def test_representative_record_requires_both_trackers_per_class(tmp_path: Path) -> None:
+    """A pair set missing one tracker's arm of any class is rejected (P3, M3R-021 review)."""
+    from dataclasses import replace
+
+    samples = _samples()
+    staged = tmp_path / "samples.npz"
+    save_samples(staged, samples)
+    record = _record(samples, sha256_file(staged))
+    context = _context(record, samples)
+    protocol = _protocol(tmp_path)
+    store_root = tmp_path / "store"
+    store_root.mkdir()
+    store = StorageRoot(store_root, repositories=(REPO_ROOT,))
+    result, _pointers = run_representatives(
+        protocol, context, _trial(), study="representative-fixture", store=store, exploratory=True
+    )
+    incomplete = tuple(pair for pair in result.pairs if pair.tracker == "pd_v2")
+    with pytest.raises(ValueError, match="both frozen trackers"):
+        replace(result, pairs=incomplete)
+    duplicated = (*result.pairs[:-1], result.pairs[0])
+    with pytest.raises(ValueError, match="combinations"):
+        replace(result, pairs=duplicated)
