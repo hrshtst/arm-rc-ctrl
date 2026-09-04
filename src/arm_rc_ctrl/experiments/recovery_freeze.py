@@ -32,8 +32,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, cast
 
 from arm_rc_ctrl.config import from_mapping, to_mapping
+from arm_rc_ctrl.experiments.evidence import load_report_pointer
 from arm_rc_ctrl.experiments.recovery_ablation import AblationReport, load_ablation
-from arm_rc_ctrl.experiments.recovery_study import load_report
 from arm_rc_ctrl.provenance import (
     ProvenanceRecord,
     canonical_json,
@@ -257,6 +257,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     """Command-line entry point."""
     parser = argparse.ArgumentParser(description="Apply the recovery model-freeze rule to the committed evidence.")
     parser.add_argument("--docs", type=Path, required=True, help="experiment docs directory")
+    parser.add_argument(
+        "--ablation",
+        type=str,
+        default="development_ablation_v2.json",
+        help="ablation JSON (relative to --docs) the rule is applied to",
+    )
     parser.add_argument("--output", type=Path, required=True, help="freeze record JSON to write (must not exist)")
     parser.add_argument("--markdown", type=Path, required=True, help="freeze Markdown to write (must not exist)")
     parser.add_argument("--exploratory", action="store_true", help="allow a dirty worktree")
@@ -266,27 +272,27 @@ def main(argv: Sequence[str] | None = None) -> int:
             msg = f"refusing to overwrite {target}"
             raise FileExistsError(msg)
     docs = Path(args.docs)
-    ablation_file = docs / "development_ablation_v1.json"
+    ablation_file = docs / str(args.ablation)
     ablation = load_ablation(ablation_file)
     studies: list[StudyInput] = []
-    for file in sorted(docs.glob("recovery_search_*_v1.json")):
-        report = load_report(file)
+    for file in sorted(docs.glob("recovery_search_*_v1.toml")):
+        pointer = load_report_pointer(file)
         studies.append(
             StudyInput(
                 file=file.name,
-                study=report.protocol,
-                formulation=report.formulation,
-                protocol_sha256=report.protocol_sha256,
-                n_feasible=report.n_feasible,
+                study=pointer.study,
+                formulation=pointer.formulation,
+                protocol_sha256=pointer.protocol_sha256,
+                n_feasible=pointer.n_feasible,
                 included=True,
             )
         )
-    residual_file = docs / "residual_search_1a_v1.json"
-    residual = load_report(residual_file)
+    residual_file = docs / "residual_search_1a_v1.toml"
+    residual = load_report_pointer(residual_file)
     studies.append(
         StudyInput(
             file=residual_file.name,
-            study=residual.protocol,
+            study=residual.study,
             formulation=residual.formulation,
             protocol_sha256=residual.protocol_sha256,
             n_feasible=residual.n_feasible,

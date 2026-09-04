@@ -1,0 +1,13 @@
+schema = "recovery-study-report"
+study = "recovery-search-1a-non-decaying-v1"
+formulation = "non_decaying"
+protocol_sha256 = "735d8bf6aea5df170e85f0d880e83ea82b0cbe4c308de01029dd524c91ed6f38"
+dataset = "processed-20260903-ce343c8ce6a5"
+budget = 500
+trials_stored = 500
+n_feasible = 0
+
+[payload]
+uri = "armrc://reports/task_1a_state_conditioned_recovery/recovery_search_non_decaying_v1-5340e32ab30f.json"
+sha256 = "5340e32ab30ff619e6aa5cdd34f7789d1b769cc1ffbe6c234bcd41cb4c3e72d8"
+size = 5050478

@@ -1,0 +1,13 @@
+schema = "recovery-study-report"
+study = "recovery-search-1a-contractive-v1"
+formulation = "contractive"
+protocol_sha256 = "67e8346013b568e074fdf3b7f75c9016ba6812f0e595032dced144effab97855"
+dataset = "processed-20260903-ce343c8ce6a5"
+budget = 500
+trials_stored = 500
+n_feasible = 0
+
+[payload]
+uri = "armrc://reports/task_1a_state_conditioned_recovery/recovery_search_contractive_v1-ddfaaa4f044a.json"
+sha256 = "ddfaaa4f044a06d24dc28b5aec8a1ad4bf57cf386475074b7567bfc8c315ba4c"
+size = 12372654

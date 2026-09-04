@@ -34,16 +34,16 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, cast
 
 from arm_rc_ctrl.config import from_mapping, to_mapping
+from arm_rc_ctrl.experiments.evidence import load_report_pointer, open_stored_report
 from arm_rc_ctrl.experiments.recovery_objective import RATIO_CLASSES, RecoveryTrialContext
 from arm_rc_ctrl.experiments.recovery_search import RECOVERY_TRACKERS, load_recovery_search
-from arm_rc_ctrl.experiments.recovery_study import RecoveryStudyReport, load_report
+from arm_rc_ctrl.experiments.recovery_study import RecoveryStudyReport
 from arm_rc_ctrl.provenance import (
     ProvenanceRecord,
     canonical_json,
     collect_provenance,
     command_line,
     require_clean_for_confirmatory,
-    sha256_file,
 )
 from arm_rc_ctrl.rc.augment import APPROVED_GAMMA, APPROVED_N_SYNTHETIC, APPROVED_PHI, APPROVED_SIGMA_RAD
 from arm_rc_ctrl.rc.esn import ensure_single_thread
@@ -550,18 +550,19 @@ def main(argv: Sequence[str] | None = None) -> int:
         if Path(target).exists():
             msg = f"refusing to overwrite {target}"
             raise FileExistsError(msg)
-    files = sorted(Path(args.docs).glob("recovery_search_*_v1.json"))
-    inputs = [(f.name, load_report(f)) for f in files]
+    store = open_storage()
+    pointer_files = sorted(Path(args.docs).glob("recovery_search_*_v1.toml"))
+    pointers = [(f.name, load_report_pointer(f)) for f in pointer_files]
+    inputs = [(name, open_stored_report(store, pointer)) for name, pointer in pointers]
     formulations = {report.formulation for _name, report in inputs}
     if len(inputs) != len(RECOVERY_TRACKERS) + 1 or len(formulations) != len(inputs):
-        msg = f"expected the three formulation studies under {args.docs}, found {[n for n, _r in inputs]}"
+        msg = f"expected the three formulation study pointers under {args.docs}, found {[n for n, _r in inputs]}"
         raise ValueError(msg)
     root = repository_root() if args.records_root is None else Path(args.records_root)
     protocol_file = repository_root() / next(
         report.protocol_file for _name, report in inputs if report.formulation == "no_augmentation"
     )
     protocol = load_recovery_search(protocol_file)
-    store = open_storage()
     context = RecoveryTrialContext.load(protocol, store=store, dataset_file=Path(args.dataset), records_root=root)
     pairs = [
         (tracker, float(trial.params["warmup_s"]))
@@ -572,7 +573,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ]
     replay_jumps = replay_jump_table(context, pairs)
     resolved = {
-        "reports": {name: sha256_file(Path(args.docs) / name) for name, _report in inputs},
+        "reports": {name: pointer.payload.sha256 for name, pointer in pointers},
         "dataset": context.dataset.artifact.artifact_id,
         "protocol_file": next(r.protocol_file for _n, r in inputs if r.formulation == "no_augmentation"),
         "command": command_line("arm_rc_ctrl.experiments.recovery_ablation", sys.argv[1:] if argv is None else argv),

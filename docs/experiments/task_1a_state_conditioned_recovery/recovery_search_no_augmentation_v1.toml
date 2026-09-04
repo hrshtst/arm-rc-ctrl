@@ -1,0 +1,15 @@
+schema = "recovery-study-report"
+study = "recovery-search-1a-no-augmentation-v1"
+formulation = "no_augmentation"
+protocol_sha256 = "d3d3d087187de7f064a9f1eabe665e57a44e1fcc4c93e078efa676e3b47ceefe"
+dataset = "processed-20260903-ce343c8ce6a5"
+budget = 500
+trials_stored = 500
+n_feasible = 134
+best_number = 17
+best_value = 0.6703804881617559
+
+[payload]
+uri = "armrc://reports/task_1a_state_conditioned_recovery/recovery_search_no_augmentation_v1-0eef1efe875d.json"
+sha256 = "0eef1efe875d78aac1a3f6494cf50000ce48a9a5831dd8dc40c5339128618cc8"
+size = 39506133
