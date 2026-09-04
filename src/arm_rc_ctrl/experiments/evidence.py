@@ -16,6 +16,8 @@ neither side can drift. Removing a pointer never deletes a payload.
 from __future__ import annotations
 
 import hashlib
+import os
+import secrets
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Final
 
@@ -74,22 +76,46 @@ class StoredReport:
             raise ValueError(msg)
 
 
+def _verified_existing(target: Path, digest: str, uri: str) -> bool:
+    """Whether ``target`` already holds exactly the expected bytes (a mismatch is an error, absence False)."""
+    if not target.exists():
+        return False
+    existing = hashlib.sha256(target.read_bytes()).hexdigest()
+    if existing != digest:
+        msg = f"{uri} exists with digest {existing[:12]}, expected {digest[:12]}; refusing to overwrite"
+        raise ValueError(msg)
+    return True
+
+
 def store_report_payload(store: StorageRoot, json_text: str, *, name: str) -> ArtifactReference:
-    """Write the report JSON into the store content-addressed; an existing identical payload is reused."""
+    """Install the report JSON content-addressed; identical payloads are reused and nothing is clobbered.
+
+    Installation stages a uniquely named adjacent file and hard-links it into
+    place: ``os.link`` fails atomically when the destination exists, so a file
+    that races in between any check and the installation is never replaced —
+    it is verified against the expected digest and reused only when identical
+    (the digest is part of the name, so a mismatch means corruption, never a
+    legitimate neighbour). The staging file is removed on every path.
+    """
     data = json_text.encode("utf-8")
     digest = hashlib.sha256(data).hexdigest()
     uri = f"{_REPORTS_PREFIX}/{name}-{digest[:12]}.json"
     target = store.path(uri, mode="write")
-    if target.exists():
-        existing = hashlib.sha256(target.read_bytes()).hexdigest()
-        if existing != digest:  # pragma: no cover - the digest is part of the name
-            msg = f"{uri} exists with digest {existing[:12]}, expected {digest[:12]}"
-            raise ValueError(msg)
-    else:
-        tmp = target.with_name(target.name + ".tmp")
-        tmp.write_bytes(data)
-        tmp.replace(target)
-    return ArtifactReference(uri, digest, len(data))
+    reference = ArtifactReference(uri, digest, len(data))
+    if _verified_existing(target, digest, uri):
+        return reference
+    staged = target.with_name(f"{target.name}.staging-{os.getpid()}-{secrets.token_hex(4)}")
+    try:
+        staged.write_bytes(data)
+        try:
+            os.link(staged, target)  # atomic no-clobber: a file that appeared meanwhile is never replaced
+        except FileExistsError:
+            if not _verified_existing(target, digest, uri):  # pragma: no cover - appeared, then vanished
+                msg = f"{uri} appeared concurrently and cannot be verified"
+                raise ValueError(msg) from None
+    finally:
+        staged.unlink(missing_ok=True)
+    return reference
 
 
 def report_pointer(report: RecoveryStudyReport, payload: ArtifactReference) -> StoredReport:

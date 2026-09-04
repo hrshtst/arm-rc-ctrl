@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+import hashlib
+import os
+from pathlib import Path
 
 import pytest
 
@@ -21,9 +23,6 @@ from arm_rc_ctrl.experiments.studies import StudySummary, TrialRecord
 from arm_rc_ctrl.provenance import ArtifactMismatchError, collect_provenance
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.storage import BUCKETS, StorageRoot
-
-if TYPE_CHECKING:
-    from pathlib import Path
 
 REPO_ROOT = repository_root()
 
@@ -88,6 +87,8 @@ def test_payload_pointer_roundtrip_is_content_addressed(tmp_path: Path) -> None:
     loaded = load_report_pointer(file)
     assert loaded == pointer
     assert open_stored_report(store, loaded) == report
+    target = store.path(payload.uri, mode="read")
+    assert not list(target.parent.glob("*.staging-*"))  # staging files never survive
 
 
 def test_tampered_payloads_and_pointers_are_refused(tmp_path: Path) -> None:
@@ -106,3 +107,61 @@ def test_tampered_payloads_and_pointers_are_refused(tmp_path: Path) -> None:
     drifted = replace(pointer, n_feasible=1, trials_stored=1)
     with pytest.raises(ValueError, match="contradicts"):
         open_stored_report(store, drifted)
+
+
+def test_a_racing_identical_payload_is_reused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A file that appears between the existence check and installation survives when identical."""
+    store = _store(tmp_path)
+    report = _report()
+    text = report_to_json(report) + "\n"
+    real_link = os.link
+    raced: list[str] = []
+
+    def racing_link(src: str, dst: str) -> None:
+        Path(dst).write_bytes(text.encode("utf-8"))  # the racer installs the identical payload first
+        raced.append(dst)
+        real_link(src, dst)
+
+    monkeypatch.setattr("os.link", racing_link)
+    payload = store_report_payload(store, text, name="pointer_fixture_v1")
+    assert raced  # the race actually happened
+    target = store.path(payload.uri, mode="read")
+    assert target.read_text(encoding="utf-8") == text
+    assert not list(target.parent.glob("*.staging-*"))
+
+
+def test_a_racing_divergent_payload_is_never_clobbered(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A different file that races in is preserved byte for byte and the installation fails."""
+    store = _store(tmp_path)
+    report = _report()
+    text = report_to_json(report) + "\n"
+    racer = b"racer content that must survive"
+    real_link = os.link
+
+    def racing_link(src: str, dst: str) -> None:
+        Path(dst).write_bytes(racer)
+        real_link(src, dst)
+
+    monkeypatch.setattr("os.link", racing_link)
+    with pytest.raises(ValueError, match="refusing to overwrite"):
+        store_report_payload(store, text, name="pointer_fixture_v1")
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    target = store.root / "reports" / "task_1a_state_conditioned_recovery" / f"pointer_fixture_v1-{digest[:12]}.json"
+    assert target.read_bytes() == racer  # the racer's file is untouched
+    assert not list(target.parent.glob("*.staging-*"))
+
+
+def test_an_existing_divergent_payload_is_refused(tmp_path: Path) -> None:
+    """A pre-existing different file at the content-addressed path fails cleanly and is preserved."""
+    store = _store(tmp_path)
+    report = _report()
+    text = report_to_json(report) + "\n"
+    digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+    target_dir = store.root / "reports" / "task_1a_state_conditioned_recovery"
+    target_dir.mkdir(parents=True)
+    target = target_dir / f"pointer_fixture_v1-{digest[:12]}.json"
+    target.write_bytes(b"already here")
+    with pytest.raises(ValueError, match="refusing to overwrite"):
+        store_report_payload(store, text, name="pointer_fixture_v1")
+    assert target.read_bytes() == b"already here"
+    assert not list(target_dir.glob("*.staging-*"))
