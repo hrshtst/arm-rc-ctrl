@@ -51,6 +51,7 @@ def _trial(
     reason: str | None = None,
     comparison: str | None = None,
     scenarios_per_cell: int = 20,
+    augmentation: tuple[float, float, float, float] | None = None,
 ) -> TrialRecord:
     """A stored trial with ``scenarios_per_cell`` paired components per class-by-tracker cell."""
     labels: dict[str, str] = {}
@@ -72,11 +73,14 @@ def _trial(
                 metrics[prefix + ".gap_ratio"] = gap
                 metrics[prefix + ".activation_jump_rad"] = jump * 0.1  # replay jump is 0.1 below
                 index += 1
+    params: dict[str, float] = {"warmup_s": warmup}
+    if augmentation is not None:
+        params.update(zip(("n_synthetic", "sigma_rad", "phi", "gamma"), augmentation, strict=True))
     return TrialRecord(
         number=number,
         state="COMPLETE",
         value=value,
-        params={"warmup_s": warmup},
+        params=params,
         metrics=metrics,
         flags=flags,
         labels=labels,
@@ -204,7 +208,15 @@ def test_build_render_and_roundtrip(tmp_path: Path) -> None:
     augmented = _report(
         "study-aug",
         "contractive",
-        (_trial(0, feasible=False, value=10.0, reason="scenario 2 [pd_v2]: limit_violation:joint_velocity"),),
+        (
+            _trial(
+                0,
+                feasible=False,
+                value=10.0,
+                reason="scenario 2 [pd_v2]: limit_violation:joint_velocity",
+                augmentation=(16.0, 0.01, 0.98, 0.5),
+            ),
+        ),
     )
     provenance = collect_provenance({}, seeds={}, artifacts=[], exploratory=True)
     report = build_ablation(
@@ -225,6 +237,10 @@ def test_build_render_and_roundtrip(tmp_path: Path) -> None:
         "## Limitations",
         "Synthetic-sample-count confound",
         "First-infeasible censoring",
+        "Flat infeasible objective",
+        "Sampled, not exhaustive",
+        "No feasible model was found among the 4 sampled trials of `study-aug`",
+        "D1 / D1 x T_w sampled",
     ):
         assert required in markdown
     file = tmp_path / "ablation.json"
@@ -269,3 +285,29 @@ def test_candidate_and_cell_invariants_are_enforced() -> None:
             cells={"posture_small:pd_v2": good},
             eligible=True,
         )
+
+
+def test_arm_summary_records_sampled_coverage() -> None:
+    """Distinct D1 and D1-by-warm-up combinations are counted; the timing arm records none."""
+    trials = (
+        _trial(0, feasible=False, value=10.0, reason="scenario 0 [pd_v2]: dwell:x", augmentation=(16, 0.01, 0.98, 0.5)),
+        _trial(
+            1,
+            feasible=False,
+            value=10.0,
+            reason="scenario 0 [pd_v2]: dwell:x",
+            warmup=1.0,
+            augmentation=(16, 0.01, 0.98, 0.5),
+        ),
+        _trial(2, feasible=False, value=10.0, reason="scenario 0 [pd_v2]: dwell:x", augmentation=(32, 0.05, 0.99, 1.0)),
+        _trial(3, feasible=False, value=10.0, reason="scenario 0 [pd_v2]: dwell:x", augmentation=(32, 0.05, 0.99, 1.0)),
+    )
+    arm = summarize_arm("aug.json", _report("study-aug2", "contractive", trials))
+    assert arm.d1_sampled == 2
+    assert arm.d1xd2_sampled == 3
+    timing = summarize_arm(
+        "timing.json",
+        _report("study-t2", "no_augmentation", (_trial(1, feasible=True, value=0.5),)),
+    )
+    assert timing.d1_sampled is None
+    assert timing.d1xd2_sampled is None

@@ -45,7 +45,9 @@ from arm_rc_ctrl.provenance import (
     require_clean_for_confirmatory,
     sha256_file,
 )
+from arm_rc_ctrl.rc.augment import APPROVED_GAMMA, APPROVED_N_SYNTHETIC, APPROVED_PHI, APPROVED_SIGMA_RAD
 from arm_rc_ctrl.rc.esn import ensure_single_thread
+from arm_rc_ctrl.rc.warmup import APPROVED_WARMUPS_S
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.storage import open_storage
 
@@ -81,6 +83,11 @@ IMPROVING_RULE: Final = (
 )
 _TOP_CANDIDATES: Final = 10
 """Eligible trials shown in the Markdown table; the JSON keeps them all."""
+
+D1_TOTAL: Final = len(APPROVED_N_SYNTHETIC) * len(APPROVED_SIGMA_RAD) * len(APPROVED_PHI) * len(APPROVED_GAMMA)
+"""Size of the approved D1 augmentation grid (108 combinations)."""
+D1XD2_TOTAL: Final = D1_TOTAL * len(APPROVED_WARMUPS_S)
+"""Size of the approved D1-by-warm-up grid (540 combinations)."""
 
 type ReplayJumps = Mapping[tuple[str, float, str], float]
 """Replay activation jump (rad) per ``(tracker, warmup_s, scenario_id)`` — trial-independent."""
@@ -150,6 +157,10 @@ class ArmSummary:
     feasible_by_warmup: dict[str, int]
     anchor_reason: str | None = None
     anchor_value: float | None = None
+    d1_sampled: int | None = None
+    """Distinct approved D1 combinations sampled by the study's trials (augmented arms only)."""
+    d1xd2_sampled: int | None = None
+    """Distinct D1-by-warm-up combinations sampled (augmented arms only)."""
 
     def __post_init__(self) -> None:
         """Counts are consistent."""
@@ -159,6 +170,14 @@ class ArmSummary:
         if sum(self.feasible_by_warmup.values()) != self.n_feasible:
             msg = f"{self.study}: feasible_by_warmup does not sum to n_feasible"
             raise ValueError(msg)
+        if (self.d1_sampled is None) != (self.d1xd2_sampled is None):
+            msg = f"{self.study}: the two sampled-coverage figures must be recorded together"
+            raise ValueError(msg)
+        if self.d1_sampled is not None and self.d1xd2_sampled is not None:
+            within = 1 <= self.d1_sampled <= D1_TOTAL and self.d1_sampled <= self.d1xd2_sampled <= D1XD2_TOTAL
+            if not within:
+                msg = f"{self.study}: sampled coverage {self.d1_sampled}/{self.d1xd2_sampled} is inconsistent"
+                raise ValueError(msg)
 
 
 @dataclass(frozen=True)
@@ -213,7 +232,14 @@ def summarize_arm(file: str, report: RecoveryStudyReport) -> ArmSummary:
     feasible_by_warmup: dict[str, int] = {}
     anchor_reason: str | None = None
     anchor_value: float | None = None
+    d1: set[tuple[float, float, float, float]] = set()
+    d1xd2: set[tuple[float, float, float, float, float]] = set()
     for trial in report.summary.trials:
+        params = trial.params
+        if all(name in params for name in ("n_synthetic", "sigma_rad", "phi", "gamma")):
+            combo = (params["n_synthetic"], params["sigma_rad"], params["phi"], params["gamma"])
+            d1.add(combo)
+            d1xd2.add((*combo, params.get("warmup_s", float("nan"))))
         if trial.labels.get("armrc.comparison") is not None:
             anchor_reason = trial.labels.get("reason") or None
             anchor_value = trial.value
@@ -237,6 +263,8 @@ def summarize_arm(file: str, report: RecoveryStudyReport) -> ArmSummary:
         feasible_by_warmup=dict(sorted(feasible_by_warmup.items())),
         anchor_reason=anchor_reason,
         anchor_value=anchor_value,
+        d1_sampled=len(d1) if d1 else None,
+        d1xd2_sampled=len(d1xd2) if d1xd2 else None,
     )
 
 
@@ -377,7 +405,25 @@ _LIMITATIONS: Final = (
         "and their ordering are unchanged; candidate identification here does not select a model (M3R-015 "
         "does)."
     ),
+    (
+        "Flat infeasible objective: every infeasible trial received the identical penalty, so the sampler "
+        "could not rank failures or learn a direction inside an infeasible region; an all-infeasible study "
+        "is therefore a sampled search outcome, and graded feasibility-aware objectives are future protocol "
+        "work, never a v1 change."
+    ),
+    (
+        "Sampled, not exhaustive: each study evaluated its budget of sampled trials, and the recorded D1 and "
+        "D1-by-warm-up coverage in the Arms section is incomplete by construction; an all-infeasible arm "
+        "supports only 'no feasible model was found among the sampled trials', never an exhaustive-grid "
+        "claim."
+    ),
 )
+
+
+def _coverage(arm: ArmSummary) -> str:
+    if arm.d1_sampled is None or arm.d1xd2_sampled is None:
+        return "-"
+    return f"{arm.d1_sampled}/{D1_TOTAL}, {arm.d1xd2_sampled}/{D1XD2_TOTAL}"
 
 
 def render_ablation_markdown(report: AblationReport) -> str:
@@ -399,15 +445,28 @@ def render_ablation_markdown(report: AblationReport) -> str:
             f"- Eligible candidates under the section 7.3 rule: {report.n_eligible} "
             f"of {len(report.candidates)} feasible trials ({report.improving_rule})."
         ),
+    ]
+    sampled_negative = [arm for arm in report.arms if arm.d1_sampled is not None and arm.n_feasible == 0]
+    if sampled_negative:
+        names = ", ".join(f"`{arm.study}`" for arm in sampled_negative)
+        lines.append(
+            f"- No feasible model was found among the {sampled_negative[0].budget} sampled trials of {names} "
+            "(a sampled result over the recorded coverage, never an exhaustive-grid claim; see Limitations)."
+        )
+    lines += [
         "",
         "## Arms",
         "",
-        "| study | formulation | budget | stored | feasible | best trial | best worst-cell gap ratio |",
-        "| --- | --- | --- | --- | --- | --- | --- |",
+        (
+            "| study | formulation | budget | stored | feasible | best trial | best worst-cell gap ratio "
+            "| D1 / D1 x T_w sampled |"
+        ),
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     lines.extend(
         f"| {arm.study} | {arm.formulation} | {arm.budget} | {arm.trials_stored} | {arm.n_feasible} "
-        f"| {arm.best_number if arm.best_number is not None else 'none'} | {_fmt(arm.best_value)} |"
+        f"| {arm.best_number if arm.best_number is not None else 'none'} | {_fmt(arm.best_value)} "
+        f"| {_coverage(arm)} |"
         for arm in report.arms
     )
     lines.extend(
