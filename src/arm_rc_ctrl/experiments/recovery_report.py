@@ -27,7 +27,7 @@ import argparse
 import json
 import sys
 import tempfile
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, cast
 
@@ -49,8 +49,8 @@ from arm_rc_ctrl.experiments.recovery_representative import (
     load_representatives,
 )
 from arm_rc_ctrl.experiments.run_record import LoadedRun, RunPointerRecord, load_run
-from arm_rc_ctrl.experiments.trajectory_plots import CURVE_ORDER, CURVE_STYLES
 from arm_rc_ctrl.metrics.effort import effort_metrics
+from arm_rc_ctrl.metrics.joint import JointAnglePolicy, joint_rmse
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import load_scenario
 from arm_rc_ctrl.storage import open_storage
@@ -85,6 +85,14 @@ PLOT_FILES: Final = (
 _PRIMARY_TRACKER: Final = "pd_v2"
 _MINIMUM_SAMPLES: Final = 2
 _TRAJECTORY_DIMENSIONS: Final = 2
+RECOVERY_CURVE_ORDER: Final = ("reference", "replay_actual", "generator_output_q", "rc_actual")
+"""Draw order fixed by the recovery plan (section 7.3); the generated reference is dashed."""
+RECOVERY_CURVE_STYLES: Final[dict[str, tuple[str, str, float, str]]] = {
+    "reference": ("black", "--", 2.2, "teacher/reference"),
+    "replay_actual": ("tab:blue", "-", 1.8, "replay actual"),
+    "generator_output_q": ("tab:green", "--", 1.8, "RC generated reference"),
+    "rc_actual": ("tab:orange", "-", 1.5, "RC actual"),
+}
 
 
 @dataclass(frozen=True)
@@ -100,6 +108,10 @@ class ReportInputs:
     """Loaded representative runs by run ID (empty when rendering without the store)."""
     effort: dict[str, float]
     """Applied-torque RMS (N m) per representative run ID over its active segment."""
+    torque_peak: dict[str, float] = field(default_factory=dict)
+    saturation: dict[str, float] = field(default_factory=dict)
+    move_rmse: dict[str, float] = field(default_factory=dict)
+    """Movement-window joint RMSE (rad) against the original demonstration, per representative run."""
 
 
 def build_report_inputs(docs: Path, *, store: StorageRoot, records_root: Path) -> ReportInputs:
@@ -115,6 +127,12 @@ def build_report_inputs(docs: Path, *, store: StorageRoot, records_root: Path) -
     torque_limits = load_scenario(records_root / dataset.scenario.config_path).limits.torque
     runs: dict[str, LoadedRun] = {}
     effort: dict[str, float] = {}
+    torque_peak: dict[str, float] = {}
+    saturation: dict[str, float] = {}
+    move_rmse: dict[str, float] = {}
+    task = task_intervals_from_phases(reference.t, reference.phase)
+    move_mask = (reference.t >= task.move[0]) & (reference.t < task.move[1])
+    policy = JointAnglePolicy.limited(reference.dof)
     for pair in representative.pairs:
         for run_id in (pair.replay_run, pair.rc_run):
             pointer_file = records_root / "data" / "records" / "runs" / f"{run_id}.toml"
@@ -126,7 +144,16 @@ def build_report_inputs(docs: Path, *, store: StorageRoot, records_root: Path) -
             source = "tau_applied" if "tau_applied" in arrays else "tau_requested"
             tau = cast("NDArray[np.float64]", arrays[source])
             window = (pair.activation_s, float(run_t[-1]))
-            effort[run_id] = float(effort_metrics(run_t, tau, torque_limits, window=window).torque_rms)
+            metrics = effort_metrics(run_t, tau, torque_limits, window=window)
+            effort[run_id] = float(metrics.torque_rms)
+            torque_peak[run_id] = float(metrics.torque_peak)
+            saturation[run_id] = float(np.mean(cast("NDArray[np.int64]", arrays["saturation"])))
+            active = run_t >= pair.activation_s - 1e-9
+            q_active = cast("NDArray[np.float64]", arrays["q"])[active]
+            n = min(q_active.shape[0], reference.n_samples)
+            if bool(move_mask[:n].any()):
+                aligned = joint_rmse(q_active[:n][move_mask[:n]], reference.q[:n][move_mask[:n]], policy)
+                move_rmse[run_id] = float(aligned.aggregate)
     return ReportInputs(
         pointers=pointers,
         ablation=ablation,
@@ -135,6 +162,9 @@ def build_report_inputs(docs: Path, *, store: StorageRoot, records_root: Path) -
         reference=reference,
         runs=runs,
         effort=effort,
+        torque_peak=torque_peak,
+        saturation=saturation,
+        move_rmse=move_rmse,
     )
 
 
@@ -142,7 +172,7 @@ def plot_recovery_pair(
     t: NDArray[np.float64],
     reference: NDArray[np.float64],
     replay_actual: NDArray[np.float64],
-    rc_output: NDArray[np.float64],
+    generator_output_q: NDArray[np.float64],
     rc_actual: NDArray[np.float64],
     out: Path,
     *,
@@ -159,14 +189,14 @@ def plot_recovery_pair(
     for name, values in (
         ("reference", reference),
         ("replay_actual", replay_actual),
-        ("rc_output", rc_output),
+        ("generator_output_q", generator_output_q),
         ("rc_actual", rc_actual),
     ):
         array = np.asarray(values, dtype=np.float64)
         if array.ndim != _TRAJECTORY_DIMENSIONS or array.shape[0] != time.size or array.shape[1] < 1:
             msg = f"{name} must have shape (N, dof), got {array.shape}"
             raise ValueError(msg)
-        if name != "rc_output" and not np.all(np.isfinite(array)):
+        if name != "generator_output_q" and not np.all(np.isfinite(array)):
             msg = f"{name} must be finite"
             raise ValueError(msg)
         curves[name] = array
@@ -180,8 +210,8 @@ def plot_recovery_pair(
     )
     panels = axes[:, 0]
     for joint, axis in enumerate(panels):
-        for name in CURVE_ORDER:
-            color, linestyle, linewidth, label = CURVE_STYLES[name]
+        for name in RECOVERY_CURVE_ORDER:
+            color, linestyle, linewidth, label = RECOVERY_CURVE_STYLES[name]
             axis.plot(time, curves[name][:, joint], color=color, linestyle=linestyle, linewidth=linewidth, label=label)
         for boundary in boundaries:
             axis.axvline(boundary, color="0.65", linewidth=0.8, linestyle=":")
@@ -294,27 +324,85 @@ def _fmt(value: float | None, digits: int = 4) -> str:
 
 
 def _pair_rows(inputs: ReportInputs) -> list[str]:
-    header = (
-        "| class | scenario | tracker | RC run | replay run | jump (rad) | early gap (rad s) "
-        "| settling (s) | dwell frac | desired vmax (rad/s) | torque RMS (N m) | actual jerk RMS |"
+    scope = (
+        "These tables cover the curated representative pairs only; the distribution plots and the "
+        "eligibility evaluation cover all feasible development trials."
     )
-    lines = [header, "| " + " | ".join(["---"] * 12) + " |"]
+    lines = [
+        scope,
+        "",
+        "### Paired early metrics and target dwell",
+        "",
+        (
+            "| class | scenario | tracker | RC run | replay run | jump (rad) | early gap (rad s) "
+            "| settling (s) | dwell frac | desired vmax (rad/s) |"
+        ),
+        "| " + " | ".join(["---"] * 10) + " |",
+    ]
     for pair in inputs.representative.pairs:
         recovery = pair.recovery
+        head = f"| {pair.kind} | {pair.scenario_id} | {pair.tracker} | {pair.rc_run} | {pair.replay_run} "
         if recovery is None:
-            lines.append(
-                f"| {pair.kind} | {pair.scenario_id} | {pair.tracker} | {pair.rc_run} | {pair.replay_run} "
-                "| n/a | n/a | n/a | n/a | n/a | n/a | n/a |"
-            )
+            lines.append(head + "| n/a | n/a | n/a | n/a | n/a |")
             continue
-        torque = inputs.effort.get(pair.rc_run)
         lines.append(
-            f"| {pair.kind} | {pair.scenario_id} | {pair.tracker} | {pair.rc_run} | {pair.replay_run} "
-            f"| {_fmt(recovery.activation_jump_rad)} | {_fmt(recovery.command_gap_early.integral)} "
+            head + f"| {_fmt(recovery.activation_jump_rad)} | {_fmt(recovery.command_gap_early.integral)} "
             f"| {_fmt(recovery.reference_settling.settling_time_s)} "
             f"| {_fmt(recovery.generated_dwell.in_tolerance_fraction, 3)} "
-            f"| {_fmt(recovery.generated_dwell.velocity_max, 3)} | {_fmt(torque)} "
-            f"| {_fmt(recovery.smoothness_actual.jerk_rms, 3)} |"
+            f"| {_fmt(recovery.generated_dwell.velocity_max, 3)} |"
+        )
+    lines += [
+        "",
+        "### Original-trajectory RMSE, restoring alignment, and contraction",
+        "",
+        (
+            "| class | tracker | RC move RMSE (rad) | replay move RMSE (rad) | mean cosine "
+            "| positive frac | ref deviation early (rad s) | contraction rate (1/s) |"
+        ),
+        "| " + " | ".join(["---"] * 8) + " |",
+    ]
+    for pair in inputs.representative.pairs:
+        recovery = pair.recovery
+        rc_rmse = inputs.move_rmse.get(pair.rc_run)
+        replay_rmse = inputs.move_rmse.get(pair.replay_run)
+        if recovery is None:
+            lines.append(
+                f"| {pair.kind} | {pair.tracker} | {_fmt(rc_rmse)} | {_fmt(replay_rmse)} | n/a | n/a | n/a | n/a |"
+            )
+            continue
+        decay = recovery.reference_settling.decay
+        lines.append(
+            f"| {pair.kind} | {pair.tracker} | {_fmt(rc_rmse)} | {_fmt(replay_rmse)} "
+            f"| {_fmt(recovery.alignment.mean_cosine, 3)} | {_fmt(recovery.alignment.positive_fraction, 3)} "
+            f"| {_fmt(recovery.reference_deviation_early.integral)} "
+            f"| {_fmt(None if decay is None else decay.rate_per_s, 3)} |"
+        )
+    lines += [
+        "",
+        "### Smoothness and effort",
+        "",
+        (
+            "| class | tracker | des accel RMS | act accel RMS | des jerk RMS | act jerk RMS "
+            "| torque RMS (N m) | torque peak (N m) | saturation |"
+        ),
+        "| " + " | ".join(["---"] * 9) + " |",
+    ]
+    for pair in inputs.representative.pairs:
+        recovery = pair.recovery
+        peak = inputs.torque_peak.get(pair.rc_run)
+        saturated = inputs.saturation.get(pair.rc_run)
+        torque = inputs.effort.get(pair.rc_run)
+        if recovery is None:
+            lines.append(
+                f"| {pair.kind} | {pair.tracker} | n/a | n/a | n/a | n/a "
+                f"| {_fmt(torque)} | {_fmt(peak)} | {_fmt(saturated, 3)} |"
+            )
+            continue
+        lines.append(
+            f"| {pair.kind} | {pair.tracker} | {_fmt(recovery.smoothness_desired.accel_rms, 3)} "
+            f"| {_fmt(recovery.smoothness_actual.accel_rms, 3)} | {_fmt(recovery.smoothness_desired.jerk_rms, 3)} "
+            f"| {_fmt(recovery.smoothness_actual.jerk_rms, 3)} | {_fmt(torque)} | {_fmt(peak)} "
+            f"| {_fmt(saturated, 3)} |"
         )
     return lines
 

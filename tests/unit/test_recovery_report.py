@@ -15,6 +15,8 @@ from arm_rc_ctrl.experiments.evidence import StoredReport
 from arm_rc_ctrl.experiments.recovery_ablation import AblationReport, ArmSummary, CandidateCell, CandidateTrial
 from arm_rc_ctrl.experiments.recovery_freeze import FreezeRecord, StudyInput
 from arm_rc_ctrl.experiments.recovery_report import (
+    RECOVERY_CURVE_ORDER,
+    RECOVERY_CURVE_STYLES,
     ReportInputs,
     plot_recovery_pair,
     render_recovery_report,
@@ -192,6 +194,9 @@ def test_report_renders_the_negative_result_and_every_section() -> None:
         "## Representative pairs",
         SELECTION_RULE,
         "| nominal | nominal | pd_v2 | run-rc-nominal-pd_v2 | run-replay-nominal-pd_v2 | n/a",
+        "curated representative pairs only",
+        "### Original-trajectory RMSE, restoring alignment, and contraction",
+        "### Smoothness and effort",
         "## Failures",
         "Flat infeasible objective",
         "Sampled, not exhaustive",
@@ -234,3 +239,12 @@ def test_pair_plot_masks_the_hold_and_refuses_overwrites(tmp_path: Path) -> None
     bad[0, 0] = np.nan
     with pytest.raises(ValueError, match="replay_actual must be finite"):
         plot_recovery_pair(t, finite, bad, rc_output, finite, tmp_path / "c.png", title="t", boundaries=(), xlabel="x")
+
+
+def test_recovery_curves_follow_the_locked_protocol_naming() -> None:
+    """The identifier is generator_output_q and its human label is 'RC generated reference', dashed."""
+    assert RECOVERY_CURVE_ORDER == ("reference", "replay_actual", "generator_output_q", "rc_actual")
+    color, linestyle, _width, label = RECOVERY_CURVE_STYLES["generator_output_q"]
+    assert label == "RC generated reference"
+    assert linestyle == "--"
+    assert color == "tab:green"
