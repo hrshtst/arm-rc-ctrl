@@ -2,8 +2,8 @@
 
 - Formulation `residual`; protocol `configs/studies/recovery_search_1a_residual_v1.toml` (digest `36a3a89ecd96`), dataset `processed-20260903-ce343c8ce6a5`.
 - Frozen trackers: `computed_torque` (digest `0ac3dff977cd`), `pd_v2` (digest `45f6e7a31490`).
-- Budget 500; stored 500 trials (500 complete, 0 pruned); 0 feasible; this invocation ran 500.
-- Provenance: commit `96e352eb2a2e`, sampler seed 20270104.
+- Budget 500; stored 500 trials (500 complete, 0 pruned); 0 feasible; this invocation ran 0.
+- Provenance: commit `e568ebeaf784`, sampler seed 20270104.
 
 ## Selection
 

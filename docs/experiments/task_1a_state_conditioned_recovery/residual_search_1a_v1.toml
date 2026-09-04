@@ -1,0 +1,13 @@
+schema = "recovery-study-report"
+study = "recovery-search-1a-residual-v1"
+formulation = "residual"
+protocol_sha256 = "36a3a89ecd96761b4387b365eaf094c5225cb38736c6867cf71aab8444093712"
+dataset = "processed-20260903-ce343c8ce6a5"
+budget = 500
+trials_stored = 500
+n_feasible = 0
+
+[payload]
+uri = "armrc://reports/task_1a_state_conditioned_recovery/residual_search_1a_v1-553079cc5f9f.json"
+sha256 = "553079cc5f9f41d61c71110b72d4d4ce056acbb0d252ac575e51e8d7c9bbc5a1"
+size = 692324
