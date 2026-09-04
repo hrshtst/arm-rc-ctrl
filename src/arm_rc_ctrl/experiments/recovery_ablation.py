@@ -27,7 +27,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import sys
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
@@ -66,27 +65,25 @@ __all__ = [
     "evaluate_candidates",
     "load_ablation",
     "main",
-    "min_improving",
     "render_ablation_markdown",
     "replay_jump_table",
     "summarize_arm",
 ]
 
 ABLATION_SCHEMA_VERSION: Final = 1
-IMPROVING_RULE: Final = "ceil(0.75 * n) scenarios improving both paired metrics (15 of 20 per plan section 7.3)"
+CELL_SCENARIOS: Final = 20
+"""Protocol v1 evaluates exactly 20 paired scenarios per class-by-tracker cell (plan section 7.3)."""
+MIN_IMPROVING: Final = 15
+"""At least 15 of the 20 scenarios must improve both paired metrics (plan section 7.3; never relaxed)."""
+IMPROVING_RULE: Final = (
+    f"{MIN_IMPROVING} of {CELL_SCENARIOS} scenarios improving both paired metrics per "
+    "class-by-tracker cell (plan section 7.3; protocol v1 fixes n = 20)"
+)
 _TOP_CANDIDATES: Final = 10
 """Eligible trials shown in the Markdown table; the JSON keeps them all."""
 
 type ReplayJumps = Mapping[tuple[str, float, str], float]
 """Replay activation jump (rad) per ``(tracker, warmup_s, scenario_id)`` — trial-independent."""
-
-
-def min_improving(n: int) -> int:
-    """The section 7.3 improvement threshold: at least 15 of 20 scenarios, generalized as ceil(0.75 n)."""
-    if n < 1:
-        msg = f"a cell needs at least one paired scenario, got {n}"
-        raise ValueError(msg)
-    return math.ceil(0.75 * n)
 
 
 @dataclass(frozen=True)
@@ -100,11 +97,14 @@ class CandidateCell:
     passes: bool
 
     def __post_init__(self) -> None:
-        """The verdict derives from the recorded figures."""
-        if self.n < 1 or not 0 <= self.improving_both <= self.n:
+        """The verdict derives from the recorded figures over exactly the protocol's 20 scenarios."""
+        if self.n != CELL_SCENARIOS:
+            msg = f"protocol v1 evaluates exactly {CELL_SCENARIOS} scenarios per cell, got {self.n}"
+            raise ValueError(msg)
+        if not 0 <= self.improving_both <= self.n:
             msg = f"cell counts are inconsistent: improving {self.improving_both} of {self.n}"
             raise ValueError(msg)
-        expected = self.gap_median < 1.0 and self.jump_median < 1.0 and self.improving_both >= min_improving(self.n)
+        expected = self.gap_median < 1.0 and self.jump_median < 1.0 and self.improving_both >= MIN_IMPROVING
         if self.passes != expected:
             msg = f"cell verdict {self.passes} contradicts its figures {self}"
             raise ValueError(msg)
@@ -284,7 +284,7 @@ def _candidate(study: str, trial: TrialRecord, replay_jumps: ReplayJumps) -> Can
             jump_median=jump_median,
             improving_both=count,
             n=n,
-            passes=gap_median < 1.0 and jump_median < 1.0 and count >= min_improving(n),
+            passes=gap_median < 1.0 and jump_median < 1.0 and count >= MIN_IMPROVING,
         )
     value = trial.value
     if value is None:

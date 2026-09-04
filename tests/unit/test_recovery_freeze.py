@@ -34,8 +34,8 @@ CELL_NAMES = (
 
 def _cell(*, passes: bool) -> CandidateCell:
     if passes:
-        return CandidateCell(gap_median=0.5, jump_median=0.5, improving_both=2, n=2, passes=True)
-    return CandidateCell(gap_median=0.5, jump_median=1.5, improving_both=0, n=2, passes=False)
+        return CandidateCell(gap_median=0.5, jump_median=0.5, improving_both=15, n=20, passes=True)
+    return CandidateCell(gap_median=0.5, jump_median=1.5, improving_both=0, n=20, passes=False)
 
 
 def _candidate(study: str, number: int, *, eligible: bool) -> CandidateTrial:

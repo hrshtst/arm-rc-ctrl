@@ -12,13 +12,14 @@ import pytest
 
 from arm_rc_ctrl.experiments.esn_search import TrialPoint
 from arm_rc_ctrl.experiments.recovery_ablation import (
+    CELL_SCENARIOS,
+    MIN_IMPROVING,
     CandidateCell,
     CandidateTrial,
     ablation_to_json,
     build_ablation,
     evaluate_candidates,
     load_ablation,
-    min_improving,
     render_ablation_markdown,
     summarize_arm,
 )
@@ -49,7 +50,7 @@ def _trial(
     jump: float = 0.6,
     reason: str | None = None,
     comparison: str | None = None,
-    scenarios_per_cell: int = 2,
+    scenarios_per_cell: int = 20,
 ) -> TrialRecord:
     """A stored trial with ``scenarios_per_cell`` paired components per class-by-tracker cell."""
     labels: dict[str, str] = {}
@@ -82,7 +83,7 @@ def _trial(
     )
 
 
-def _jumps(scenarios_per_cell: int = 2) -> dict[tuple[str, float, str], float]:
+def _jumps(scenarios_per_cell: int = 20) -> dict[tuple[str, float, str], float]:
     table: dict[tuple[str, float, str], float] = {}
     for cell in CELLS:
         kind, tracker = cell.split(":")
@@ -146,13 +147,12 @@ def _report(name: str, formulation: str, trials: tuple[TrialRecord, ...]) -> Rec
     )
 
 
-def test_min_improving_matches_the_plan_threshold() -> None:
-    """15 of 20 per plan section 7.3; generalized as ceil(0.75 n)."""
-    assert min_improving(20) == 15
-    assert min_improving(2) == 2
-    assert min_improving(1) == 1
-    with pytest.raises(ValueError, match="at least one"):
-        min_improving(0)
+def test_cell_rule_constants_match_the_protocol() -> None:
+    """Protocol v1 fixes exactly 20 scenarios per cell and the 15-of-20 improvement threshold."""
+    assert CELL_SCENARIOS == 20
+    assert MIN_IMPROVING == 15
+    with pytest.raises(ValueError, match="exactly 20"):
+        CandidateCell(gap_median=0.5, jump_median=0.5, improving_both=2, n=2, passes=True)
 
 
 def test_candidates_pass_and_fail_the_cell_rule() -> None:
@@ -248,8 +248,10 @@ def test_mismatched_datasets_are_refused() -> None:
 def test_candidate_and_cell_invariants_are_enforced() -> None:
     """Cell verdicts and trial eligibility re-derive from their figures."""
     with pytest.raises(ValueError, match="verdict"):
-        CandidateCell(gap_median=0.5, jump_median=0.5, improving_both=2, n=2, passes=False)
-    good = CandidateCell(gap_median=0.5, jump_median=0.5, improving_both=2, n=2, passes=True)
+        CandidateCell(gap_median=0.5, jump_median=0.5, improving_both=20, n=20, passes=False)
+    with pytest.raises(ValueError, match="verdict"):
+        CandidateCell(gap_median=0.5, jump_median=0.5, improving_both=14, n=20, passes=True)
+    good = CandidateCell(gap_median=0.5, jump_median=0.5, improving_both=15, n=20, passes=True)
     cells = {
         "posture_small:pd_v2": good,
         "posture_small:computed_torque": good,
