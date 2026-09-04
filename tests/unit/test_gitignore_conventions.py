@@ -57,6 +57,8 @@ TRACKABLE = [
     "dvc.yaml",
     "dvc.lock",
     "configs/storage.example.toml",
+    "docs/experiments/task_1a/animations/nominal_rc_pd.gif",
+    "docs/experiments/task_1a_state_conditioned_recovery/animations/nominal_rc_pd.gif",
     "configs/robots/planar_2dof.toml",
     "tests/fixtures/tiny_demo.sklog.npz",
     "tests/fixtures/processed/samples.npz",

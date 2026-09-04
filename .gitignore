@@ -88,6 +88,7 @@ storage.toml
 # Small, explicitly curated animations in the human task 1-a report are
 # illustrative documentation; the verified run payloads remain external.
 !/docs/experiments/task_1a/animations/*.gif
+!/docs/experiments/task_1a_state_conditioned_recovery/animations/*.gif
 
 # --- Editors / OS -----------------------------------------------------------
 .vscode/
