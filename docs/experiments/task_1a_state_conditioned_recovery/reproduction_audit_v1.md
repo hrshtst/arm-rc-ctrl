@@ -3,7 +3,7 @@
 - Started: 2026-09-04T04:46:03.065168+00:00; elapsed 62.6 s; ok: True.
 - Command: `python -m arm_rc_ctrl.experiments.reproduce_recovery --scratch audit-inner --summary reproduction_audit_v1.json --audit reproduction_audit_v1.md`
 - Executor machine: `Linux-7.0.0-30-generic-x86_64-with-glibc2.43 / x86_64`.
-- Auditor: (to be filled by the auditor) (cross-machine execution preferred; plan M3R-020).
+- Auditor: OpenAI Codex (independent same-host rerun at `0517fd7`; 2026-09-04) (cross-machine execution preferred; plan M3R-020).
 - Largest metric deviation: 0.0.
 
 | step | ok | elapsed (s) | detail |
