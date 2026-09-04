@@ -2,17 +2,18 @@
 
 ## Summary
 
-- Dataset `processed-20260903-ce343c8ce6a5`; commit `835541c134ff`.
+- Dataset `processed-20260903-ce343c8ce6a5`; commit `84074d40b25a`.
 - Matched studies (identical budgets, scenarios, trackers, limits, metrics): `recovery-search-1a-contractive-v1`, `recovery-search-1a-no-augmentation-v1`, `recovery-search-1a-non-decaying-v1`.
-- Eligible candidates under the section 7.3 rule: 0 of 134 feasible trials (ceil(0.75 * n) scenarios improving both paired metrics (15 of 20 per plan section 7.3)).
+- Eligible candidates under the section 7.3 rule: 0 of 134 feasible trials (15 of 20 scenarios improving both paired metrics per class-by-tracker cell (plan section 7.3; protocol v1 fixes n = 20)).
+- No feasible model was found among the 500 sampled trials of `recovery-search-1a-contractive-v1`, `recovery-search-1a-non-decaying-v1` (a sampled result over the recorded coverage, never an exhaustive-grid claim; see Limitations).
 
 ## Arms
 
-| study | formulation | budget | stored | feasible | best trial | best worst-cell gap ratio |
-| --- | --- | --- | --- | --- | --- | --- |
-| recovery-search-1a-contractive-v1 | contractive | 500 | 500 | 0 | none | n/a |
-| recovery-search-1a-no-augmentation-v1 | no_augmentation | 500 | 500 | 134 | 17 | 0.6704 |
-| recovery-search-1a-non-decaying-v1 | non_decaying | 500 | 500 | 0 | none | n/a |
+| study | formulation | budget | stored | feasible | best trial | best worst-cell gap ratio | D1 / D1 x T_w sampled |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| recovery-search-1a-contractive-v1 | contractive | 500 | 500 | 0 | none | n/a | 100/108, 284/540 |
+| recovery-search-1a-no-augmentation-v1 | no_augmentation | 500 | 500 | 134 | 17 | 0.6704 | - |
+| recovery-search-1a-non-decaying-v1 | non_decaying | 500 | 500 | 0 | none | n/a | 93/108, 244/540 |
 
 ## Failure taxonomy
 
@@ -55,3 +56,5 @@ No feasible trial satisfies every cell; this negative result is retained as-is.
 - First-infeasible censoring: an infeasible trial stops at its first failing (scenario, tracker) pair, so the reason taxonomy counts first failures, not all failures a full sweep would find.
 - Single scripted demonstration (approved decision D6): results do not establish a basin of attraction outside the augmented training tube, and a negative augmentation result here is valid evidence.
 - Development data only: no confirmatory seed, level, or outcome was read, and the section 7.3 gates and their ordering are unchanged; candidate identification here does not select a model (M3R-015 does).
+- Flat infeasible objective: every infeasible trial received the identical penalty, so the sampler could not rank failures or learn a direction inside an infeasible region; an all-infeasible study is therefore a sampled search outcome, and graded feasibility-aware objectives are future protocol work, never a v1 change.
+- Sampled, not exhaustive: each study evaluated its budget of sampled trials, and the recorded D1 and D1-by-warm-up coverage in the Arms section is incomplete by construction; an all-infeasible arm supports only 'no feasible model was found among the sampled trials', never an exhaustive-grid claim.
