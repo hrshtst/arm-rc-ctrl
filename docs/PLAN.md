@@ -301,7 +301,9 @@ the target generator from differences caused by the tracker.
 
 Experimental payloads do not live in Git and are not stored in the repository
 working tree. This includes raw demonstrations, processed datasets, full run
-logs, trained models, MLflow state, and Optuna databases. The only exception is
+logs, trained models, full per-trial study reports (Git keeps a
+content-addressed pointer and the curated Markdown), MLflow state, and
+Optuna databases. The only exception is
 small synthetic or sanitized data under `tests/fixtures/` required for automated
 tests.
 
@@ -326,6 +328,7 @@ The external root uses this layout:
 ├── processed/
 ├── runs/
 ├── models/
+├── reports/
 ├── mlflow/
 ├── optuna/
 ├── dvc-cache/

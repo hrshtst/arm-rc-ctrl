@@ -166,7 +166,7 @@ def test_unreadable_root_is_rejected(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize("bucket", BUCKETS)
 def test_every_documented_bucket_parses(bucket: str) -> None:
-    """All eight layout buckets are valid URI roots."""
+    """Every documented layout bucket is a valid URI root."""
     uri = ArtifactUri.parse(f"armrc://{bucket}")
     assert uri == ArtifactUri(bucket)
     assert uri.relative_path == Path(bucket)

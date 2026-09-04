@@ -1,7 +1,7 @@
 # Data and artifact conventions
 
 Git never stores experimental payloads. Raw demonstrations, processed datasets,
-run logs, trained models, MLflow state, and Optuna databases live below a
+run logs, trained models, full study reports, MLflow state, and Optuna databases live below a
 machine-local storage root that is resolved at run time (see
 [`docs/PLAN.md`](../docs/PLAN.md), section 7.1):
 
@@ -37,8 +37,10 @@ Records reference payloads by logical URI, never by absolute machine path:
 armrc://<bucket>/<relative/path>
 ```
 
-`<bucket>` is one of `raw`, `processed`, `runs`, `models`, `mlflow`, `optuna`,
-`dvc-cache`, or `dvc-store`, matching the external root layout:
+`<bucket>` is one of `raw`, `processed`, `runs`, `models`, `reports`, `mlflow`,
+`optuna`, `dvc-cache`, or `dvc-store`, matching the external root layout
+(`reports/` holds full study reports whose Git side is a content-addressed
+pointer record next to the curated Markdown):
 
 ```text
 <storage-root>/
@@ -46,6 +48,7 @@ armrc://<bucket>/<relative/path>
 ├── processed/
 ├── runs/
 ├── models/
+├── reports/
 ├── mlflow/
 ├── optuna/
 ├── dvc-cache/
