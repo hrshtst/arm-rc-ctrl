@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Hiroshi Atsuta
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""M3R-020: the recovery audit matches its machine-readable executor record (v2, ten steps)."""
+"""M3R-020: the recovery audit matches its machine-readable executor record (v3, canonical components)."""
 
 from __future__ import annotations
 
@@ -21,8 +21,8 @@ from arm_rc_ctrl.repo import repository_root
 pytestmark = pytest.mark.regression
 
 DOCS = repository_root() / "docs" / "experiments" / "task_1a_state_conditioned_recovery"
-SUMMARY = DOCS / "reproduction_audit_v2.json"
-NOTE = DOCS / "reproduction_audit_v2.md"
+SUMMARY = DOCS / "reproduction_audit_v3.json"
+NOTE = DOCS / "reproduction_audit_v3.md"
 
 
 def _result() -> RecoveryReproduction:
@@ -39,11 +39,11 @@ def test_executor_audit_passed_every_recovery_step_exactly() -> None:
     assert result.ok
     assert result.max_deviation == 0.0
     assert result.inputs["dataset"] == "processed-20260903-ce343c8ce6a5"
-    assert result.inputs["reproduction_project_commit"] == "a5ce4e1bde630c41904918df95d421729c0eb5fd"
+    assert result.inputs["reproduction_project_commit"] == "a38f64e92aa36625e7ae005ed9ef2b094eb6b162"
     assert result.inputs["reproduction_project_dirty"] == "False"
     assert result.environment["OMP_NUM_THREADS"] == "1"
     model_detail = next(check.detail for check in result.checks if check.name == "model")
-    assert "130 pairs with every stored component field compared" in model_detail
+    assert "130 pairs with all 2680 stored component fields compared canonically" in model_detail
     assert "4 eligibility cells re-derived against replay baselines" in model_detail
     assert "16 runs rerun" in next(check.detail for check in result.checks if check.name == "pairs")
     visuals = next(check.detail for check in result.checks if check.name == "visualizations")
@@ -51,7 +51,7 @@ def test_executor_audit_passed_every_recovery_step_exactly() -> None:
 
 
 def test_note_is_rendered_from_the_executor_record_without_machine_paths() -> None:
-    """The v2 note is the canonical rendering; the auditor line stays unsigned until the owner's independent rerun."""
+    """The v3 note is the canonical rendering; the auditor line stays unsigned until the owner's independent rerun."""
     result = _result()
     note = NOTE.read_text(encoding="utf-8")
     command = re.search(r"- Command: `([^`]+)`", note)
