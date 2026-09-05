@@ -84,6 +84,7 @@ from arm_rc_ctrl.experiments.recovery_search import (
 from arm_rc_ctrl.experiments.recovery_slice import run_recovery_pair
 from arm_rc_ctrl.experiments.reproduce_1a import Check, ReproductionError, prepare_scratch
 from arm_rc_ctrl.experiments.run_record import RunPointerRecord, load_run
+from arm_rc_ctrl.experiments.scalars import flatten_scalars
 from arm_rc_ctrl.provenance import canonical_json, command_line, sha256_bytes, sha256_file, worktree_state
 from arm_rc_ctrl.rc.augment import generate_augmentation
 from arm_rc_ctrl.rc.esn import ensure_single_thread
@@ -188,49 +189,38 @@ def compare_evidence(path: str, committed: object, rebuilt: object, differences:
     return 0.0
 
 
-_COMPONENT_METRICS: Final = (
-    "gap_ratio",
-    "activation_jump_rad",
-    "early_gap_integral",
-    "replay_early_gap_integral",
-    "settling_time_s",
-    "torque_rms",
-    "saturation_fraction",
-    "boundary_jump",
-)
+def _component_rows(trial: TrialRecord) -> dict[str, object]:
+    """Every stored ``components.*`` entry of the trial across its typed tables."""
+    tables: tuple[dict[str, object], ...] = (dict(trial.flags), dict(trial.metrics), dict(trial.labels))
+    return {key: value for table in tables for key, value in table.items() if key.startswith("components.")}
 
 
-def _stored_components(trial: TrialRecord) -> dict[tuple[str, str], dict[str, object]]:
-    """The stored per-pair evaluation of one trial, keyed by (scenario, tracker)."""
-    stored: dict[tuple[str, str], dict[str, object]] = {}
-    index = 0
-    while f"components.{index}.kind" in trial.labels:
-        prefix = f"components.{index}"
-        key = (trial.labels[prefix + ".scenario_id"], trial.labels[prefix + ".tracker"])
-        fields: dict[str, object] = {
-            "kind": trial.labels[prefix + ".kind"],
-            "termination": trial.labels[prefix + ".termination"],
-            "feasible": trial.flags[prefix + ".feasible"],
-        }
-        for metric in _COMPONENT_METRICS:
-            value = trial.metrics.get(f"{prefix}.{metric}")
-            if value is not None:
-                fields[metric] = value
-        criteria = {
-            name.rsplit(".", 1)[-1]: ok for name, ok in trial.flags.items() if name.startswith(prefix + ".criteria.")
-        }
-        if criteria:
-            fields["criteria"] = criteria
-        generated = {
-            name.rsplit(".", 1)[-1]: ok
-            for name, ok in trial.flags.items()
-            if name.startswith(prefix + ".generated_criteria.")
-        }
-        if generated:
-            fields["generated_criteria"] = generated
-        stored[key] = fields
-        index += 1
-    return stored
+def _rebuilt_component_rows(evaluation: RecoveryTrialEvaluation) -> dict[str, object]:
+    """The canonical flattened component mapping the study stores, typed exactly like ``studies._record``."""
+    flat: dict[str, object] = {}
+    flatten_scalars("components", [to_mapping(component) for component in evaluation.components], flat)
+    rows: dict[str, object] = {}
+    for key, value in flat.items():
+        if isinstance(value, bool):
+            rows[key] = value
+        elif isinstance(value, (int, float)):
+            rows[key] = float(value)
+        elif value is not None:
+            rows[key] = str(value)
+    return rows
+
+
+def _compare_component_rows(stored: dict[str, object], rebuilt: dict[str, object], differences: list[str]) -> float:
+    """Compare the complete stored component mapping against the canonical rebuild; no field is exempt."""
+    if set(stored) != set(rebuilt):
+        missing = sorted(set(stored) - set(rebuilt))
+        extra = sorted(set(rebuilt) - set(stored))
+        msg = f"stored/rebuilt component keys diverge (missing {missing[:3]!r}, unexpected {extra[:3]!r})"
+        raise ReproductionError(msg)
+    return max(
+        (compare_evidence(key, stored[key], rebuilt[key], differences) for key in sorted(stored)),
+        default=0.0,
+    )
 
 
 def _rebuilt_cells(
@@ -515,15 +505,9 @@ class Reproducer:
         evaluation = evaluate_recovery_point(protocol, context, point)
         differences: list[str] = []
         worst = compare_evidence("objective", trial.value, evaluation.objective, differences)
-        stored = _stored_components(trial)
-        rebuilt = {(c.scenario_id, c.tracker): c for c in evaluation.components}
-        if set(stored) != set(rebuilt):
-            msg = f"re-evaluation covers {len(rebuilt)} pairs, the stored trial {len(stored)}"
-            raise ReproductionError(msg)
-        for key, fields in stored.items():
-            component = rebuilt[key]
-            for name, value in fields.items():
-                worst = max(worst, compare_evidence(f"{key}.{name}", value, getattr(component, name), differences))
+        stored_rows = _component_rows(trial)
+        rebuilt_rows = _rebuilt_component_rows(evaluation)
+        worst = max(worst, _compare_component_rows(stored_rows, rebuilt_rows, differences))
         ablation = _need(self.ablation, "model")
         candidate = next(
             (c for c in ablation.candidates if c.study == protocol.name and c.number == trial.number), None
@@ -549,7 +533,8 @@ class Reproducer:
         self.max_deviation = worst if self.max_deviation is None else max(self.max_deviation, worst)
         return (
             f"recipe refitted (fit RMSE {recipe.fit.rmse:.6g} rad); trial {trial.number} re-evaluated over "
-            f"{len(evaluation.components)} pairs with every stored component field compared and the "
+            f"{len(evaluation.components)} pairs with all {len(stored_rows)} stored component fields compared "
+            f"canonically and the "
             f"{len(cells)} eligibility cells re-derived against replay baselines; largest deviation {worst:.3e}"
         )
 

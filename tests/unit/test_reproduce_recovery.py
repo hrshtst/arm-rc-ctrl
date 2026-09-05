@@ -15,8 +15,10 @@ from arm_rc_ctrl.experiments.reproduce_recovery import (
     STEPS,
     RecoveryReproduction,
     Reproducer,
+    _compare_component_rows,  # pyright: ignore[reportPrivateUsage]
+    _component_rows,  # pyright: ignore[reportPrivateUsage]
     _rebuilt_cells,  # pyright: ignore[reportPrivateUsage]
-    _stored_components,  # pyright: ignore[reportPrivateUsage]
+    _rebuilt_component_rows,  # pyright: ignore[reportPrivateUsage]
     animation_names,
     audit_markdown,
     compare_evidence,
@@ -148,41 +150,132 @@ def test_audit_markdown_renders_every_check() -> None:
     assert "Executor machine:" in text
 
 
-def test_stored_components_parse_the_flattened_trial() -> None:
-    """Every persisted per-pair field round-trips out of the flattened trial record."""
+def _canonical_evaluation():  # noqa: ANN202
+    """A two-component evaluation (one feasible, one infeasible with reason/failure/limit)."""
+    from arm_rc_ctrl.experiments.esn_search import TrialPoint
+    from arm_rc_ctrl.experiments.recovery_objective import RecoveryComponent, RecoveryTrialEvaluation
+    from arm_rc_ctrl.experiments.recovery_search import RecoveryTrialPoint
+
+    components = (
+        RecoveryComponent(
+            index=0,
+            scenario_id="s-1",
+            kind="posture_small",
+            tracker="pd_v2",
+            initial_q=(0.1, -0.2, 0.3),
+            termination="completed",
+            criteria={"completed": True},
+            generated_criteria={"generated_dwell_stationary": True},
+            feasible=True,
+            reason=None,
+            gap_ratio=0.5,
+            activation_jump_rad=0.03,
+            early_gap_integral=0.01,
+            replay_early_gap_integral=0.02,
+            settling_time_s=0.2,
+            torque_rms=1.5,
+            saturation_fraction=0.0,
+            boundary_jump=0.001,
+        ),
+        RecoveryComponent(
+            index=1,
+            scenario_id="s-2",
+            kind="posture_large",
+            tracker="computed_torque_v1",
+            initial_q=(-0.4, 0.5, -0.6),
+            termination="joint_velocity_limit",
+            criteria={"completed": False},
+            generated_criteria=None,
+            feasible=False,
+            reason="joint velocity limit exceeded",
+            failure="joint_velocity",
+            limit="q1",
+        ),
+    )
+    return RecoveryTrialEvaluation(
+        point=RecoveryTrialPoint(esn=TrialPoint(100, 0.9, 0.9, 0.1, 0.1, 31, 0.01, 20.0, 20.0), warmup_s=0.25),
+        objective=0.5,
+        feasible=False,
+        penalized=False,
+        reason="stopped by the pruner",
+        fit_rmse=0.001,
+        scenarios_total=6,
+        components=components,
+        cells={},
+        running=(0.5,),
+        stopped_early=True,
+    )
+
+
+def _trial_from_rows(rows: dict[str, object]):  # noqa: ANN202
+    """A TrialRecord whose typed tables hold exactly these component rows (the studies._record split)."""
     from arm_rc_ctrl.experiments.studies import TrialRecord
 
-    trial = TrialRecord(
-        number=17,
-        state="COMPLETE",
-        value=0.5,
-        params={"warmup_s": 0.25},
-        metrics={
-            "components.0.gap_ratio": 0.5,
-            "components.0.activation_jump_rad": 0.03,
-            "components.0.settling_time_s": 0.2,
-        },
-        flags={
-            "feasible": True,
-            "components.0.feasible": True,
-            "components.0.criteria.completed": True,
-            "components.0.generated_criteria.generated_dwell_stationary": True,
-        },
-        labels={
-            "components.0.kind": "posture_small",
-            "components.0.tracker": "pd_v2",
-            "components.0.scenario_id": "s-1",
-            "components.0.termination": "completed",
-        },
+    flags = {key: value for key, value in rows.items() if isinstance(value, bool)}
+    metrics = {
+        key: float(value)
+        for key, value in rows.items()
+        if not isinstance(value, bool) and isinstance(value, (int, float))
+    }
+    labels = {key: str(value) for key, value in rows.items() if isinstance(value, str)}
+    return TrialRecord(
+        number=17, state="COMPLETE", value=0.5, params={"warmup_s": 0.25}, metrics=metrics, flags=flags, labels=labels
     )
-    stored = _stored_components(trial)
-    fields = stored[("s-1", "pd_v2")]
-    assert fields["kind"] == "posture_small"
-    assert fields["feasible"] is True
-    assert fields["gap_ratio"] == 0.5
-    assert fields["criteria"] == {"completed": True}
-    assert fields["generated_criteria"] == {"generated_dwell_stationary": True}
-    assert "torque_rms" not in fields
+
+
+def test_component_rows_round_trip_the_canonical_flatten() -> None:
+    """The complete stored mapping reassembles from the typed tables and matches the rebuild exactly."""
+    evaluation = _canonical_evaluation()
+    rebuilt = _rebuilt_component_rows(evaluation)
+    assert "components.0.index" in rebuilt
+    assert "components.0.initial_q.0" in rebuilt
+    assert "components.1.reason" in rebuilt
+    assert "components.1.failure" in rebuilt
+    assert "components.1.limit" in rebuilt
+    assert "components.1.gap_ratio" not in rebuilt  # None fields are dropped by the storage split
+    stored = _component_rows(_trial_from_rows(rebuilt))
+    assert stored == rebuilt
+    differences: list[str] = []
+    assert _compare_component_rows(stored, rebuilt, differences) == 0.0
+    assert differences == []
+
+
+@pytest.mark.parametrize(
+    "key",
+    [
+        "components.0.index",
+        "components.0.initial_q.0",
+        "components.0.initial_q.1",
+        "components.0.initial_q.2",
+    ],
+)
+def test_numeric_component_drift_is_detected(key: str) -> None:
+    """Mutating the stored index or any initial-position element registers as a deviation."""
+    rebuilt = _rebuilt_component_rows(_canonical_evaluation())
+    stored = dict(rebuilt)
+    stored[key] = float(stored[key]) + 1e-3  # type: ignore[arg-type]
+    differences: list[str] = []
+    assert _compare_component_rows(stored, rebuilt, differences) == pytest.approx(1e-3)
+
+
+@pytest.mark.parametrize("key", ["components.1.reason", "components.1.failure", "components.1.limit"])
+def test_infeasible_annotation_drift_is_detected(key: str) -> None:
+    """Mutating the stored reason, failure, or limit of an infeasible pair registers as a difference."""
+    rebuilt = _rebuilt_component_rows(_canonical_evaluation())
+    stored = dict(rebuilt)
+    stored[key] = "tampered"
+    differences: list[str] = []
+    _compare_component_rows(stored, rebuilt, differences)
+    assert differences == [f"{key}: 'tampered' != {rebuilt[key]!r}"]
+
+
+def test_missing_or_extra_component_keys_fail_loudly() -> None:
+    """A stored key the rebuild lacks (or vice versa) refuses to reproduce instead of being skipped."""
+    rebuilt = _rebuilt_component_rows(_canonical_evaluation())
+    stored = dict(rebuilt)
+    del stored["components.0.initial_q.2"]
+    with pytest.raises(ReproductionError, match="component keys diverge"):
+        _compare_component_rows(stored, rebuilt, [])
 
 
 def test_rebuilt_cells_rederive_medians_and_improvement_counts() -> None:
