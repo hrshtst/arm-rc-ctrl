@@ -226,7 +226,7 @@ perturbations, and acceptance criteria.
 
 | ID | Status | Epic | Depends on | Exit criterion |
 | --- | --- | --- | --- | --- |
-| M4-001 | `TODO` | Task 1-b: several demonstrations, one target, unseen initial postures | M3R-GATE | Reproducible success-region report versus model-based reaching/replay baselines using the qualified recovery formulation or its documented negative result |
+| M4-001 | `IN PROGRESS` | Task 1-b: several demonstrations, one target, unseen initial postures | M3R-GATE | Reproducible success-region report versus model-based reaching/replay baselines using the qualified recovery formulation or its documented negative result. Protocol draft `docs/experiments/task_1b_multi_demonstration/plan.md` (2026-09-06) proposes label task_1b_multidemo_v1, the augmentation-free multi-demonstration formulation carrying the validated recovery timing redesign, replay-nearest and model-based baselines, stratified success-region evaluation, and open decisions D1-D8; awaiting the owner's protocol lock (gate 1) before any implementation |
 | M4-002 | `TODO` | Multi-target reaching with one-hot target conditioning and live switching | M4-001 | Per-target/switch success and smoothness report versus matched baseline |
 | M4-003 | `TODO` | Periodic circle and lemniscate drawing | M4-002 | Convergence, geometric tracking, phase drift, and perturbation-recovery report |
 | M4-004 | `TODO` | Repeat qualified experiments on a 4-DOF planar arm | M4-001 | Scaling report isolates DOF/reservoir/data effects with equivalent protocols |
