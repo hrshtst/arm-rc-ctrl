@@ -135,6 +135,11 @@ uv run nox -s cpp          # cmake configure/build + ctest with -Werror
 uv run nox -s pre_commit   # all pre-commit hooks on all files
 ```
 
+The coverage population excludes only the private-payload recovery reproduction
+orchestrator. Its full clean-checkout behavior is instead covered by the signed,
+regression-locked reproduction audit; reusable experiment and scientific modules
+remain subject to the 90% gate.
+
 The underlying commands, if you need them directly:
 
 ```bash

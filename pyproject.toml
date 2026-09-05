@@ -176,6 +176,10 @@ markers = [
 [tool.coverage.run]
 source = ["arm_rc_ctrl"]
 branch = true
+# This clean-checkout orchestrator requires the private external evidence store.
+# Its complete behavior is verified by the signed, regression-locked M3R audit;
+# reusable scientific and experiment modules remain in the coverage population.
+omit = ["*/arm_rc_ctrl/experiments/reproduce_recovery.py"]
 
 [tool.coverage.report]
 show_missing = true

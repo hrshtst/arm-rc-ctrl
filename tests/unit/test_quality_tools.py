@@ -13,6 +13,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = REPO_ROOT / "tests" / "fixtures" / "quality"
+AUDITED_REPRODUCTION_ORCHESTRATOR = "*/arm_rc_ctrl/experiments/reproduce_recovery.py"
 
 
 def _run(*args: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
@@ -85,3 +86,11 @@ def test_planted_failing_example_is_not_collected_by_default() -> None:
     result = _run("pytest", "--collect-only", "-q", "-p", "no:cacheprovider")
     assert result.returncode == 0, result.stdout + result.stderr
     assert "failing_example.py" not in result.stdout
+
+
+def test_coverage_excludes_only_the_independently_audited_orchestrator() -> None:
+    """The private-payload reproduction command is the sole coverage exclusion."""
+    with (REPO_ROOT / "pyproject.toml").open("rb") as f:
+        coverage_run = tomllib.load(f)["tool"]["coverage"]["run"]
+
+    assert coverage_run["omit"] == [AUDITED_REPRODUCTION_ORCHESTRATOR]
