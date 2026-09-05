@@ -17,7 +17,7 @@ confirmatory gate.
 Command line::
 
     python -m arm_rc_ctrl.experiments.recovery_report --docs docs/experiments/<task>
-        --dataset data/records/processed/<id>.toml --output <docs>/recovery_report_v1.md
+        --output <docs>/recovery_report_v1.md
         [--plots-dir <docs>/plots/recovery_report_v1] [--records-root ROOT]
 """
 
@@ -40,11 +40,18 @@ import matplotlib.pyplot as plt
 from arm_rc_ctrl.data.records import load_record, verify_payload
 from arm_rc_ctrl.data.recovery import RecoveryDatasetRecord, task_intervals_from_phases
 from arm_rc_ctrl.data.samples import load_samples
+from arm_rc_ctrl.experiments.augmentation_plots import AUGMENTATION_PLOT_FILES, DEFAULT_DISPLAYED_EPISODES
 from arm_rc_ctrl.experiments.evidence import StoredReport, load_report_pointer
+from arm_rc_ctrl.experiments.perturbations import (
+    RobustnessScenario,
+    load_development_robustness,
+    robustness_scenarios,
+)
 from arm_rc_ctrl.experiments.recovery_ablation import LIMITATIONS, AblationReport, load_ablation
 from arm_rc_ctrl.experiments.recovery_freeze import FreezeRecord, load_freeze
 from arm_rc_ctrl.experiments.recovery_representative import (
     REPRESENTATIVE_CLASSES,
+    PairOutcome,
     RepresentativeRecord,
     load_representatives,
 )
@@ -83,8 +90,10 @@ PLOT_FILES: Final = (
     "trajectory_force.png",
 )
 _PRIMARY_TRACKER: Final = "pd_v2"
+_DEVELOPMENT_PROTOCOL: Final = Path("configs/evaluations/task_1a_recovery_dev_v1.toml")
 _MINIMUM_SAMPLES: Final = 2
 _TRAJECTORY_DIMENSIONS: Final = 2
+_ANIMATION_PAIR_SIZE: Final = 2
 RECOVERY_CURVE_ORDER: Final = ("reference", "replay_actual", "generator_output_q", "rc_actual")
 """Draw order fixed by the recovery plan (section 7.3); the generated reference is dashed."""
 RECOVERY_CURVE_STYLES: Final[dict[str, tuple[str, str, float, str]]] = {
@@ -92,6 +101,12 @@ RECOVERY_CURVE_STYLES: Final[dict[str, tuple[str, str, float, str]]] = {
     "replay_actual": ("tab:blue", "-", 1.8, "replay actual"),
     "generator_output_q": ("tab:green", "--", 1.8, "RC generated reference"),
     "rc_actual": ("tab:orange", "-", 1.5, "RC actual"),
+}
+_CLASS_TITLES: Final = {
+    "nominal": "Nominal start",
+    "posture_small": "Small initial-posture perturbation",
+    "posture_large": "Large initial-posture perturbation",
+    "force": "External-force pulse",
 }
 
 
@@ -112,6 +127,8 @@ class ReportInputs:
     saturation: dict[str, float] = field(default_factory=dict)
     move_rmse: dict[str, float] = field(default_factory=dict)
     """Movement-window joint RMSE (rad) against the original demonstration, per representative run."""
+    scenarios: dict[str, RobustnessScenario] = field(default_factory=dict)
+    """Development scenarios keyed by their stable ID for human-facing descriptions."""
 
 
 def build_report_inputs(docs: Path, *, store: StorageRoot, records_root: Path) -> ReportInputs:
@@ -124,7 +141,14 @@ def build_report_inputs(docs: Path, *, store: StorageRoot, records_root: Path) -
     dataset_file = records_root / "data" / "records" / "processed" / f"{representative.dataset}.toml"
     dataset = load_record(dataset_file, RecoveryDatasetRecord)
     reference = load_samples(verify_payload(store, dataset.artifact))
-    torque_limits = load_scenario(records_root / dataset.scenario.config_path).limits.torque
+    scenario = load_scenario(records_root / dataset.scenario.config_path)
+    torque_limits = scenario.limits.torque
+    protocol = load_development_robustness(records_root / _DEVELOPMENT_PROTOCOL)
+    scenarios = {case.scenario_id: case for case in robustness_scenarios(protocol, nominal=dataset.q0_ref)}
+    missing_scenarios = set(representative.scenarios.values()) - scenarios.keys()
+    if missing_scenarios:
+        msg = f"representative scenarios are absent from {_DEVELOPMENT_PROTOCOL}: {sorted(missing_scenarios)}"
+        raise ValueError(msg)
     runs: dict[str, LoadedRun] = {}
     effort: dict[str, float] = {}
     torque_peak: dict[str, float] = {}
@@ -165,6 +189,7 @@ def build_report_inputs(docs: Path, *, store: StorageRoot, records_root: Path) -
         torque_peak=torque_peak,
         saturation=saturation,
         move_rmse=move_rmse,
+        scenarios=scenarios,
     )
 
 
@@ -407,7 +432,143 @@ def _pair_rows(inputs: ReportInputs) -> list[str]:
     return lines
 
 
-def render_recovery_report(inputs: ReportInputs, *, plots: Sequence[str] = (), animations: Sequence[str] = ()) -> str:
+def _offset_text(offset: tuple[float, ...]) -> str:
+    return "[" + ", ".join(f"{value:+.4f}" for value in offset) + "]"
+
+
+def _scenario_description(case: RobustnessScenario | None, pair: PairOutcome) -> str:
+    """Describe exactly what differs from the nominal representative run."""
+    if case is None:
+        return f"Scenario `{pair.scenario_id}`; consult the representative table for its recorded identity."
+    if case.kind == "nominal":
+        return "The arm starts at the cropped demonstration posture; no posture offset or external force is applied."
+    if case.kind in ("posture_small", "posture_large"):
+        assert case.magnitude_rad is not None
+        return (
+            f"The initial joints are offset from the cropped demonstration posture by "
+            f"$\\Delta q={_offset_text(case.offset)}$ rad (norm {case.magnitude_rad:g} rad). Both arms hold this "
+            "perturbed posture; neither corrects it before activation. No external force is applied."
+        )
+    if case.kind == "force":
+        assert case.force_magnitude_n is not None
+        assert case.force_start_s is not None
+        assert case.force_duration_s is not None
+        assert case.direction_deg is not None
+        run_start = pair.activation_s + case.force_start_s
+        run_end = run_start + case.force_duration_s
+        direction = "+x" if case.direction_deg == 0.0 else f"{case.direction_deg:g} degrees"
+        return (
+            "The arm starts nominally. A "
+            f"{case.force_magnitude_n:g} N end-effector pulse acts toward {direction} from task time "
+            f"{case.force_start_s:g} to {case.force_start_s + case.force_duration_s:g} s "
+            f"(run time {run_start:g} to {run_end:g} s); the red arrow shows the applied force."
+        )
+    return f"Scenario `{case.scenario_id}` belongs to class `{case.kind}`."
+
+
+def _animation_observation(inputs: ReportInputs, pair: PairOutcome) -> str:
+    """Summarize the numerical evidence needed to interpret one visual pair."""
+    recovery = pair.recovery
+    if recovery is None:
+        return "The RC run did not complete, so no recovery metrics are available."
+    rc_rmse = inputs.move_rmse.get(pair.rc_run)
+    replay_rmse = inputs.move_rmse.get(pair.replay_run)
+    return (
+        f"Both simulations completed. RC/replay actual-motion RMSE against the original movement is "
+        f"{_fmt(rc_rmse)} / {_fmt(replay_rmse)} rad. The generated reference enters the 0.05 rad band around "
+        f"the original after {_fmt(recovery.reference_settling.settling_time_s)} s and spends "
+        f"{100 * recovery.generated_dwell.in_tolerance_fraction:.0f}% of dwell within the 1 cm target region."
+    )
+
+
+def _animation_lines(inputs: ReportInputs, animations: Sequence[str]) -> list[str]:
+    """Render paired, evidence-linked descriptions for the curated PD animations."""
+    available = set(animations)
+    pairs = {(pair.kind, pair.tracker): pair for pair in inputs.representative.pairs}
+    lines = [
+        "## Animations",
+        "",
+        (
+            "These GIFs are kinematic playbacks of the recorded joint positions: the moving links show the "
+            "actual simulated robot motion, not the desired trajectory and not a controller re-execution. "
+            "The target marker and its 1 cm tolerance ring are task overlays; the time-series plots above "
+            "show the commands that cannot be seen in the robot view."
+        ),
+        "",
+        (
+            "Each clip is traceable to the run ID in its caption and can be regenerated with "
+            "`scripts/play_run.py --run <run-id> --scenario configs/tasks/task_1a.toml --export <file.gif>`."
+        ),
+        "",
+        (
+            "Every pair uses timing-only trial 17 and the same frozen PD v2 tracker. Both arms hold their own "
+            "initial posture for 0.25 s, then activate together at task time 0. The left clip is driven by the "
+            "feedback-conditioned ESN reference; the right clip directly replays the original teacher "
+            "trajectory. The side-by-side comparison therefore isolates the reference generator. Computed-"
+            "torque runs are quantified in the tables but are not included in this animation set."
+        ),
+        "",
+    ]
+    consumed: set[str] = set()
+    for kind in REPRESENTATIVE_CLASSES:
+        rc_name = f"{kind}_rc_pd.gif"
+        replay_name = f"{kind}_replay_pd.gif"
+        if rc_name not in available and replay_name not in available:
+            continue
+        pair = pairs.get((kind, _PRIMARY_TRACKER))
+        if pair is None:
+            continue
+        case = inputs.scenarios.get(pair.scenario_id)
+        lines += [
+            f"### {_CLASS_TITLES[kind]} — `{pair.scenario_id}`",
+            "",
+            f"**Setup.** {_scenario_description(case, pair)}",
+            "",
+            f"**What the result shows.** {_animation_observation(inputs, pair)}",
+            "",
+        ]
+        names = [name for name in (rc_name, replay_name) if name in available]
+        if len(names) == _ANIMATION_PAIR_SIZE:
+            lines += [
+                "| RC-generated reference + PD v2 | Original-reference replay + PD v2 |",
+                "| --- | --- |",
+                (
+                    f"| Actual motion from `{pair.rc_run}`. The unseen desired command is the ESN's "
+                    f"feedback-conditioned output. | Actual motion from `{pair.replay_run}`. The unseen "
+                    "desired command is the original teacher trajectory. |"
+                ),
+                (
+                    f"| ![{Path(rc_name).stem}](animations/{rc_name}) | "
+                    f"![{Path(replay_name).stem}](animations/{replay_name}) |"
+                ),
+                "",
+            ]
+        else:
+            name = names[0]
+            run_id = pair.rc_run if name == rc_name else pair.replay_run
+            source = "feedback-conditioned ESN" if name == rc_name else "original teacher trajectory"
+            lines += [
+                f"`{run_id}` — actual motion commanded by the {source}:",
+                "",
+                f"![{Path(name).stem}](animations/{name})",
+                "",
+            ]
+        consumed.update(names)
+    for name in animations:
+        if name not in consumed:
+            lines += [f"Additional animation `{name}`:", "", f"![{Path(name).stem}](animations/{name})", ""]
+    while lines and not lines[-1]:
+        lines.pop()
+    return lines
+
+
+def render_recovery_report(
+    inputs: ReportInputs,
+    *,
+    plots: Sequence[str] = (),
+    animations: Sequence[str] = (),
+    augmentation_plots: Sequence[str] = AUGMENTATION_PLOT_FILES,
+) -> str:
     """The Markdown report of the accepted negative result."""
     ablation = inputs.ablation
     freeze = inputs.freeze
@@ -453,6 +614,41 @@ def render_recovery_report(inputs: ReportInputs, *, plots: Sequence[str] = (), a
         "pointers; the development ablation (`development_ablation_v2`) carries the failure",
         "taxonomies, sampled-coverage figures, and the eligibility evaluation this report renders.",
         "",
+        "## Training augmentation in task space",
+        "",
+        (
+            "The colored curves below are accepted synthetic joint trajectories mapped into end-effector "
+            "x-y space with the robot's forward kinematics; the black curve is the one original scripted "
+            "demonstration. They are generated by the same seeded AR(1) implementation used for training, "
+            "not by a separate illustration routine."
+        ),
+        "",
+        (
+            f"For readability, each panel shows {DEFAULT_DISPLAYED_EPISODES} of the anchor's 64 synthetic "
+            "episodes from seed bank 1. The matched family comparison uses sigma = 0.05 rad, phi = 0.99, "
+            "and gamma = 1. The non-decaying family retains the perturbation during movement until the shared "
+            "terminal taper; the contractive family additionally scales it by normalized distance to the target. "
+            "Both become exactly equal to the original trajectory before dwell."
+        ),
+        "",
+        (
+            "The scale figure varies sigma over 0.01, 0.025, 0.05, and 0.10 rad for the non-decaying family. "
+            "The contraction figure varies gamma over 0.5, 1, and 2 at sigma = 0.05 rad; larger gamma narrows "
+            "the synthetic tube more rapidly as the reference approaches the target. Axes are shared within "
+            "each comparison figure so the apparent spread is directly comparable. These plots explain the "
+            "training inputs only—the study still found no feasible augmented model among its sampled trials."
+        ),
+        "",
+        "Regenerate these figures with:",
+        "",
+        "```bash",
+        "uv run python scripts/plot_recovery_augmentation.py \\",
+        "  --output-dir docs/experiments/task_1a_state_conditioned_recovery/plots/augmentation_strategy_v1 \\",
+        "  --force",
+        "```",
+        "",
+        *(f"![{Path(p).stem}](plots/augmentation_strategy_v1/{p})" for p in augmentation_plots),
+        "",
         "## Paired distributions (early gaps and activation jumps)",
         "",
         (
@@ -488,15 +684,7 @@ def render_recovery_report(inputs: ReportInputs, *, plots: Sequence[str] = (), a
         lines += ["", "## Plots", ""]
         lines.extend(f"![{Path(p).stem}](plots/recovery_report_v1/{p})" for p in plots)
     if animations:
-        lines += [
-            "",
-            "## Animations",
-            "",
-            "Each animation renders one verified run listed in the representative table above",
-            "(`scripts/play_run.py --run <run-id> --scenario configs/tasks/task_1a.toml --export ...`):",
-            "",
-        ]
-        lines.extend(f"![{Path(a).stem}](animations/{a})" for a in animations)
+        lines += ["", *_animation_lines(inputs, animations)]
     return "\n".join(lines) + "\n"
 
 

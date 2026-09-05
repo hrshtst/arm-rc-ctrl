@@ -12,6 +12,7 @@ import pytest
 
 from arm_rc_ctrl.data.synthetic import synthetic_task_samples
 from arm_rc_ctrl.experiments.evidence import StoredReport
+from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
 from arm_rc_ctrl.experiments.recovery_ablation import AblationReport, ArmSummary, CandidateCell, CandidateTrial
 from arm_rc_ctrl.experiments.recovery_freeze import FreezeRecord, StudyInput
 from arm_rc_ctrl.experiments.recovery_report import (
@@ -177,18 +178,47 @@ def _inputs() -> ReportInputs:
         reference=synthetic_task_samples(),
         runs={},
         effort={},
+        scenarios={
+            "nominal": RobustnessScenario("nominal", "nominal", (0.0, 0.0)),
+            "small-2": RobustnessScenario(
+                "small-2", "posture_small", (-0.04, 0.03), seed=12, draw=2, magnitude_rad=0.05
+            ),
+            "large-2": RobustnessScenario(
+                "large-2", "posture_large", (0.06, -0.08), seed=13, draw=2, magnitude_rad=0.1
+            ),
+            "force-000deg": RobustnessScenario(
+                "force-000deg",
+                "force",
+                (0.0, 0.0),
+                force_magnitude_n=12.0,
+                force_start_s=1.0,
+                force_duration_s=0.2,
+                direction_deg=0.0,
+            ),
+        },
     )
 
 
 def test_report_renders_the_negative_result_and_every_section() -> None:
     """The report states the accepted negative, renders the tables, and embeds plots and animations."""
-    markdown = render_recovery_report(_inputs(), plots=("cell_gap_medians.png",), animations=("nominal_rc_pd.gif",))
+    markdown = render_recovery_report(
+        _inputs(),
+        plots=("cell_gap_medians.png",),
+        animations=("nominal_rc_pd.gif", "nominal_replay_pd.gif"),
+    )
     for required in (
         "# Task 1-a state-conditioned recovery: development results (v1)",
         "Accepted negative result",
         "no model is frozen and the",
         "## Study outcomes",
         "| study-timing | no_augmentation | 4 | 4 | 2 | 0.5 |",
+        "## Training augmentation in task space",
+        "same seeded AR(1) implementation used for training",
+        "Axes are shared within each comparison figure",
+        "plots/augmentation_strategy_v1/augmentation_task_space_families.png",
+        "plots/augmentation_strategy_v1/augmentation_task_space_sigma.png",
+        "plots/augmentation_strategy_v1/augmentation_task_space_gamma.png",
+        "scripts/plot_recovery_augmentation.py",
         "## Paired distributions",
         "15-of-20 consistency requirement",
         "## Representative pairs",
@@ -202,6 +232,13 @@ def test_report_renders_the_negative_result_and_every_section() -> None:
         "Sampled, not exhaustive",
         "plots/recovery_report_v1/cell_gap_medians.png",
         "animations/nominal_rc_pd.gif",
+        "animations/nominal_replay_pd.gif",
+        "actual simulated robot motion",
+        "Both arms hold their own initial posture for 0.25 s",
+        "The arm starts at the cropped demonstration posture",
+        "RC-generated reference + PD v2",
+        "Original-reference replay + PD v2",
+        "Actual motion from `run-rc-nominal-pd_v2`",
         "scripts/play_run.py --run <run-id>",
     ):
         assert required in markdown
