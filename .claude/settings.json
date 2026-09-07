@@ -1,0 +1,17 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "f=\"$(jq -r '.tool_input.file_path // .tool_response.filePath // empty')\"; case \"$f\" in \"$CLAUDE_PROJECT_DIR\"/*.py|\"$CLAUDE_PROJECT_DIR\"/*.pyi) [ -x \"$CLAUDE_PROJECT_DIR/.venv/bin/ruff\" ] && \"$CLAUDE_PROJECT_DIR/.venv/bin/ruff\" format --force-exclude \"$f\" >/dev/null 2>&1 ;; esac; true",
+            "timeout": 15,
+            "statusMessage": "ruff format"
+          }
+        ]
+      }
+    ]
+  }
+}

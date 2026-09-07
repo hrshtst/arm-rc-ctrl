@@ -3,42 +3,24 @@
 ## Project Structure & Module Organization
 
 The roadmap is `docs/PLAN.md`; `docs/TASKS.md` is the authoritative work queue.
-Follow them when adding the planned layout:
-
-- `src/arm_rc_ctrl/`: Python data, RC, control, metrics, and experiments.
-- `tests/{unit,integration,regression}/`: tests and deterministic fixtures.
-- `cpp/{include,src,apps,tests}/`: C++ inference and `rtctrl` integration.
-- `configs/`: versioned robot, task, controller, study, and evaluation TOML.
-- `scripts/`: thin reproducibility entry points; keep business logic in `src/`.
-- `data/`: Git-tracked pointer records only; payloads use external storage.
-- `third_party/`: pinned recursive submodules for `rclib`, `skelarm`, and `rtctrl`.
+Follow them when adding to the layout. `scripts/` holds thin reproducibility
+entry points only (business logic lives in `src/`); `data/` holds Git-tracked
+pointer records only (payloads use external storage).
 
 ## Build, Test, and Development Commands
 
-```bash
-git submodule update --init third_party/skelarm third_party/rtctrl  # top-level pins
-git submodule update --init --recursive third_party/rclib            # rclib needs its nested submodules
-uv sync                                  # locked Python environment (builds rclib/skelarm)
-uv run python -m arm_rc_ctrl.dependencies rebuild  # reinstall from submodules + record build identity
-uv run nox                               # full gate: deps, lint, type_check, tests, cpp
-uv run nox -s lint                       # ruff check + format check
-uv run nox -s type_check                 # basedpyright (strict)
-uv run nox -s tests                      # pytest with coverage
-uv run nox -s cpp                        # cmake configure/build + ctest (-Werror)
-uv run nox -s pre_commit                 # all pre-commit hooks
-```
-
-See `README.md` for the equivalent raw commands, the external storage root,
-and the smoke experiment. After advancing a submodule pin run
+Setup from a clean checkout and the nox quality gate (`uv run --locked nox`;
+sessions `deps`, `lint`, `type_check`, `tests`, `cpp`, `pre_commit`) are
+documented in `README.md`, together with the external storage root and the
+smoke experiment. After advancing a submodule pin run
 `uv run python -m arm_rc_ctrl.dependencies rebuild` again.
 
 ## Coding Style & Naming Conventions
 
-Target Python 3.12, four-space indentation, type annotations, NumPy `float64`,
-and Ruff. Use `snake_case` for modules/functions, `PascalCase` for types, and
-`UPPER_SNAKE_CASE` for constants. C++ targets C++17 and follows `rtctrl`/`rclib`.
-TOML uses lowercase `snake_case`. Reject invalid data and unknown keys instead of
-silently correcting them.
+Python 3.12+, type annotations checked by basedpyright in strict mode, NumPy
+`float64`, and Ruff. C++ targets C++17 and follows `rtctrl`/`rclib`. TOML uses
+lowercase `snake_case`. Reject invalid data and unknown keys instead of silently
+correcting them.
 
 ## Licensing
 
