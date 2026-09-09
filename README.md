@@ -75,6 +75,13 @@ configs/evaluations/task_1a_confirmatory_v2.toml`, plus `--dataset`, `--recipe`,
 each frozen tracker) on identical generated scenarios — the five classes of
 PLAN section 9.2 — as persisted run records, and reports per-class outcomes with
 failures counted and paired RC-minus-replay effects.
+The repeated-demonstration pilot (`docs/experiments/task_1a_repeated_demonstration/plan.md`)
+freezes its panel with `scripts/freeze_repetition_panel.py`, validates its ridge
+equivalences and fresh-process reproducibility with
+`arm_rc_ctrl.experiments.repetition_numerics validate --manifest … --output …
+--markdown … --workspace …` (launched pinned through `arm_rc_ctrl.execution run`),
+and records dependency-build parity across a submodule pin advance with
+`arm_rc_ctrl.experiments.build_parity probe` / `compare`.
 
 ## Requirements
 

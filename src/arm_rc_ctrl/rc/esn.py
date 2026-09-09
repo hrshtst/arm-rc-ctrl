@@ -239,6 +239,25 @@ class EsnModel:
         self._model.fit(x, y, washout_len=washout_len)
         self._fitted = True
 
+    def readout_weights(self) -> NDArray[np.float64]:
+        """The fitted readout weights, ``(n_neurons + include_bias, output_dim)`` with the bias row last.
+
+        Read through ``rclib``'s ``getWeights`` accessor (UP-007), which returns a
+        copy in the solver's layout: ``predict(x) = x @ W[:n_neurons] + W[n_neurons]``
+        when the readout carries a bias. This is the authoritative source for
+        coefficient and normal-equation diagnostics; reconstructing weights from
+        predictions on basis vectors is not.
+        """
+        if not self._fitted:
+            msg = "the readout has not been fitted"
+            raise RuntimeError(msg)
+        rows = self.n_neurons + (1 if self._config.readout.include_bias else 0)
+        weights = np.array(self._readout.getWeights(), dtype=np.float64)
+        if weights.shape != (rows, self._output_dim):
+            msg = f"rclib returned readout weights of shape {weights.shape}, expected ({rows}, {self._output_dim})"
+            raise RuntimeError(msg)
+        return weights
+
     def readout(self, state: NDArray[np.float64]) -> NDArray[np.float64]:
         """Evaluate the fitted readout on one reservoir state."""
         if not self._fitted:

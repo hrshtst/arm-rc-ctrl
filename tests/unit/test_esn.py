@@ -160,3 +160,26 @@ def test_single_thread_guard(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("OMP_NUM_THREADS", "2")
     with pytest.raises(RuntimeError, match="OMP_NUM_THREADS=1"):
         EsnModel(CONFIG, input_dim=3, output_dim=2)
+
+
+def test_readout_weights_are_the_solver_layout_and_a_copy() -> None:
+    """The weights reproduce the readout with the bias row last, are refused before fit, and are a copy (UP-007)."""
+    config = EsnConfig(
+        reservoir=ReservoirConfig(
+            n_neurons=20, spectral_radius=0.9, sparsity=0.8, leak_rate=0.5, input_scaling=0.5, seed=11
+        ),
+        readout=ReadoutConfig(alpha=1e-3),
+    )
+    model = EsnModel(config, input_dim=3, output_dim=2)
+    with pytest.raises(RuntimeError, match="has not been fitted"):
+        model.readout_weights()
+    rng = np.random.default_rng(3)
+    states = rng.standard_normal((50, 20))
+    targets = rng.standard_normal((50, 2))
+    model.fit_readout(states, targets)
+    weights = model.readout_weights()
+    assert weights.shape == (21, 2)
+    state = rng.standard_normal(20)
+    assert np.allclose(model.readout(state), state @ weights[:-1] + weights[-1], atol=1e-12, rtol=0.0)
+    weights[:] = 0.0
+    assert np.allclose(model.readout(state), model.readout_weights()[:-1].T @ state + model.readout_weights()[-1])
