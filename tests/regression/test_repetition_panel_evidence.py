@@ -5,6 +5,9 @@
 
 from __future__ import annotations
 
+import json
+from typing import TYPE_CHECKING
+
 import pytest
 
 from arm_rc_ctrl.data.recovery import RecoveryDatasetRecord, load_processed_record
@@ -25,6 +28,9 @@ from arm_rc_ctrl.experiments.repetition_panel import (
 from arm_rc_ctrl.provenance import sha256_file
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.storage import StorageAccessError, open_storage
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 pytestmark = pytest.mark.regression
 
@@ -116,3 +122,14 @@ def test_committed_panel_rebuilds_exactly() -> None:
     )
     assert rebuilt == committed
     assert render_panel_markdown(rebuilt) == MARKDOWN.read_text(encoding="utf-8")
+
+
+def test_committed_manifest_refuses_a_jointly_tampered_rule_and_entry(tmp_path: Path) -> None:
+    """Editing both the embedded approval and an entry of the committed manifest is refused on load (D3)."""
+    tampered = json.loads(MANIFEST.read_text(encoding="utf-8"))
+    tampered["rule"]["approved_trials"]["feasible-best"] = 18
+    tampered["entries"][0]["source_trial"] = 18
+    file = tmp_path / "panel_manifest_v1.json"
+    file.write_text(json.dumps(tampered), encoding="utf-8")
+    with pytest.raises(ValueError, match="approved rule"):
+        load_panel(file)

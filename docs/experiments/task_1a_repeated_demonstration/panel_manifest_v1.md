@@ -10,6 +10,7 @@ Experiment `task_1a_repetition_v1`: the six fixed source configurations of the t
 - Model `configs/models/esn_task_1a_v4.toml` (`72a55213c7d5`), scenario `configs/tasks/task_1a.toml` (`23c89a7f8a15`), development levels `configs/evaluations/task_1a_recovery_dev_v1.toml` (`5d84d049ff40`).
 - Dataset `processed-20260903-ce343c8ce6a5`: record `data/records/processed/processed-20260903-ce343c8ce6a5.toml` (`97f2e5cf1f67`), payload sha256 `ce343c8ce6a5`.
 - Frozen trackers: `computed_torque` (`0ac3dff977cd`), `pd_v2` (`45f6e7a31490`).
+- Protocol, model, scenario, development, and dataset-record files were verified byte-identical to their content at the source study's commit `b7d29fe891cd` before the panel was built.
 
 ## Selection rule
 

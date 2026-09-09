@@ -53,10 +53,11 @@ from arm_rc_ctrl.experiments.repetition_panel import (
     panel_to_json,
     render_panel_markdown,
     resolve_panel,
+    verify_historical_sources,
 )
 from arm_rc_ctrl.experiments.studies import StudySummary, TrialRecord
 from arm_rc_ctrl.provenance import ArtifactReference, ProvenanceRecord, collect_provenance
-from arm_rc_ctrl.repo import repository_root
+from arm_rc_ctrl.repo import git_output, repository_root
 from arm_rc_ctrl.storage import StorageRoot
 
 if TYPE_CHECKING:
@@ -182,7 +183,7 @@ def _report(
         summary=summary,
         best_point=_point(best.number),
         n_feasible=len(feasible),
-        provenance=provenance,
+        provenance=replace(provenance, project_dirty=False),
     )
 
 
@@ -408,6 +409,15 @@ def test_manifest_binds_sources_and_roundtrips_strictly(
     file.write_text(json.dumps(tampered), encoding="utf-8")
     with pytest.raises(ValueError, match="substitution"):
         load_panel(file)
+    joint = json.loads(panel_to_json(manifest))
+    joint["rule"]["approved_trials"]["feasible-best"] = 18
+    joint["entries"][0]["source_trial"] = 18
+    file.write_text(json.dumps(joint), encoding="utf-8")
+    with pytest.raises(ValueError, match="approved rule"):  # the strict loader wraps the mismatch as a document error
+        load_panel(file)
+    foreign = replace(manifest.rule, approved_trials={**manifest.rule.approved_trials, "feasible-best": 18})
+    with pytest.raises(PanelMismatchError, match="approved rule"):
+        replace(manifest, rule=foreign)
     reordered = json.loads(panel_to_json(manifest))
     reordered["entries"].reverse()
     file.write_text(json.dumps(reordered), encoding="utf-8")
@@ -457,6 +467,22 @@ def test_manifest_refuses_moved_sources(
     )
     with pytest.raises(ValueError, match="recorded digest"):
         build(report, other_pointer)
+    dirty_source = replace(report, provenance=replace(report.provenance, project_dirty=True))
+    with pytest.raises(ValueError, match="dirty worktree"):
+        build(dirty_source, pointer)
+    if git_output("rev-parse", "--is-shallow-repository", cwd=REPO_ROOT) == "true":
+        pytest.skip("the changed-model and changed-development rejections need the full history")
+    model_created = git_output("log", "--format=%H", "--", "configs/models/esn_task_1a_v4.toml", cwd=REPO_ROOT)
+    older_model = replace(report, provenance=replace(report.provenance, project_commit=model_created.splitlines()[-1]))
+    with pytest.raises(ValueError, match=r"esn_task_1a_v4\.toml differs from its content at the source study's commit"):
+        build(older_model, pointer)
+    dev_created = git_output(
+        "log", "--format=%H", "--", "configs/evaluations/task_1a_recovery_dev_v1.toml", cwd=REPO_ROOT
+    )
+    before_dev = git_output("rev-parse", f"{dev_created.splitlines()[-1]}^", cwd=REPO_ROOT)
+    absent_dev = replace(report, provenance=replace(report.provenance, project_commit=before_dev))
+    with pytest.raises(ValueError, match=r"task_1a_recovery_dev_v1\.toml is not tracked at the source study's commit"):
+        build(absent_dev, pointer)
 
 
 def test_source_records_validate_their_identity_fields(provenance: ProvenanceRecord) -> None:
@@ -690,3 +716,22 @@ def test_source_cross_checks_refuse_other_studies_and_moved_files(
             dataset_file=REPO_ROOT / DATASET_FILE,
             provenance=provenance,
         )
+
+
+def test_historical_verification_reports_every_changed_or_untracked_file(provenance: ProvenanceRecord) -> None:
+    """Identical content passes; a different file behind a tracked path and an untracked path are both reported."""
+    clean = replace(provenance, project_dirty=False)
+    model = "configs/models/esn_task_1a_v4.toml"
+    verify_historical_sources(REPO_ROOT, clean, {model: REPO_ROOT / model})
+    with pytest.raises(ValueError, match=r"esn_task_1a_v4\.toml differs from its content") as caught:
+        verify_historical_sources(
+            REPO_ROOT,
+            clean,
+            {
+                model: REPO_ROOT / "configs/models/esn_task_1a_v3.toml",
+                "configs/models/never_committed.toml": REPO_ROOT / model,
+            },
+        )
+    assert "never_committed.toml is not tracked" in str(caught.value)
+    with pytest.raises(ValueError, match="dirty worktree"):
+        verify_historical_sources(REPO_ROOT, replace(provenance, project_dirty=True), {model: REPO_ROOT / model})

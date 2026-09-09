@@ -17,7 +17,10 @@ an immutable manifest. The manifest keeps the source study's historical
 provenance apart from the implementation revision that wrote it
 (clarification C1), records the evaluation-side estimator cutoffs next to the
 reservoir/readout point, and names the source ridge parameter that the pilot's
-scaled arms derive from.
+scaled arms derive from. Every source file is verified byte-identical to its
+content at the study's recorded commit before the manifest is built, and a
+loaded manifest must carry the approved rule itself, so neither a changed
+input nor an edited record can pass as the historical setup.
 
 Command line::
 
@@ -61,12 +64,12 @@ from arm_rc_ctrl.provenance import (
     require_clean_for_confirmatory,
     sha256_file,
 )
-from arm_rc_ctrl.repo import repository_root
+from arm_rc_ctrl.repo import GitError, git_output, repository_root
 from arm_rc_ctrl.storage import open_storage
 from arm_rc_ctrl.validation import COMMIT_HEX_LENGTH, SHA256_HEX_LENGTH, is_hex
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from arm_rc_ctrl.experiments.evidence import StoredReport
     from arm_rc_ctrl.experiments.recovery_study import RecoveryStudyReport
@@ -92,6 +95,7 @@ __all__ = [
     "panel_to_json",
     "render_panel_markdown",
     "resolve_panel",
+    "verify_historical_sources",
 ]
 
 PANEL_SCHEMA_VERSION: Final = 1
@@ -412,6 +416,9 @@ class PanelManifest:
         if self.experiment != EXPERIMENT_LABEL:
             msg = f"the manifest belongs to {EXPERIMENT_LABEL!r}, got {self.experiment!r}"
             raise ValueError(msg)
+        if self.rule != APPROVED_RULE:
+            msg = "the manifest's selection rule is not the approved rule (no post-result substitution, D3)"
+            raise PanelMismatchError(msg)
         if tuple(e.label for e in self.entries) != self.rule.labels:
             msg = f"entries must follow the rule's labels {self.rule.labels} in order"
             raise ValueError(msg)
@@ -562,6 +569,35 @@ def _relative(path: Path, root: Path) -> str:
     return resolved.relative_to(base).as_posix() if resolved.is_relative_to(base) else path.name
 
 
+def verify_historical_sources(root: Path, source: ProvenanceRecord, files: Mapping[str, Path]) -> None:
+    """Require every source file to be byte-identical to its blob at the source study's recorded commit.
+
+    The protocol digest binds the paths of the model, scenario, and development
+    files, not their contents, so a later edit of any of them would otherwise be
+    hashed as the historical setup. ``files`` maps repository-relative paths to
+    the files about to be recorded; every mismatch is reported in one error.
+    """
+    if source.project_dirty:
+        msg = "the source study ran from a dirty worktree, so its files have no single historical identity"
+        raise ValueError(msg)
+    commit = source.project_commit
+    problems: list[str] = []
+    for relpath, file in sorted(files.items()):
+        try:
+            historical = git_output("rev-parse", "--verify", "--quiet", f"{commit}:{relpath}", cwd=root)
+        except GitError:
+            problems.append(f"{relpath} is not tracked at the source study's commit {commit[:_SHORT]}")
+            continue
+        current = git_output("hash-object", str(file), cwd=root)
+        if historical != current:
+            problems.append(
+                f"{relpath} differs from its content at the source study's commit {commit[:_SHORT]} "
+                f"(blob {current[:_SHORT]} now, {historical[:_SHORT]} then)"
+            )
+    if problems:
+        raise ValueError("; ".join(problems))
+
+
 def build_panel_manifest(
     entries: Sequence[PanelEntry],
     *,
@@ -575,10 +611,13 @@ def build_panel_manifest(
     dataset: RecoveryDatasetRecord,
     dataset_file: Path,
     provenance: ProvenanceRecord,
-    rule: SelectionRule = APPROVED_RULE,
     root: Path | None = None,
 ) -> PanelManifest:
-    """Bind the resolved entries to every source identity; a source that moved since the study fails."""
+    """Bind the resolved entries to every source identity under the approved rule.
+
+    Every source file must match its content at the study's recorded commit, and
+    a source that moved, changed, or lost its binding since the study fails.
+    """
     root = repository_root() if root is None else root
     if pointer.study != report.protocol or pointer.protocol_sha256 != report.protocol_sha256:
         msg = f"pointer {pointer_file.name} does not name the study {report.protocol!r} at its recorded digest"
@@ -590,6 +629,17 @@ def build_panel_manifest(
         msg = f"dataset record {dataset.artifact.artifact_id!r} is not the study's dataset {report.dataset!r}"
         raise ValueError(msg)
     dataset.check_scenario(protocol.scenario)
+    verify_historical_sources(
+        root,
+        report.provenance,
+        {
+            report.protocol_file: protocol_file,
+            _relative(protocol.model, root): protocol.model,
+            _relative(protocol.scenario, root): protocol.scenario,
+            _relative(protocol.development, root): protocol.development,
+            _relative(dataset_file, root): dataset_file,
+        },
+    )
     trackers = dict(report.trackers)
     for name, digest in sorted(trackers.items()):
         current = frozen_baseline_digest(name)
@@ -632,7 +682,7 @@ def build_panel_manifest(
     )
     return PanelManifest(
         experiment=EXPERIMENT_LABEL,
-        rule=rule,
+        rule=APPROVED_RULE,
         source=source,
         ablation=ablation_source,
         configs=configs,
@@ -717,6 +767,11 @@ def render_panel_markdown(manifest: PanelManifest) -> str:
             f"(`{_short(configs.dataset_record_sha256)}`), payload sha256 `{_short(configs.dataset_payload_sha256)}`."
         ),
         f"- Frozen trackers: {trackers}.",
+        (
+            "- Protocol, model, scenario, development, and dataset-record files were verified byte-identical to "
+            f"their content at the source study's commit `{_short(historical.project_commit)}` before the panel "
+            "was built."
+        ),
         "",
         "## Selection rule",
         "",
