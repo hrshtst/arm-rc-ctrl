@@ -1,8 +1,8 @@
 # Reservoir-Computing Robot-Arm Controller: Implementation Plan
 
-**Status:** Implemented through M3; task 1-a recovery extension approved
+**Status:** Implemented through M3R; task 1-a repeated-demonstration pilot approved
 
-**Last updated:** 2026-09-03
+**Last updated:** 2026-09-09
 
 **Companion task ledger:** [TASKS.md](TASKS.md)
 
@@ -23,9 +23,12 @@ Development proceeds through increasingly demanding systems:
 
 The first completed research milestone was deliberately narrower: offline
 learning from one demonstration of a 2-DOF, single-target reaching motion
-(task 1-a). The next approved experiment, `task_1a_recovery_v1`, tests whether
-state-conditioned augmentation can reduce the initial command gap and preserve
-target convergence. Later stages are gated by evidence from these milestones.
+(task 1-a). The completed `task_1a_recovery_v1` experiment tested whether
+state-conditioned augmentation reduces the initial command gap while preserving
+target convergence; its accepted negative result selected no recovery model.
+The next approved pilot, `task_1a_repetition_v1`, isolates episode-count and
+ridge-scaling effects using exact repeated demonstrations and paired absolute
+and residual readouts. Later stages are gated by evidence from these milestones.
 
 Scientific completion does not require the RC method to outperform every
 baseline. A negative or inconclusive result is valid when the experiment is
@@ -248,6 +251,35 @@ telemetry. Selection requires common safety and dwell gates plus paired reductio
 of the activation jump and early command gap; time-aligned trajectory RMSE is a
 diagnostic rather than a success criterion. The experiment-specific document
 defines the approved ranges, arms, splits, formulas, and confirmatory gate.
+
+#### Approved repeated-demonstration follow-up
+
+The owner approved D1–D8 of
+[`task_1a_repetition_v1`](experiments/task_1a_repeated_demonstration/plan.md)
+on 2026-09-09. This separate development pilot retains the recovery dataset,
+six fixed source configurations (trials 17, 136, 53, 1, 0, 28), common timing,
+65 development scenarios, and both frozen trackers. It compares one original
+episode with 17/33/65 exact copies and ridge-scaling controls; absolute-output
+arms also include count-matched contractive and non-decaying augmentation.
+Residual arms use only the original and exact copies. Reset the reservoir
+per episode and fit once on stacked loss rows; validate the two ridge
+equivalences separately within each output formulation before simulation.
+
+The approved panel has 120 behavioral configurations and 36 numerical
+reference fits, at most 15,600 RC evaluations plus 390 matched replay runs.
+The simulation-only hard speed limit is 12 rad/s per joint, with historical
+6 rad/s crossings recorded by phase. All other gates, including 0.05 rad/s
+dwell speed, and the original training/augmentation validation limits remain
+unchanged. New config identities must not alter legacy records or hardware
+limits. New feasibility rates are not directly comparable with recovery v1.
+
+Report paired outcomes, numerical errors, censored failures, resource use,
+and provenance in reproducible HTML. All time-series plots and animation
+clocks use task time, with warm-up at negative time and activation at zero;
+inactive readouts remain missing. M3REP tasks in `TASKS.md` govern test-first
+implementation, timing smoke check, full execution, reproduction, and owner
+review. No 500-trial search, model freeze, confirmatory suite, or hardware
+operation is authorized by this pilot approval.
 
 ### 5.5 Desired derivatives and low-level tracking
 
@@ -763,6 +795,23 @@ evidence steps.
 separately authorized confirmatory suite is run once, and a clean checkout
 reproduces every dataset, recipe, run, metric, report, and visualization. A
 negative result is acceptable and retained.
+
+### Phase 3REP — task 1-a repeated-demonstration control
+
+Implement the approved `task_1a_repetition_v1` protocol through M3REP-001–008:
+freeze the panel, add versioned repetition recipes, validate numerical
+equivalences for both output formulations, implement paired evaluation and
+velocity diagnostics, then run the trial 17 timing smoke check before the
+full fixed panel. Start with M3REP-001. Preserve the completed recovery
+negative result and keep the separate task 1-b draft pending its own approval.
+
+**Gate:** All 120 behavioral configurations and 36 numerical reference fits
+are accounted for, including failures and unexecuted scenarios; quality
+checks, reproducible HTML/assets, and clean-checkout evidence pass, and the
+owner reviews the positive, negative, or inconclusive findings. A favorable
+model is not required. If the timing smoke check invalidates the provisional
+budget, obtain a revised budget decision before full execution. Broader
+search and confirmatory work require separate approval.
 
 ### Phase 4 — broader planar tasks
 
