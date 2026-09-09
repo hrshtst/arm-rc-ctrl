@@ -5,7 +5,8 @@
 
 - **Experiment label:** `task_1a_repetition_v1`
 - **Status:** APPROVED for implementation; D1–D8 approved by the owner on
-  2026-09-09. No implementation or new experimental results yet.
+  2026-09-09. M3REP-001 (frozen panel manifest) is complete; no new
+  experimental results yet.
 - **Approval date:** 2026-09-09.
 - **Approved scope:** A fixed, paired development pilot, its
   numerical controls, and a reproducible report. A larger search is a later
@@ -195,6 +196,10 @@ Under M3REP-001, freeze a panel manifest containing these exact identities,
 all resolved parameters, the source-pointer/payload hashes, and the selection
 rule before training the new arms. A missing or mismatched source fails
 manifest construction. No new reservoir seed is introduced in this pilot.
+The frozen manifest is [`panel_manifest_v1.json`](panel_manifest_v1.json)
+(rendered as [`panel_manifest_v1.md`](panel_manifest_v1.md)), produced by
+`scripts/freeze_repetition_panel.py` under M3REP-001 and locked by
+`tests/regression/test_repetition_panel_evidence.py`.
 
 ### 5.2 Arms and output formulations at every configuration
 
