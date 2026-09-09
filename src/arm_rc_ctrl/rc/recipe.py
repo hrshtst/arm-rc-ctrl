@@ -10,6 +10,16 @@ preprocessing and normalization settings the inputs were built with, the
 when the recipe was created. Loading a recipe reconstructs the model and
 refits it from the referenced datasets; the refit must reproduce the recorded
 fit report within the declared tolerance. No pickle is ever written or read.
+
+Schema 1 is the frozen M2/M3/M3R form. Schema 2 (M3REP-002; repetition plan
+sections 4, 5.2, and 8, clarification C2) additionally binds the scenario file
+and limits the training episodes were validated against, and permits the
+exact-repetition construction (``additional_repeats`` literal copies of the
+single source episode, each harvested from a reset reservoir into one stacked
+ridge fit) with an explicit base ridge parameter and the rule that derives the
+solver's parameter from it. Every new field defaults to ``None`` and is
+stripped from the stored TOML and the recipe identity, so schema 1 records keep
+their serialization and hashes.
 """
 
 from __future__ import annotations
@@ -30,11 +40,14 @@ from arm_rc_ctrl.data.records import (
 from arm_rc_ctrl.data.records import to_toml as records_to_toml
 from arm_rc_ctrl.data.recovery import RecoveryDatasetRecord, task_intervals_from_phases
 from arm_rc_ctrl.dependencies import submodule_revisions, submodule_version
+from arm_rc_ctrl.provenance import sha256_file
 from arm_rc_ctrl.rc.augment import AugmentationConfig, EpisodeArrays, generate_augmentation
 from arm_rc_ctrl.rc.esn import EsnConfig, EsnModel
 from arm_rc_ctrl.rc.teacher_forcing import INPUT_CHANNELS, Episode, InputEncoder, InputTransform, build_episode
 from arm_rc_ctrl.rc.training import FitReport, train_readout
 from arm_rc_ctrl.rc.warmup import WarmupConfig, build_task_episode, build_task_episode_arrays
+from arm_rc_ctrl.repo import repository_root
+from arm_rc_ctrl.scenario import joint_limits
 from arm_rc_ctrl.validation import COMMIT_HEX_LENGTH, SHA256_HEX_LENGTH, is_hex
 
 if TYPE_CHECKING:
@@ -45,7 +58,11 @@ if TYPE_CHECKING:
     from arm_rc_ctrl.scenario import ScenarioConfig
 
 __all__ = [
+    "APPROVED_ADDITIONAL_REPEATS",
+    "BINDING_SCHEMA_VERSION",
     "RECIPE_SCHEMA_VERSION",
+    "REGULARIZATION_RULES",
+    "SUPPORTED_RECIPE_SCHEMAS",
     "AugmentationTrainingSpec",
     "DatasetSource",
     "FitTolerance",
@@ -53,13 +70,47 @@ __all__ = [
     "RclibIdentity",
     "RecipeMismatchError",
     "TrainingSpec",
+    "TrainingValidation",
     "create_recipe",
     "expected_episode_labels",
     "load_recipe",
+    "solver_alpha",
     "write_recipe",
 ]
 
 RECIPE_SCHEMA_VERSION: Final = 1
+"""The frozen schema of every recipe written before M3REP-002 (and of legacy commands that keep writing it)."""
+BINDING_SCHEMA_VERSION: Final = 2
+"""The schema that binds training validation and permits repetition and ridge rules (M3REP-002, C2)."""
+SUPPORTED_RECIPE_SCHEMAS: Final = (RECIPE_SCHEMA_VERSION, BINDING_SCHEMA_VERSION)
+APPROVED_ADDITIONAL_REPEATS: Final[frozenset[int]] = frozenset({16, 32, 64})
+"""Approved exact-copy counts (repetition plan section 4): 17, 33, or 65 episodes in total."""
+REGULARIZATION_RULES: Final = ("base", "count_scaled", "count_divided")
+"""How the solver's ridge parameter derives from the base parameter and an episode count (plan section 5.2)."""
+
+
+def solver_alpha(base_alpha: float, rule: str, count: int) -> float:
+    """The ridge parameter handed to the solver: ``base``, ``count * base`` (R-scaled), or ``base / count``.
+
+    The ``count_divided`` rule is the S-effective control: one episode fitted at
+    ``alpha_0 / K`` is the exact-arithmetic equivalent of ``K`` copies at
+    ``alpha_0``. These are prescribed controls, never search draws, so no
+    historical search bound applies to the result.
+    """
+    if rule not in REGULARIZATION_RULES:
+        msg = f"regularization_rule must be one of {REGULARIZATION_RULES}, got {rule!r}"
+        raise ValueError(msg)
+    if not (math.isfinite(base_alpha) and base_alpha > 0):
+        msg = f"base_alpha must be positive and finite, got {base_alpha!r}"
+        raise ValueError(msg)
+    if count < 1:
+        msg = f"the episode count must be >= 1, got {count}"
+        raise ValueError(msg)
+    if rule == "count_scaled":
+        return base_alpha * count
+    if rule == "count_divided":
+        return base_alpha / count
+    return base_alpha
 
 
 class RecipeMismatchError(RuntimeError):
@@ -146,6 +197,83 @@ class AugmentationTrainingSpec:
 
 
 @dataclass(frozen=True)
+class TrainingValidation:
+    """The scenario file and limits the training episodes were validated against (schema 2; C2).
+
+    Training keeps these limits even when an evaluation config relaxes its own
+    abort limits: a recipe refuses to build episodes against a scenario whose
+    limits differ from the ones recorded here.
+    """
+
+    scenario_file: str
+    """Repository-relative path of the scenario the dataset is bound to."""
+    scenario_sha256: str
+    velocity_limit: tuple[float, ...]
+    """Per-joint speed bound (rad/s) synthetic episodes were validated against."""
+    joint_lower: tuple[float, ...]
+    joint_upper: tuple[float, ...]
+    endpoint_radius: float
+
+    def __post_init__(self) -> None:
+        """Identity fields are well-formed and the limits are consistent."""
+        require_relative_posix(self.scenario_file, "validation.scenario_file")
+        if not is_hex(self.scenario_sha256, SHA256_HEX_LENGTH):
+            msg = f"validation.scenario_sha256 must be 64 lowercase hex characters, got {self.scenario_sha256!r}"
+            raise ValueError(msg)
+        widths = {len(self.velocity_limit), len(self.joint_lower), len(self.joint_upper)}
+        if len(widths) != 1 or not self.velocity_limit:
+            msg = "validation limits must cover the same non-empty joint set"
+            raise ValueError(msg)
+        values = (*self.velocity_limit, *self.joint_lower, *self.joint_upper, self.endpoint_radius)
+        if any(not math.isfinite(v) for v in values):
+            msg = "validation limits must be finite"
+            raise ValueError(msg)
+        if any(v <= 0 for v in self.velocity_limit) or self.endpoint_radius <= 0:
+            msg = "validation speed limits and endpoint radius must be positive"
+            raise ValueError(msg)
+        if any(lo >= hi for lo, hi in zip(self.joint_lower, self.joint_upper, strict=True)):
+            msg = "validation joint limits need lower < upper per joint"
+            raise ValueError(msg)
+
+    @classmethod
+    def from_scenario(
+        cls, scenario: ScenarioConfig, scenario_file: Path, *, root: Path | None = None
+    ) -> TrainingValidation:
+        """Bind the scenario file's digest and the limits the generator validates against."""
+        base = (repository_root() if root is None else root).resolve()
+        resolved = scenario_file.resolve()
+        if not resolved.is_relative_to(base):
+            msg = f"scenario file {scenario_file} lies outside the repository root {base}"
+            raise ValueError(msg)
+        limits = joint_limits(scenario)
+        return cls(
+            scenario_file=resolved.relative_to(base).as_posix(),
+            scenario_sha256=sha256_file(resolved),
+            velocity_limit=tuple(float(v) for v in scenario.limits.velocity),
+            joint_lower=tuple(float(v) for v in limits.lower),
+            joint_upper=tuple(float(v) for v in limits.upper),
+            endpoint_radius=float(scenario.limits.endpoint_radius),
+        )
+
+    def check(self, scenario: ScenarioConfig) -> None:
+        """Fail unless ``scenario`` carries exactly the recorded training-validation limits."""
+        limits = joint_limits(scenario)
+        current = (
+            tuple(float(v) for v in scenario.limits.velocity),
+            tuple(float(v) for v in limits.lower),
+            tuple(float(v) for v in limits.upper),
+            float(scenario.limits.endpoint_radius),
+        )
+        recorded = (self.velocity_limit, self.joint_lower, self.joint_upper, self.endpoint_radius)
+        if current != recorded:
+            msg = (
+                f"the scenario's limits {current} differ from the training-validation limits {recorded} bound by "
+                "the recipe; training keeps its recorded limits (C2), so build episodes against the bound scenario"
+            )
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
 class TrainingSpec:
     """How episodes are built; absolute next-position output with a versioned washout policy."""
 
@@ -160,9 +288,20 @@ class TrainingSpec:
     """Warm-up duration (approved D2 value) for ``warmup_hold``; must be ``None`` for ``prime_phase``."""
     augmentation: AugmentationTrainingSpec | None = None
     """Deterministic synthetic-episode augmentation; requires the ``warmup_hold`` washout."""
+    additional_repeats: int | None = None
+    """Exact copies of the single source episode added to training (approved 16, 32, or 64); requires the
+    ``warmup_hold`` washout and excludes augmentation (repetition plan section 4)."""
+    base_alpha: float | None = None
+    """The source ridge parameter ``alpha_0`` the readout's solver parameter derives from (plan section 5.2)."""
+    regularization_rule: str | None = None
+    """How ``esn.readout.alpha`` derives from ``base_alpha``: ``base``, ``count_scaled``, or ``count_divided``."""
+    regularization_count: int | None = None
+    """The episode count the rule refers to; defaults to the recipe's own episode count (S-effective fits one
+    episode at ``alpha_0 / K`` and therefore states ``K`` explicitly)."""
 
     def __post_init__(self) -> None:
         """Only the implemented representations are accepted."""
+        _check_repetition(self)
         if self.input_channels != INPUT_CHANNELS or self.target not in ("next_q", "increment_q"):
             msg = (
                 f"unsupported training spec {self!r}; supported: input_channels {INPUT_CHANNELS}, "
@@ -187,6 +326,53 @@ class TrainingSpec:
         else:
             msg = f"unsupported washout {self.washout!r}; supported: 'prime_phase', 'warmup_hold'"
             raise ValueError(msg)
+
+    @property
+    def episode_count(self) -> int:
+        """Episodes one source dataset contributes: the original plus its copies or synthetic episodes."""
+        if self.additional_repeats is not None:
+            return 1 + self.additional_repeats
+        if self.augmentation is not None:
+            return 1 + self.augmentation.n_synthetic
+        return 1
+
+    @property
+    def formulation(self) -> str:
+        """``absolute`` (next-position readout) or ``residual`` (next-step increment readout)."""
+        return "residual" if self.target == "increment_q" else "absolute"
+
+    @property
+    def uses_binding_features(self) -> bool:
+        """Whether the spec uses constructions only schema 2 recipes may carry."""
+        return self.additional_repeats is not None or self.base_alpha is not None
+
+
+def _check_repetition(spec: TrainingSpec) -> None:
+    repeats = spec.additional_repeats
+    if repeats is not None:
+        if repeats not in APPROVED_ADDITIONAL_REPEATS:
+            msg = (
+                f"additional_repeats must be one of the approved counts {sorted(APPROVED_ADDITIONAL_REPEATS)}, "
+                f"got {repeats}"
+            )
+            raise ValueError(msg)
+        if spec.washout != "warmup_hold":
+            msg = "exact repetition requires the 'warmup_hold' washout (repetition plan section 4)"
+            raise ValueError(msg)
+        if spec.augmentation is not None:
+            msg = (
+                "exact repetition and augmentation are mutually exclusive: the varied-data arms are separate recipes "
+                "(and sigma = 0 is not an unlabelled substitute for repetition)"
+            )
+            raise ValueError(msg)
+    if (spec.base_alpha is None) != (spec.regularization_rule is None):
+        msg = "base_alpha and regularization_rule must be recorded together"
+        raise ValueError(msg)
+    if spec.regularization_rule is not None and spec.base_alpha is not None:
+        solver_alpha(spec.base_alpha, spec.regularization_rule, spec.regularization_count or spec.episode_count)
+    elif spec.regularization_count is not None:
+        msg = "regularization_count needs base_alpha and regularization_rule"
+        raise ValueError(msg)
 
 
 @dataclass(frozen=True)
@@ -221,12 +407,12 @@ class ModelRecipe:
     fit: FitReport
     tolerance: FitTolerance = field(default_factory=FitTolerance)
     schema_version: int = field(default=RECIPE_SCHEMA_VERSION)
+    validation: TrainingValidation | None = None
+    """Schema 2 only: the scenario file and limits the training episodes were validated against (C2)."""
 
     def __post_init__(self) -> None:
-        """Consistency between datasets, fit report, normalization, and widths."""
-        if self.schema_version != RECIPE_SCHEMA_VERSION:
-            msg = f"unsupported recipe schema version {self.schema_version}"
-            raise ValueError(msg)
+        """Consistency between datasets, fit report, normalization, widths, schema, and the ridge rule."""
+        _check_schema(self)
         if not self.name.strip():
             msg = "name must not be empty"
             raise ValueError(msg)
@@ -249,6 +435,21 @@ class ModelRecipe:
             msg = f"transform.derived_from names datasets outside the recipe: {unknown}"
             raise ValueError(msg)
         self.encoder()  # validates the transform against the widths
+
+    @property
+    def formulation(self) -> str:
+        """``absolute`` or ``residual`` (the training target's output formulation)."""
+        return self.training.formulation
+
+    @property
+    def output(self) -> str:
+        """The generator output mode the recipe requires: ``absolute`` or ``increment``."""
+        return "increment" if self.training.target == "increment_q" else "absolute"
+
+    @property
+    def solver_alpha(self) -> float:
+        """The ridge parameter handed to the solver (``esn.readout.alpha``)."""
+        return self.esn.readout.alpha
 
     @property
     def input_dim(self) -> int:
@@ -319,6 +520,8 @@ class ModelRecipe:
         if missing:
             msg = f"samples are missing for datasets {missing}"
             raise ValueError(msg)
+        if scenario is not None and self.validation is not None:
+            self.validation.check(scenario)
         return _build_episodes(
             self.training, self.datasets, samples, self.encoder(), self.preprocessing, scenario=scenario
         )
@@ -351,6 +554,32 @@ class ModelRecipe:
         return model, report
 
 
+def _check_schema(recipe: ModelRecipe) -> None:
+    if recipe.schema_version not in SUPPORTED_RECIPE_SCHEMAS:
+        msg = f"unsupported recipe schema version {recipe.schema_version}"
+        raise ValueError(msg)
+    binding = recipe.schema_version == BINDING_SCHEMA_VERSION
+    if binding and recipe.validation is None:
+        msg = f"schema {BINDING_SCHEMA_VERSION} recipes bind their training validation (C2); validation is missing"
+        raise ValueError(msg)
+    if not binding and recipe.validation is not None:
+        msg = f"schema {RECIPE_SCHEMA_VERSION} recipes carry no training validation; write a schema 2 recipe"
+        raise ValueError(msg)
+    if not binding and recipe.training.uses_binding_features:
+        msg = f"exact repetition and ridge rules need a schema {BINDING_SCHEMA_VERSION} recipe"
+        raise ValueError(msg)
+    spec = recipe.training
+    if spec.base_alpha is not None and spec.regularization_rule is not None:
+        count = spec.regularization_count or spec.episode_count
+        expected = solver_alpha(spec.base_alpha, spec.regularization_rule, count)
+        if recipe.esn.readout.alpha != expected:
+            msg = (
+                f"esn.readout.alpha {recipe.esn.readout.alpha!r} must equal {expected!r}: "
+                f"{spec.regularization_rule} of base_alpha {spec.base_alpha!r} over {count} episodes"
+            )
+            raise ValueError(msg)
+
+
 def _compare_fit(actual: FitReport, expected: FitReport, tolerance: FitTolerance) -> list[str]:
     mismatches = [
         f"{name} {getattr(actual, name)!r} != {getattr(expected, name)!r}"
@@ -378,6 +607,11 @@ def _compare_fit(actual: FitReport, expected: FitReport, tolerance: FitTolerance
 
 def expected_episode_labels(spec: TrainingSpec, ids: tuple[str, ...]) -> tuple[str, ...]:
     """The episode labels a recipe with ``spec`` trains on, in training order."""
+    if spec.additional_repeats is not None:
+        if len(ids) != 1:
+            msg = f"exact repetition uses exactly one dataset, got {list(ids)}"
+            raise ValueError(msg)
+        return (ids[0], *(f"{ids[0]}#repeat-{i:03d}" for i in range(1, spec.additional_repeats + 1)))
     if spec.augmentation is None:
         return tuple(ids)
     if len(ids) != 1:
@@ -421,6 +655,21 @@ def _build_episodes(
         )
         for s in sources
     ]
+    if spec.additional_repeats is not None:
+        (original,) = episodes  # expected_episode_labels enforces exactly one dataset for repetition
+        labels = expected_episode_labels(spec, tuple(s.artifact_id for s in sources))[1:]
+        # Literal copies: every copy is harvested from a reset reservoir and stacked into the one ridge fit.
+        copies = [
+            Episode(
+                source=label,
+                t=original.t,
+                inputs=original.inputs,
+                targets=original.targets,
+                loss_rows=original.loss_rows,
+            )
+            for label in labels
+        ]
+        return [original, *copies]
     augmentation = spec.augmentation
     if augmentation is None:
         return episodes
@@ -468,9 +717,16 @@ def create_recipe(
     rclib: RclibIdentity | None = None,
     tolerance: FitTolerance | None = None,
     scenario: ScenarioConfig | None = None,
+    validation: TrainingValidation | None = None,
 ) -> tuple[ModelRecipe, EsnModel]:
-    """Train the model on ``sources`` and return the recipe that reproduces it, plus the fitted model."""
+    """Train the model on ``sources`` and return the recipe that reproduces it, plus the fitted model.
+
+    Passing ``validation`` writes a schema 2 recipe bound to the scenario file
+    and limits it names; the given ``scenario`` must carry those limits.
+    """
     spec = TrainingSpec() if training is None else training
+    if validation is not None and scenario is not None:
+        validation.check(scenario)
     encoder = InputEncoder(transform, dof, task_code_dim)
     missing = [s.artifact_id for s in sources if s.artifact_id not in samples]
     if not sources or missing:
@@ -491,6 +747,8 @@ def create_recipe(
         rclib=RclibIdentity.current() if rclib is None else rclib,
         fit=report,
         tolerance=FitTolerance() if tolerance is None else tolerance,
+        schema_version=RECIPE_SCHEMA_VERSION if validation is None else BINDING_SCHEMA_VERSION,
+        validation=validation,
     )
     return recipe, model
 

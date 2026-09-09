@@ -75,5 +75,5 @@ def generator_from_recipe(
         recipe.encoder(),
         CausalDerivativeEstimator(estimator, recipe.dof),
         position_bounds=bounds,
-        output="increment" if recipe.training.target == "increment_q" else "absolute",
+        output=recipe.output,  # target/output agreement is the recipe's, never a caller's choice
     )

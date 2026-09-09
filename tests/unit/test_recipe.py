@@ -178,8 +178,10 @@ def test_recipe_validation() -> None:
         dataclasses.replace(
             base, datasets=(SOURCE, SOURCE), fit=dataclasses.replace(fit, episodes=(SOURCE.artifact_id,) * 2)
         )
-    with pytest.raises(ValueError, match="unsupported recipe schema version 2"):
-        dataclasses.replace(base, schema_version=2)
+    with pytest.raises(ValueError, match="unsupported recipe schema version 3"):
+        dataclasses.replace(base, schema_version=3)
+    with pytest.raises(ValueError, match="schema 2 recipes bind their training validation"):
+        dataclasses.replace(base, schema_version=2)  # M3REP-002: schema 2 exists but needs its binding
     with pytest.raises(ValueError, match="name must not be empty"):
         dataclasses.replace(base, name=" ")
 
