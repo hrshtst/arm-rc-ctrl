@@ -160,6 +160,28 @@ ctest --test-dir build --output-on-failure
 
 Install the Git hooks once with `uv run pre-commit install`.
 
+### Canonical execution environment
+
+On a hybrid CPU the core type a process starts on changes closed-loop results
+at the 1e-10 level (`docs/experiments/task_1a_repeated_demonstration/execution_environment_probe_v1.md`).
+Evidence generation, numerical comparisons, timing, and canonical reproduction
+therefore run through the launcher, which resolves the performance cores from
+`sysfs` at run time, pins the process, sets `OMP_NUM_THREADS`,
+`OPENBLAS_NUM_THREADS`, and `MKL_NUM_THREADS` to `1`, and execs the command so
+every child inherits the restriction:
+
+```bash
+uv run python -m arm_rc_ctrl.execution run --policy p-cores -- uv run --locked nox
+uv run python -m arm_rc_ctrl.execution record --output execution.json --markdown execution.md
+```
+
+Pilot commands verify that declaration on start (`require_canonical`) and store
+an execution record (affinity, core types, BLAS build and kernel, thread
+counts, package versions) whose identity digest is part of their evidence and
+cache keys. On a machine without hybrid core types use `--policy all` or an
+explicit `--cpus` list; the record then says which environment produced a
+result instead of treating environments as interchangeable.
+
 To exercise the other supported interpreter, re-create the environment, rebuild
 the submodule packages (switching interpreters replaces `.venv` and with it the
 environment-local build manifest), and run the gate with the interpreter

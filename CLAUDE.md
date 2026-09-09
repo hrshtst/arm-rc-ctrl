@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Gate and environment
 
-- Full gate: `uv run --locked nox` (deps, lint, type_check, tests, cpp), then `uv run --locked nox -s pre_commit`. nox runs the tools of `.venv` directly; never start a nested `uv run` inside a session (nox strips `UV_PYTHON`, so uv would silently re-create the environment from `.python-version`).
+- Full gate: `uv run --locked nox` (deps, lint, type_check, tests, cpp), then `uv run --locked nox -s pre_commit`. On the owner's hybrid-CPU machine launch it pinned, `uv run python -m arm_rc_ctrl.execution run --policy p-cores -- uv run --locked nox`, and say so: the historical task 1-a reproduction deviates by 1.608e-10 on the E-cores (plan section 12, C10); never change that tolerance. nox runs the tools of `.venv` directly; never start a nested `uv run` inside a session (nox strips `UV_PYTHON`, so uv would silently re-create the environment from `.python-version`).
 - Single test: `uv run pytest tests/unit/test_x.py::test_y`; `uv run --locked nox -s tests -- <pytest args>` forwards arguments. Plain pytest skips the 90 % branch-coverage threshold; only `nox -s tests` enforces it.
 - pytest runs with `filterwarnings = error`, `--strict-markers`, and `xfail_strict`: any new warning or unexpected pass fails the suite. CI's Python 3.13 turns unclosed SQLite/Optuna engines into a ResourceWarning that 3.12 does not show.
 - Run `uv run python -m arm_rc_ctrl.dependencies rebuild` after `uv sync`, after every submodule pin advance, and after switching interpreters; `nox -s deps` and every provenance collection fail on a missing or stale build manifest.

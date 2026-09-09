@@ -17,7 +17,8 @@ confirmed by backend diagnostics. No test, tolerance, or evidence was changed.
   `OpenBLAS 0.3.34.0.0 USE64BITINT DYNAMIC_ARCH NO_AFFINITY Haswell MAX_THREADS=64`;
   `threadpoolctl` is not installed, so effective thread counts were not read.
 - Environment of every run below: `OMP_NUM_THREADS=1`, `QT_QPA_PLATFORM=offscreen`;
-  `OPENBLAS_NUM_THREADS` and `MKL_NUM_THREADS` unset.
+  `OPENBLAS_NUM_THREADS` and `MKL_NUM_THREADS` unset. This OpenBLAS build honors
+  `OMP_NUM_THREADS` (it reports 32 threads without any variable and 1 with it).
 
 ## Subject
 
@@ -54,9 +55,15 @@ scheduler placing the reproduction subprocess on an E-core under load.
   results that differ at the 1e-10 level between the two core types of this
   CPU, amplified by the closed-loop simulation.
 - Leading explanation, unconfirmed: OpenBLAS `DYNAMIC_ARCH` selects
-  kernels or blocking parameters from the core it starts on. Backend
-  diagnostics (loaded kernel, effective threads) are part of the M3REP-009
-  execution record.
+  kernels or blocking parameters from the core it starts on. A follow-up
+  probe through the library's own query symbols (`openblas_get_corename`)
+  reported the kernel name `Haswell` and one thread on both core types, so a
+  different kernel set alone does not explain the drift; the core types do
+  differ in level-2 cache (2048 KiB per performance core, 4096 KiB per
+  efficient-core cluster), which leaves cache-dependent tuning inside the
+  library, or another runtime entirely, as open candidates. The M3REP-009
+  execution record stores the kernel name, build configuration, effective
+  thread counts, and cache sizes for every new result.
 - Not established: bitwise reproducibility across machines, or that pinning
   removes the discrepancy anywhere but on this machine.
 
