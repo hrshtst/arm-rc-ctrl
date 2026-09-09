@@ -547,7 +547,9 @@ status ledger. Protocol registration is complete under DOC-006; implementation
 and execution tasks remain TODO. The mapping is: package 2 → M3REP-001;
 package 3 → M3REP-002/003; package 4 → M3REP-004/005; package 5 → M3REP-006;
 package 6 → M3REP-007/008; package 7 → M3REP-GATE. The upstream `rclib`
-weight accessor of Section 12 (C1) is `UP-007` and must land before M3REP-003.
+weight accessor of Section 12 (C1) is `UP-007`, and the canonical execution
+environment of Section 12 (C10) is `M3REP-009`; both must land before
+M3REP-003.
 
 | Order | Work package | Acceptance evidence |
 | --- | --- | --- |
@@ -645,10 +647,11 @@ not approve the separate task 1-b draft or authorize any broader search.
 
 ## 12. Implementation clarifications
 
-The owner settled the following on 2026-09-09 after a read-only audit of the
-implementation against Sections 2–8. They refine, and do not alter, D1–D8.
-They are recorded in the affected `docs/TASKS.md` acceptance criteria before
-the work they govern starts.
+The owner settled C1–C9 on 2026-09-09 after a read-only audit of the
+implementation against Sections 2–8, and C10 the same day after the
+M3REP-001 review. They refine, and do not alter, D1–D8. They are recorded in
+the affected `docs/TASKS.md` acceptance criteria before the work they govern
+starts.
 
 | ID | Topic | Clarification |
 | --- | --- | --- |
@@ -661,6 +664,7 @@ the work they govern starts.
 | C7 | Replay censoring | Recovery-v1 behavior is preserved: a failed replay blocks the paired RC evaluation and stops that model's sweep. Such models are labelled replay-blocked, kept in the overall accounting with subsequent pairs marked unexecuted, and reported separately from models that failed an RC gate. |
 | C8 | Budget | No numerical budget is invented from "several hours". M3REP-005 reports measured runtime, memory, storage, the projected full-panel cost, and the revised engineering estimate; owner approval precedes M3REP-006. Peak RSS is reported as process-cumulative; fresh worker processes are used where per-fit comparisons are needed. |
 | C9 | Coverage | No new coverage exclusion is pre-approved. Reproduction logic is tested against small deterministic fixture stores, including corruption, missing artifacts, failures, and resume. Any thin orchestration layer that still needs an exclusion is proposed separately with its exact scope; the threshold stays unchanged. |
+| C10 | Canonical execution environment | Results on the owner's machine depend on the core type a process starts on: the original task 1-a `--from-evidence` reproduction deviates by exactly 1.608e-10 when pinned to the E-cores and passes when pinned to the P-cores ([probe record](execution_environment_probe_v1.md)). P-core pinning is therefore the canonical execution environment of this machine for evidence generation, numerical comparisons, timing measurements, and canonical reproduction, under five conditions. (1) Apply the affinity before Python starts; child workers inherit and verify the restriction; the CPU numbers are never hard-coded as a portable definition of P-cores. (2) For new pilot runs set `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, and `MKL_NUM_THREADS=1` before importing numerical libraries and verify effective thread counts where available; the historical reproduction's environment stays documented separately. (3) Add a versioned execution record holding the requested and effective CPU affinity including workers, the CPU model and logical-CPU/core-type mapping, numerical-library versions, the loaded BLAS implementation and selected architecture/kernel where exposed, effective thread counts, the relevant environment variables, and the launch command; bind its digest into new run evidence and execution-cache identities while legacy provenance serialization, recipe hashes, and frozen records stay unchanged. (4) The experiments establish core-affinity-dependent numerical reproducibility; OpenBLAS dispatch is the leading explanation until backend diagnostics support it; the P-core and E-core commands and outputs are retained, and the discrepancy is never described as universally fixed. (5) Tolerances and historical exact comparisons stay unchanged: affinity defines the canonical environment and does not establish bitwise reproducibility across machines, so mismatched execution environments are disclosed, never treated as equivalent. Implemented and tested as M3REP-009 before M3REP-003; the same policy governs M3REP-005's timing estimate and M3REP-006's execution, and the owner budget decision after the smoke check still applies. |
 
 Confirmed readings: the `failure-actual-dwell` panel category matches any
 `dwell:*` first-failure head, and prescribed ridge parameters are constructed
