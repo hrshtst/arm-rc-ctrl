@@ -392,8 +392,16 @@ def write_run(
     sources: tuple[str, ...] = (),
     notes: str = "",
     activation_s: float | None = None,
+    reuse_identical: bool = False,
 ) -> tuple[RunPointerRecord, RunSummary, Path]:
-    """Persist a run transactionally and return its pointer, summary, and directory."""
+    """Persist a run transactionally and return its pointer, summary, and directory.
+
+    Runs are content-addressed by their summary, so a byte-identical run
+    already in the store has the same identity. By default that is an error
+    (runs are immutable); with ``reuse_identical`` the existing run is
+    verified byte for byte and returned instead, which lets two evaluations
+    that produced the same run share one immutable artifact.
+    """
     staging = store.root / "runs" / f"staging-{uuid.uuid4().hex}"
     staging.mkdir(parents=True)
     try:
@@ -422,7 +430,9 @@ def write_run(
         digest = sha256_file(summary_file)
         artifact_id = make_artifact_id("run", provenance.created_at, digest)
         final_dir = store.path(ArtifactUri("runs", (artifact_id,)), mode="write")
-        _require_unused(final_dir, artifact_id)
+        reused = reuse_identical and _identical_existing(final_dir, summary_file, arrays_file)
+        if not reused:
+            _require_unused(final_dir, artifact_id)
         pointer = RunPointerRecord(
             artifact=ArtifactRecord(
                 artifact_id=artifact_id,
@@ -448,11 +458,26 @@ def write_run(
             n_samples=arrays.n_samples,
             arrays_sha256=summary.arrays_sha256,
         )
-        staging.rename(final_dir)
+        if reused:
+            shutil.rmtree(staging, ignore_errors=True)
+        else:
+            staging.rename(final_dir)
     except BaseException:
         shutil.rmtree(staging, ignore_errors=True)
         raise
     return pointer, summary, final_dir
+
+
+def _identical_existing(final_dir: Path, summary_file: Path, arrays_file: Path) -> bool:
+    """Whether ``final_dir`` already holds exactly the staged run (summary and arrays byte for byte)."""
+    if not final_dir.exists():
+        return False
+    for name, staged in ((RUN_SUMMARY_FILE, summary_file), (RUN_ARRAYS_FILE, arrays_file)):
+        existing = final_dir / name
+        if not existing.is_file() or sha256_file(existing) != sha256_file(staged):
+            msg = f"{final_dir.name} exists with other content than the staged run; runs are immutable"
+            raise FileExistsError(msg)
+    return True
 
 
 def load_run(store: StorageRoot, pointer: RunPointerRecord) -> LoadedRun:

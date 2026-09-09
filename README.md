@@ -82,7 +82,11 @@ equivalences and fresh-process reproducibility with
 --markdown … --workspace …` (launched pinned through `arm_rc_ctrl.execution run`),
 diagnoses any comparison that validation retained as failed with
 `arm_rc_ctrl.experiments.repetition_diagnosis --validation … --manifest …
---output … --markdown …`, and records dependency-build parity across a
+--output … --markdown …`, evaluates the panel's behavioral arms against paired
+replay with `arm_rc_ctrl.experiments.repetition_evaluation run --manifest …
+--evaluation configs/evaluations/task_1a_repetition_dev_v1.toml --validation …
+--evidence-dir …` (resumable at run granularity; one Git pointer per model
+configuration and per replay bank), and records dependency-build parity across a
 submodule pin advance with `arm_rc_ctrl.experiments.build_parity probe` / `compare`.
 
 ## Requirements

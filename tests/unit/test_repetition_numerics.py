@@ -5,12 +5,9 @@
 
 from __future__ import annotations
 
-import importlib
 import json
-import os
 import shutil
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
 from pathlib import Path
 
 import numpy as np
@@ -18,33 +15,8 @@ import pytest
 
 from arm_rc_ctrl.config import from_mapping, to_mapping
 from arm_rc_ctrl.data.arrays import array_digest
-from arm_rc_ctrl.data.derivatives import DerivativeConfig, differentiate
-from arm_rc_ctrl.data.normalization import fit_normalization
-from arm_rc_ctrl.data.records import (
-    CANONICAL_UNITS,
-    ArtifactRecord,
-    Origin,
-    Preprocessing,
-    Scenario,
-    array_specs,
-    make_artifact_id,
-    payload_from_store,
-    write_record,
-)
-from arm_rc_ctrl.data.recovery import (
-    TASK_PHASE_CODES,
-    BaselineCheck,
-    CropWindow,
-    OnsetAnnotation,
-    RecoveryDatasetRecord,
-    TaskIntervals,
-)
-from arm_rc_ctrl.data.samples import SampleSet, save_samples
-from arm_rc_ctrl.execution import AffinityRequest, ExecutionRecord, collect_execution
+from arm_rc_ctrl.execution import ExecutionRecord
 from arm_rc_ctrl.experiments import repetition_diagnosis, repetition_numerics
-from arm_rc_ctrl.experiments.closed_loop import EstimatorSpec
-from arm_rc_ctrl.experiments.esn_search import TrialPoint
-from arm_rc_ctrl.experiments.recovery_search import RecoveryTrialPoint
 from arm_rc_ctrl.experiments.repetition_diagnosis import (
     EPS64,
     Diagnosis,
@@ -60,7 +32,6 @@ from arm_rc_ctrl.experiments.repetition_fits import (
     FIT_FILE,
     RECIPE_FILE,
     WEIGHTS_FILE,
-    FitInputs,
     FitRecord,
     FitStore,
     cache_uri,
@@ -68,6 +39,8 @@ from arm_rc_ctrl.experiments.repetition_fits import (
     harvested_states,
     recipe_text_of,
 )
+from arm_rc_ctrl.experiments.repetition_fixture import BANK_COUNT, DT, NOW, N
+from arm_rc_ctrl.experiments.repetition_fixture import PlanarFixture as Fixture
 from arm_rc_ctrl.experiments.repetition_numerics import (
     COMPARISON_PAIRS,
     PROBE_BANKS,
@@ -96,227 +69,12 @@ from arm_rc_ctrl.experiments.repetition_numerics import (
 )
 from arm_rc_ctrl.experiments.repetition_panel import PanelEntry
 from arm_rc_ctrl.experiments.repetition_recipes import ArmSpec
-from arm_rc_ctrl.provenance import ArtifactReference, collect_provenance, sha256_bytes, sha256_file
-from arm_rc_ctrl.rc.esn import EsnConfig, ReadoutConfig, ReservoirConfig
-from arm_rc_ctrl.rc.recipe import DatasetSource, RclibIdentity, load_recipe
-from arm_rc_ctrl.rc.train import InputTransformSpec, ModelConfig
+from arm_rc_ctrl.provenance import collect_provenance, sha256_bytes, sha256_file
+from arm_rc_ctrl.rc.recipe import load_recipe
 from arm_rc_ctrl.repo import repository_root
-from arm_rc_ctrl.scenario import endpoint_positions, load_scenario
-from arm_rc_ctrl.storage import ENV_VAR, StorageRoot
+from arm_rc_ctrl.storage import StorageRoot
 
 REPO_ROOT = repository_root()
-SCENARIO_RELATIVE = Path("tests") / "fixtures" / "configs" / "planar_2dof_fixture.toml"
-FIXTURE_CREATED = "2026-09-09T10:00:00+00:00"
-NOW = datetime(2026, 9, 9, 12, 0, tzinfo=UTC)
-N = 101
-DT = 0.01
-MOVE_END_S = 0.8
-BANK_COUNT = 16
-TASK = TaskIntervals(move=(0.0, MOVE_END_S), dwell=(MOVE_END_S, 1.0))
-BASE_MODEL = ModelConfig(
-    name="fixture",
-    esn=EsnConfig(
-        reservoir=ReservoirConfig(
-            n_neurons=40, spectral_radius=0.85, sparsity=0.9, leak_rate=0.4, input_scaling=0.4, seed=23
-        ),
-        readout=ReadoutConfig(alpha=0.5),
-    ),
-    input_transform=InputTransformSpec(policy="fixed_scale", q_scale=0.3, dq_scale=4.0),
-)
-ENTRY = PanelEntry(
-    label="feasible-best",
-    source_trial=17,
-    role="rank 1",
-    selection="feasible rank 1 of 134",
-    warmup_s=0.25,
-    point=RecoveryTrialPoint(
-        esn=TrialPoint(
-            n_neurons=40,
-            spectral_radius=0.85,
-            sparsity=0.9,
-            leak_rate=0.4,
-            input_scaling=0.4,
-            seed=23,
-            alpha=0.02,
-            velocity_cutoff_hz=20.0,
-            acceleration_cutoff_hz=10.0,
-        ),
-        warmup_s=0.25,
-        augmentation=None,
-    ),
-    estimator=EstimatorSpec(velocity_cutoff_hz=20.0, acceleration_cutoff_hz=10.0, max_dt_ratio=3.0),
-    base_alpha=0.02,
-    feasible=True,
-    objective=0.67,
-    first_failure=None,
-    reason_head=None,
-)
-
-
-def _planar_samples(scenario_file: Path) -> SampleSet:
-    scenario = load_scenario(scenario_file)
-    derivatives = DerivativeConfig(method="central")
-    t = np.arange(N, dtype=np.float64) * DT
-    start = np.array(scenario.task.initial_q)
-    goal = np.array([0.8, 0.4])
-    s = np.clip(t / MOVE_END_S, 0.0, 1.0)
-    blend = s * s * (3.0 - 2.0 * s)
-    q = start[None, :] + blend[:, None] * (goal - start)[None, :]
-    dq, ddq = differentiate(q, DT, derivatives)
-    tip = endpoint_positions(scenario, q)
-    dtip, ddtip = differentiate(tip, DT, derivatives)
-    phase = np.where(t < MOVE_END_S, 1, 2).astype(np.int64)
-    return SampleSet(t, q, dq, ddq, tip, dtip, ddtip, np.zeros((N, 0)), phase)
-
-
-@dataclass(frozen=True)
-class Fixture:
-    """A temporary repository root and store holding one recovery dataset, plus one panel entry to fit."""
-
-    root: Path
-    store: StorageRoot
-    record: RecoveryDatasetRecord
-    samples: SampleSet
-    inputs: FitInputs
-    entry: PanelEntry
-    env: dict[str, str]
-    """The environment a pinned launcher would have exported (plus the store root) for worker processes."""
-    execution: ExecutionRecord
-
-    @property
-    def scenario_file(self) -> Path:
-        """The scenario copy under the temporary root."""
-        return self.root / SCENARIO_RELATIVE
-
-    @property
-    def payload(self) -> ArtifactReference:
-        """The dataset payload reference."""
-        payload = self.record.artifact.payload
-        return ArtifactReference(payload.uri, payload.sha256, payload.size)
-
-
-def _record(
-    artifact_id: str, payload: object, samples: SampleSet, scenario_file: Path, preprocessing: Preprocessing
-) -> RecoveryDatasetRecord:
-    scenario = load_scenario(scenario_file)
-    normalization = fit_normalization(
-        samples.arrays(), ("q", "dq"), fitted_on=(artifact_id,), training_rows=np.ones(N, dtype=np.bool_)
-    )
-    return RecoveryDatasetRecord(
-        artifact=ArtifactRecord(
-            artifact_id=artifact_id,
-            kind="processed",
-            created_at=FIXTURE_CREATED,
-            license="LicenseRef-Private",
-            access="private",
-            payload=payload,  # type: ignore[arg-type]
-            origin=Origin(
-                command="synthetic repetition fixture",
-                config_sha256="2" * 64,
-                project_commit="a" * 40,
-                project_dirty=False,
-                dependency_commits={},
-                sources=("raw-20260830-2a97516c354b",),
-            ),
-        ),
-        scenario=Scenario(
-            config_path=SCENARIO_RELATIVE.as_posix(),
-            config_sha256=sha256_file(scenario_file),
-            robot="planar-2dof-fixture",
-            task="pd-reach-fixture",
-            dof=2,
-            initial_q=tuple(scenario.task.initial_q),
-            target=tuple(scenario.task.target),
-        ),
-        n_samples=samples.n_samples,
-        dof=samples.dof,
-        task_dim=samples.task_dim,
-        task_code_dim=samples.task_code_dim,
-        units=dict(CANONICAL_UNITS),
-        phases=dict(TASK_PHASE_CODES),
-        preprocessing=preprocessing,
-        onset=OnsetAnnotation(
-            kind="scripted",
-            raw_artifact_id="raw-20260830-2a97516c354b",
-            raw_payload_sha256="b" * 64,
-            detector="programmed",
-            detector_params={},
-            sampling_period_s=DT,
-            proposed_onset_sample=100,
-            proposed_onset_s=1.0,
-            confirmed_onset_sample=100,
-            confirmed_onset_s=1.0,
-            confirmed_by="script",
-        ),
-        baseline=BaselineCheck(
-            q_pre=tuple(float(v) for v in samples.q[0]), tolerance_rad=0.05, max_deviation_rad=0.0, status="passed"
-        ),
-        crop=CropWindow(pre_roll=(0.0, 1.0), source_duration_s=2.0, task=TASK),
-        q0_ref=tuple(float(v) for v in samples.q[0]),
-        arrays=array_specs(samples),
-        normalization=normalization,
-    )
-
-
-@pytest.fixture(scope="module")
-def fixture(tmp_path_factory: pytest.TempPathFactory) -> Fixture:
-    """Build the planar recovery dataset in a temporary root/store and declare this process's affinity canonical."""
-    base = tmp_path_factory.mktemp("repetition")
-    root = base / "repo"
-    scenario_file = root / SCENARIO_RELATIVE
-    scenario_file.parent.mkdir(parents=True)
-    shutil.copyfile(REPO_ROOT / SCENARIO_RELATIVE, scenario_file)
-    store_root = base / "store"
-    store_root.mkdir()
-    store = StorageRoot(store_root, repositories=(REPO_ROOT,))
-    samples = _planar_samples(scenario_file)
-    staged = base / "samples.npz"
-    save_samples(staged, samples)
-    artifact_id = make_artifact_id("processed", FIXTURE_CREATED, sha256_file(staged))
-    uri = f"armrc://processed/{artifact_id}/samples.npz"
-    shutil.move(staged, store.path(uri, mode="write"))
-    payload = payload_from_store(store, uri, format="samples.npz", schema_version=1)
-    preprocessing = Preprocessing(
-        resample_period_s=DT, smoothing="none", smoothing_params={}, derivative_method="central-difference"
-    )
-    record = _record(artifact_id, payload, samples, scenario_file, preprocessing)
-    record_file = root / "data" / "records" / "processed" / f"{artifact_id}.toml"
-    record_file.parent.mkdir(parents=True)
-    write_record(record_file, record)
-    importlib.import_module("rclib")  # the OpenMP probe must see the runtime the workers will also load
-    request = AffinityRequest("explicit", tuple(sorted(os.sched_getaffinity(0))))
-    env = {**os.environ, **request.environment(), ENV_VAR: str(store_root)}
-    execution = collect_execution(
-        command="python -m arm_rc_ctrl.experiments.repetition_numerics validate",
-        env=env,
-        effective_cpus=request.cpus,
-        now=NOW,
-    )
-    if not execution.canonical:  # pragma: no cover - only on a multithreaded test runner
-        pytest.skip("the test process's numerical runtimes are not single-threaded")
-    assert record.normalization is not None
-    inputs = FitInputs(
-        base=BASE_MODEL,
-        source=DatasetSource(artifact_id, payload.sha256, record_file.relative_to(root).as_posix()),
-        samples=samples,
-        dof=2,
-        task_code_dim=0,
-        preprocessing=preprocessing,
-        normalization=record.normalization,
-        scenario=load_scenario(scenario_file),
-        scenario_file=scenario_file,
-        root=root,
-        execution_identity=execution.identity,
-        rclib=RclibIdentity.current(),
-    )
-    return Fixture(root, store, record, samples, inputs, ENTRY, env, execution)
-
-
-@pytest.fixture
-def pinned_environment(fixture: Fixture, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Make this process look launched through the pinned launcher with the fixture's store."""
-    for name, value in fixture.env.items():
-        monkeypatch.setenv(name, value)
 
 
 # --- fit cache ----------------------------------------------------------------------------

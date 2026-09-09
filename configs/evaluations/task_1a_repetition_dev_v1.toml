@@ -1,0 +1,14 @@
+# Evaluation configuration of the task 1-a repeated-demonstration pilot, version 1
+# (docs/TASKS.md M3REP-004; repetition plan section 7.1, decision D5, clarification C2).
+# The development scenarios and both frozen trackers come unchanged from the locked recovery
+# development levels below (digest-bound in the frozen panel manifest); the only evaluation-side
+# change is the simulation-only joint-speed abort: 12 rad/s per joint, symmetric, applied to every
+# learned arm and matched replay throughout warm-up, movement, and dwell. The scenario's own 6 rad/s
+# limit (configs/tasks/task_1a.toml) stays the training-validation and augmentation limit and is
+# reported as a non-terminating diagnostic. Twelve rad/s is an approved bounded twofold relaxation,
+# never a measured optimum or a hardware-safe speed; it is locked before execution.
+name = "task-1a-repetition-dev-v1"
+development = "task_1a_recovery_dev_v1.toml"
+
+[simulation]
+velocity_abort = [12.0, 12.0]

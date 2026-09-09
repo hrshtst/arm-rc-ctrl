@@ -53,7 +53,7 @@ import time
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Final, Literal, cast
+from typing import TYPE_CHECKING, Final, cast
 
 import numpy as np
 
@@ -93,7 +93,13 @@ from arm_rc_ctrl.provenance import (
 )
 from arm_rc_ctrl.rc.augment import generate_augmentation
 from arm_rc_ctrl.rc.esn import ensure_single_thread
-from arm_rc_ctrl.rc.recipe import APPROVED_ADDITIONAL_REPEATS, DatasetSource, RclibIdentity, load_recipe
+from arm_rc_ctrl.rc.recipe import (
+    APPROVED_ADDITIONAL_REPEATS,
+    DatasetSource,
+    RclibIdentity,
+    derivative_config,
+    load_recipe,
+)
 from arm_rc_ctrl.rc.train import load_model_config
 from arm_rc_ctrl.rc.training import FitReport, harvest_episode, train_readout
 from arm_rc_ctrl.rc.warmup import WarmupConfig, build_task_episode_arrays
@@ -158,7 +164,6 @@ PROBE_BANK_COUNT: Final = 64
 """Synthetic episodes per augmented probe bank: the largest fixed count (``K = 65``) of the pilot."""
 PROBE_BANKS: Final = ("original", "non_decaying", "contractive")
 _SHA256_HEX: Final = 64
-_DERIVATIVE_METHODS: Final = {"central-difference": "central", "cubic-spline": "spline"}
 _WORKER_MODULE: Final = "arm_rc_ctrl.experiments.repetition_numerics"
 _COMMAND_MODULE: Final = "arm_rc_ctrl.experiments.repetition_numerics"
 
@@ -331,10 +336,11 @@ type BankArrays = tuple[tuple[str, NDArray[np.float64], NDArray[np.float64]], ..
 
 
 def _derivatives(method: str) -> DerivativeConfig:
-    if method not in _DERIVATIVE_METHODS:
-        msg = f"unsupported derivative method {method!r}; supported: {sorted(_DERIVATIVE_METHODS)}"
-        raise ValueError(msg)
-    return DerivativeConfig(method=cast("Literal['central', 'spline']", _DERIVATIVE_METHODS[method]))
+    try:
+        return derivative_config(method)
+    except ValueError as exc:
+        msg = f"unsupported derivative method {method!r}: {exc}"
+        raise ValueError(msg) from None
 
 
 def _probe_arrays(

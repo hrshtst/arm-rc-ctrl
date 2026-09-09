@@ -92,8 +92,11 @@ __all__ = [
     "RecoveryTrialContext",
     "RecoveryTrialEvaluation",
     "ReplayComponent",
+    "blocked_component",
     "evaluate_recovery_point",
     "make_recovery_objective",
+    "recovery_component",
+    "replay_component",
     "train_recovery_point",
 ]
 
@@ -306,7 +309,7 @@ class RecoveryTrialContext:
                 self.scenario, controller, duration_s=duration, initial_q=start, force=run_force
             )
             components.append(
-                _replay_component(
+                replay_component(
                     index,
                     case,
                     tracker,
@@ -336,7 +339,7 @@ def _saturation(arrays: RunArrays) -> float | None:
     return float(np.mean(values)) if values.shape[0] else None
 
 
-def _replay_component(
+def replay_component(
     index: int,
     case: RobustnessScenario,
     tracker: str,
@@ -349,6 +352,7 @@ def _replay_component(
     activation_s: float,
     bound: float,
 ) -> ReplayComponent:
+    """The replay baseline's outcome and early-gap metrics of one scenario/tracker pair."""
     criteria = recovery_outcome(scenario, reference, arrays, termination, activation_s=activation_s)
     saturation = _saturation(arrays)
     reason = classify(termination, criteria, saturation, bound)
@@ -418,9 +422,10 @@ def train_recovery_point(
     return recipe, model
 
 
-def _blocked_component(
+def blocked_component(
     index: int, case: RobustnessScenario, tracker: str, start: tuple[float, ...], replay: ReplayComponent
 ) -> RecoveryComponent:
+    """The RC pair that a posture-class replay failure blocks (recovery v1 censoring, clarification C7)."""
     """A posture-class pair whose replay baseline is infeasible: the ratio is undefined, so the RC run is skipped."""
     return RecoveryComponent(
         index=index,
@@ -436,22 +441,24 @@ def _blocked_component(
     )
 
 
-def _component(
+def recovery_component(
     index: int,
     case: RobustnessScenario,
     tracker: str,
     start: tuple[float, ...],
     arrays_and_termination: tuple[RunArrays, Termination],
     *,
-    context: RecoveryTrialContext,
+    scenario: ScenarioConfig,
+    reference: SampleSet,
     activation_s: float,
     bound: float,
     replay: ReplayComponent,
     boundary_jump: float | None,
     settling_band_rad: float,
 ) -> RecoveryComponent:
+    """The RC arm's outcome and metrics of one scenario/tracker pair (shared with the repetition pilot)."""
     arrays, termination = arrays_and_termination
-    criteria = recovery_outcome(context.scenario, context.reference, arrays, termination, activation_s=activation_s)
+    criteria = recovery_outcome(scenario, reference, arrays, termination, activation_s=activation_s)
     saturation = _saturation(arrays)
     reason = classify(termination, criteria, saturation, bound)
     generated: dict[str, bool] | None = None
@@ -462,7 +469,7 @@ def _component(
     torque: float | None = None
     if reason is None:
         report = recovery_report_from_arrays(
-            context.scenario, context.reference, arrays, activation_s=activation_s, settling_band_rad=settling_band_rad
+            scenario, reference, arrays, activation_s=activation_s, settling_band_rad=settling_band_rad
         )
         if report is None:
             reason = "no_active_segment"
@@ -478,9 +485,7 @@ def _component(
                 run_t = cast("NDArray[np.float64]", arrays.arrays["t"])
                 source = "tau_applied" if "tau_applied" in arrays.arrays else "tau_requested"
                 tau = cast("NDArray[np.float64]", arrays.arrays[source])
-                effort = effort_metrics(
-                    run_t, tau, context.scenario.limits.torque, window=(activation_s, float(run_t[-1]))
-                )
+                effort = effort_metrics(run_t, tau, scenario.limits.torque, window=(activation_s, float(run_t[-1])))
                 torque = float(effort.torque_rms)
                 if case.kind in RATIO_CLASSES:
                     integral = replay.early_gap_integral
@@ -540,7 +545,7 @@ def _run_development(
         for name, controller in controllers.items():
             replay = replays[name][index]
             if case.kind in RATIO_CLASSES and not replay.feasible:
-                component = _blocked_component(index, case, name, start, replay)
+                component = blocked_component(index, case, name, start, replay)
             else:
                 outcome = simulate(
                     context.scenario,
@@ -550,13 +555,14 @@ def _run_development(
                     force=run_force,
                     channels=channels,
                 )
-                component = _component(
+                component = recovery_component(
                     index,
                     case,
                     name,
                     start,
                     outcome,
-                    context=context,
+                    scenario=context.scenario,
+                    reference=context.reference,
                     activation_s=activation,
                     bound=bound,
                     replay=replay,

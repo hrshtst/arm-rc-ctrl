@@ -60,6 +60,7 @@ if TYPE_CHECKING:
 __all__ = [
     "APPROVED_ADDITIONAL_REPEATS",
     "BINDING_SCHEMA_VERSION",
+    "DERIVATIVE_METHODS",
     "RECIPE_SCHEMA_VERSION",
     "REGULARIZATION_RULES",
     "SUPPORTED_RECIPE_SCHEMAS",
@@ -72,6 +73,7 @@ __all__ = [
     "TrainingSpec",
     "TrainingValidation",
     "create_recipe",
+    "derivative_config",
     "expected_episode_labels",
     "load_recipe",
     "solver_alpha",
@@ -621,13 +623,20 @@ def expected_episode_labels(spec: TrainingSpec, ids: tuple[str, ...]) -> tuple[s
     return (ids[0], *(f"{ids[0]}#{family}-{i:03d}" for i in range(1, spec.augmentation.n_synthetic + 1)))
 
 
-def _derivatives(preprocessing: Preprocessing) -> DerivativeConfig:
-    methods = {"central-difference": "central", "cubic-spline": "spline"}
-    label = preprocessing.derivative_method
-    if label not in methods:
-        msg = f"unknown derivative policy label {label!r}; expected one of {sorted(methods)}"
+DERIVATIVE_METHODS: Final = {"central-difference": "central", "cubic-spline": "spline"}
+"""Preprocessing derivative labels and the derivative schemes they name."""
+
+
+def derivative_config(label: str) -> DerivativeConfig:
+    """The derivative scheme a preprocessing label names (shared by recipes, probes, and augmentation banks)."""
+    if label not in DERIVATIVE_METHODS:
+        msg = f"unknown derivative policy label {label!r}; expected one of {sorted(DERIVATIVE_METHODS)}"
         raise ValueError(msg)
-    return DerivativeConfig(method=cast('Literal["central", "spline"]', methods[label]))
+    return DerivativeConfig(method=cast('Literal["central", "spline"]', DERIVATIVE_METHODS[label]))
+
+
+def _derivatives(preprocessing: Preprocessing) -> DerivativeConfig:
+    return derivative_config(preprocessing.derivative_method)
 
 
 def _build_episodes(

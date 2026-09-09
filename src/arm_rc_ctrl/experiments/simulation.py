@@ -14,6 +14,7 @@ instead of a crash, so a run record always exists.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Final, Protocol, cast
 
@@ -34,6 +35,8 @@ from arm_rc_ctrl.experiments.termination import (
 from arm_rc_ctrl.scenario import ScenarioConfig, build_skeleton
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from arm_rc_ctrl.experiments.disturbances import ForcePulse
 
 __all__ = [
@@ -41,9 +44,11 @@ __all__ = [
     "RESIDUAL_CHANNELS",
     "TRACKER_CHANNELS",
     "ChannelMap",
+    "CheckedState",
     "TelemetryController",
     "check_state",
     "endpoint",
+    "resolve_velocity_abort",
     "simulate",
 ]
 
@@ -136,14 +141,50 @@ def endpoint(skeleton: Skeleton) -> NDArray[np.float64]:
     return np.array([tip.xe, tip.ye], dtype=np.float64)
 
 
-def check_state(scenario: ScenarioConfig, skeleton: Skeleton, t: float, step: int) -> Termination | None:
-    """The termination the measured state warrants, or ``None`` when it is within every limit."""
+@dataclass(frozen=True)
+class CheckedState:
+    """One measured state as the simulator checked it (control cadence), including a terminal offending one."""
+
+    t: float
+    step: int
+    q: NDArray[np.float64]
+    dq: NDArray[np.float64]
+
+
+def resolve_velocity_abort(scenario: ScenarioConfig, velocity_abort: Sequence[float] | None) -> tuple[float, ...]:
+    """The per-joint speed abort bound in force: the evaluation override when given, else the scenario limit.
+
+    The override is a simulation-only relaxation (repetition plan D5, C2): it never
+    changes the scenario file, the training-validation limit, or any other gate.
+    """
+    if velocity_abort is None:
+        return tuple(scenario.limits.velocity)
+    bounds = tuple(float(v) for v in velocity_abort)
+    if len(bounds) != scenario.dof or any(not (math.isfinite(v) and v > 0) for v in bounds):
+        msg = f"velocity_abort must give {scenario.dof} positive finite bounds (rad/s), got {velocity_abort!r}"
+        raise ValueError(msg)
+    return bounds
+
+
+def check_state(
+    scenario: ScenarioConfig,
+    skeleton: Skeleton,
+    t: float,
+    step: int,
+    *,
+    velocity_abort: Sequence[float] | None = None,
+) -> Termination | None:
+    """The termination the measured state warrants, or ``None`` when it is within every limit.
+
+    ``velocity_abort`` replaces the scenario's per-joint speed bound for the
+    abort only (the recorded ``bound`` is the one applied).
+    """
     q, dq = skeleton.q, skeleton.dq
     if not (np.all(np.isfinite(q)) and np.all(np.isfinite(dq))):
         return invalid_state(t, step, "measured q or dq is not finite")
     if np.max(np.abs(q)) > DIVERGENCE_BOUND or np.max(np.abs(dq)) > DIVERGENCE_BOUND:
         return invalid_state(t, step, f"state magnitude exceeds {DIVERGENCE_BOUND}")
-    for j, (v, bound) in enumerate(zip(dq, scenario.limits.velocity, strict=True)):
+    for j, (v, bound) in enumerate(zip(dq, resolve_velocity_abort(scenario, velocity_abort), strict=True)):
         if abs(float(v)) > bound:
             return limit_violation(t, step, "joint_velocity", float(v), bound, joint=j)
     radius = float(np.hypot(*endpoint(skeleton)))
@@ -168,9 +209,18 @@ def simulate(
     initial_q: tuple[float, ...] | None = None,
     force: ForcePulse | None = None,
     channels: ChannelMap = TRACKER_CHANNELS,
+    velocity_abort: Sequence[float] | None = None,
+    checked_states: list[CheckedState] | None = None,
 ) -> tuple[RunArrays, Termination]:
-    """Run ``controller`` in ``skelarm`` for ``duration_s`` and return the telemetry and termination."""
+    """Run ``controller`` in ``skelarm`` for ``duration_s`` and return the telemetry and termination.
+
+    ``velocity_abort`` overrides the scenario's per-joint speed abort for this
+    run only. ``checked_states``, when given, receives every state the
+    simulator checked at the control cadence, including a terminal offending
+    state that never enters the telemetry (no controller output exists for it).
+    """
     dt = scenario.timing.dt
+    abort_bounds = resolve_velocity_abort(scenario, velocity_abort)
     steps = round(duration_s / dt)
     if steps < 1:
         msg = f"duration {duration_s} s is shorter than one control period {dt} s"
@@ -185,7 +235,13 @@ def simulate(
     termination: Termination | None = None
     t = 0.0
     for step in range(steps + 1):
-        termination = check_state(scenario, skeleton, t, step)
+        if checked_states is not None:
+            checked_states.append(
+                CheckedState(
+                    t=t, step=step, q=np.array(skeleton.q, dtype=np.float64), dq=np.array(skeleton.dq, dtype=np.float64)
+                )
+            )
+        termination = check_state(scenario, skeleton, t, step, velocity_abort=abort_bounds)
         if termination is not None:
             break
         command = _command(controller, scenario, skeleton, t, step)
