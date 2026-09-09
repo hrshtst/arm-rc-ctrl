@@ -1,0 +1,575 @@
+<!doctype html>
+<!-- Copyright (c) 2026 Hiroshi Atsuta | SPDX-License-Identifier: GPL-3.0-only -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A human-readable account of the task 1-a state-conditioned recovery experiment: motivation, method, development results, and what the negative result means.">
+  <title>Can one demonstration teach recovery? · Task 1-a</title>
+  <style>
+    :root { color-scheme: light; --paper: #f7f5ef; --ink: #203535; --muted: #526462;
+      --teal: #17665e; --line: #d5ddd5; --wash: #e8efea; --amber: #875016; --rose: #934136; }
+    * { box-sizing: border-box; }
+    html { scroll-padding-top: 5rem; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.7 system-ui, sans-serif; }
+    a { color: var(--teal); text-underline-offset: .2em; }
+    a:hover { text-decoration-thickness: 2px; }
+    :focus-visible { outline: 3px solid var(--amber); outline-offset: 5px; }
+    .skip { position: absolute; left: 1rem; top: -5rem; background: white; padding: .5rem; z-index: 3; }
+    .skip:focus { top: 1rem; }
+    nav { position: sticky; top: 0; z-index: 2; background: #f7f5eff5; border-bottom: 1px solid var(--line); }
+    nav .inner { max-width: 1160px; margin: auto; display: flex; gap: 1.5rem; padding: .8rem 2rem;
+      align-items: center; overflow-x: auto; font-size: .85rem; white-space: nowrap; }
+    nav a { text-decoration: none; }
+    nav .brand { font-weight: 750; margin-right: auto; }
+    main, footer { max-width: 1100px; margin: auto; padding: 0 2rem; }
+    header { padding: 4.5rem 0 2.5rem; }
+    .eyebrow { color: var(--teal); text-transform: uppercase; letter-spacing: .13em; font-size: .75rem; font-weight: 750; }
+    h1, h2, h3 { line-height: 1.18; letter-spacing: -.025em; }
+    h1 { font-family: Georgia, serif; font-weight: 500; font-size: clamp(2.5rem, 5.4vw, 4.6rem); max-width: 870px; margin: 1rem 0 1.4rem; }
+    h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); margin: .5rem 0 1.3rem; }
+    h3 { font-size: 1.2rem; margin-top: 2rem; }
+    p { max-width: 83ch; margin: 1rem 0; }
+    .lead { font-size: 1.2rem; max-width: 74ch; }
+    .small, figcaption, caption { font-size: .86rem; color: var(--muted); }
+    .verdict { border-left: 4px solid var(--amber); background: #f1e9dc; padding: 1rem 1.4rem; margin: 1.8rem 0; }
+    .verdict p, .note p { margin: .3rem 0; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+    .stat { padding: 1.25rem; background: #fffdf8; }
+    .stat + .stat { border-left: 1px solid var(--line); }
+    .stat strong { display: block; font-size: 2.4rem; font-weight: 650; line-height: 1.3; }
+    .stat span { font-size: .8rem; color: var(--muted); display: block; }
+    section { padding: 2.8rem 0; border-top: 1px solid var(--line); }
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    .two > *, .motion-grid > * { min-width: 0; }
+    .note { background: var(--wash); padding: 1.1rem 1.4rem; border-radius: 8px; margin: 1.5rem 0; }
+    .timeline { display: grid; grid-template-columns: 1fr 2fr 1fr; gap: .3rem; margin: 1.5rem 0 .5rem; }
+    .timeline div { padding: 1rem; border-top: 5px solid var(--teal); background: var(--wash); }
+    .timeline div:first-child { border-color: #7c8684; background: #eae9e3; }
+    .timeline div:last-child { border-color: #527c41; }
+    .timeline strong, .timeline span { display: block; }
+    .timeline span { font-size: .82rem; }
+    .flow { border: 1px solid var(--line); padding: 1rem 1.2rem; border-radius: 8px; text-align: center; background: #fffdf8; }
+    .flow span { display: inline-block; padding: .25rem; }
+    figure { margin: 1.5rem 0; padding: 1rem; background: white; border: 1px solid var(--line); border-radius: 10px; }
+    figure img { display: block; width: 100%; height: auto; }
+    figcaption { line-height: 1.55; margin-top: .9rem; }
+    figcaption strong { color: var(--ink); }
+    .table-wrap { overflow-x: auto; margin: 1.5rem 0; border: 1px solid var(--line); border-radius: 8px; background: #fffdf8; }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; font-variant-numeric: tabular-nums; }
+    th, td { padding: .85rem 1rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    thead { background: var(--wash); }
+    tbody tr:last-child > * { border-bottom: 0; }
+    tbody th { font-weight: 600; }
+    caption { text-align: left; padding: .9rem 1rem; caption-side: bottom; }
+    .fail { color: var(--rose); font-weight: 700; }
+    .pass { color: var(--teal); font-weight: 700; }
+    .numeric { white-space: nowrap; }
+    details { margin: 1.3rem 0; border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.2rem; }
+    summary { cursor: pointer; font-weight: 650; line-height: 1.5; }
+    details[open] > summary { margin-bottom: 1rem; }
+    details figure { padding: .7rem; }
+    .motion-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+    .motion-grid figure { margin: .8rem 0; }
+    .motion-grid img { aspect-ratio: 1; object-fit: contain; }
+    button { font: inherit; font-size: .9rem; color: white; background: var(--teal); border: 0;
+      border-radius: 6px; padding: .65rem 1rem; cursor: pointer; }
+    button:hover { background: #114b45; }
+    [hidden] { display: none !important; }
+    code, pre { font: .83em/1.6 ui-monospace, monospace; }
+    code { overflow-wrap: anywhere; }
+    pre { padding: 1.1rem; background: #edf0eb; border-radius: 8px; overflow-x: auto; }
+    pre code { font-size: inherit; white-space: pre; }
+    footer { padding-top: 2rem; padding-bottom: 3rem; border-top: 1px solid var(--line); font-size: .8rem; color: var(--muted); }
+    @media (max-width: 700px) {
+      body { font-size: 16px; }
+      main, footer { padding-left: 1.1rem; padding-right: 1.1rem; }
+      nav .inner { padding: .8rem 1.1rem; gap: 1rem; }
+      header { padding-top: 2.5rem; }
+      .stats { grid-template-columns: 1fr 1fr; }
+      .stat:nth-child(3) { border-left: 0; }
+      .stat:nth-child(n+3) { border-top: 1px solid var(--line); }
+      .two, .motion-grid { grid-template-columns: 1fr; }
+      .timeline { grid-template-columns: 1fr; }
+      figure { padding: .5rem; }
+      th, td { padding: .65rem .7rem; }
+    }
+    @media print {
+      body { background: white; font-size: 10pt; }
+      nav, .skip, button, .motion-grid { display: none !important; }
+      main, footer { max-width: none; padding: 0; }
+      header, section { padding: 1rem 0; }
+      h1 { font-size: 32pt; }
+      h2, h3, summary { break-after: avoid; }
+      figure, .stats, tr { break-inside: avoid; }
+      .table-wrap { overflow: visible; }
+      a { color: inherit; }
+    }
+  </style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to report</a>
+<nav aria-label="Report sections"><div class="inner">
+  <a class="brand" href="#main">TASK 1-a / RECOVERY</a>
+  <a href="#background">Why</a><a href="#method">Method</a><a href="#results">Results</a>
+  <a href="#motion">Motion</a><a href="#discussion">Discussion</a><a href="#sources">Sources</a>
+</div></nav>
+<main id="main">
+  <header>
+    <div class="eyebrow">Research overview · Simulation · Development evidence v1</div>
+    <h1>Can one demonstration<br>teach a robot to recover?</h1>
+    <p class="lead">Task 1-a showed that a learned motion generator could reach a target.
+      This follow-up asked more: when the robot starts away from the demonstrated posture,
+      can its first commands adapt to that state and then guide it back toward the target?</p>
+    <div class="verdict">
+      <p><strong>The proposed recovery advantage was not established.</strong> Some models completed
+        every development check for safety and target dwell, but none improved the early commands
+        consistently enough to qualify. The experiment closed with an accepted negative result:
+        no model was frozen, and no confirmatory evaluation was run.</p>
+    </div>
+    <div class="stats" aria-label="Experiment at a glance">
+      <div class="stat"><strong>1</strong><span>independent scripted demonstration</span></div>
+      <div class="stat"><strong>2,000</strong><span>sampled trials across four RC formulations</span></div>
+      <div class="stat"><strong data-evidence="feasible">134</strong><span>feasible models, all without augmentation</span></div>
+      <div class="stat"><strong data-evidence="eligible">0</strong><span>models meeting the recovery eligibility rule</span></div>
+    </div>
+    <p class="small">Experiment <code>task_1a_recovery_v1</code> · Overview written 7 September 2026 ·
+      <a href="recovery_report_v1.md">Detailed report</a> · <a href="model_freeze_v2.md">Recorded decision</a></p>
+  </header>
+
+  <section id="background">
+    <div class="eyebrow">01 / Background &amp; motivation</div>
+    <h2>Reaching successfully is only the first question</h2>
+    <p>The project studies reservoir computing (RC) as an inexpensive way to learn robot motions.
+      An echo state network (ESN) has a fixed recurrent network that remembers recent inputs;
+      training fits only a linear output layer using ridge regression. Here, that output supplies desired joint positions
+      to a conventional torque controller. All weights stay fixed during execution.</p>
+    <p>In <a href="../task_1a/overview.md">the original task 1-a experiment</a>, RC reached and held
+      the target in all 65 confirmatory scenarios under each of two trackers. Direct replay of the
+      demonstration was nevertheless more precise without external force. There was also a timing
+      asymmetry: during the initial hold, RC held the perturbed posture while replay already tried
+      to return to the recorded starting posture. Their reaching motions therefore began after
+      different opportunities to correct the initial error.</p>
+    <div class="two">
+      <div><h3>Make the comparison fair</h3><p>Give RC and replay the same pre-task hold,
+        at the same perturbed posture, then activate both together. Replay should not receive an
+        extra recovery interval before the measured task begins.</p></div>
+      <div><h3>Test a stronger hypothesis</h3><p>Train on smooth variations around the demonstration
+        that narrow toward the target. The intended behavior is to start with a command near the
+        robot’s actual posture, then converge, instead of abruptly requesting the recorded path.</p></div>
+    </div>
+    <p class="small">This is a separate experiment with a different question and timing protocol.
+      Its development counts are not directly comparable to the earlier confirmatory success rate.
+      <a href="plan.md">Source: recovery protocol, §§1–2.</a></p>
+  </section>
+
+  <section id="method">
+    <div class="eyebrow">02 / Method</div>
+    <h2>Change the starting conditions, keep the target</h2>
+    <p>The simulation uses a gravity-free planar arm with two joints and links of 0.30 m and 0.25 m.
+      The endpoint must reach <strong>(0.10, 0.45) m</strong> and hold within a <strong>1 cm</strong>
+      tolerance. The task runs at 100 Hz. Its only independent training source is the same scripted
+      minimum-jerk demonstration used in task 1-a; synthetic copies do not count as new demonstrations.</p>
+    <h3>Separate recording, warm-up, and reaching</h3>
+    <p>The original recording includes a one-second stationary pre-roll. Preprocessing uses it as
+      filter context, then removes it from the training trajectory. The retained episode contains
+      a three-second reach and a one-second dwell: 401 samples. Each training episode and evaluation
+      run resets the reservoir independently.</p>
+    <div class="timeline" aria-label="Task timing: optional common hold before time zero, reach from zero to three seconds, dwell from three to four seconds. Segment widths are schematic.">
+      <div><strong>−T<sub>w</sub> → 0 s</strong><span>Common hold at actual initial posture</span><span>RC warms its memory; readout inactive</span></div>
+      <div><strong>0 → 3 s · Reach</strong><span>Both references activate together</span><span>Early command metric: first 0.5 s</span></div>
+      <div><strong>3 → 4 s · Dwell</strong><span>Reach and remain near target</span><span>Check actual and desired motion</span></div>
+    </div>
+    <p class="small">Schematic timing, not to scale. Warm-up candidates: 0, 0.25, 0.5, 1, and 2 s.
+      The examples below use T<sub>w</sub> = 0.25 s; their plots show run time, so activation is at 0.25 s.</p>
+    <div class="flow" aria-label="Closed feedback loop">
+      <span>Measured position &amp; velocity</span> → <span>ESN memory &amp; trained readout</span> →
+      <span>Desired position &amp; causal derivatives</span> → <span>Tracker &amp; torque limits</span> →
+      <span>Simulated arm</span> ↩
+    </div>
+    <p>At training time, the network sees the demonstrated or augmented state and predicts the next
+      joint position. At execution time, it receives measured robot position and velocity, not its
+      previous desired command. A PD tracker corrects position and velocity errors; the secondary
+      computed-torque tracker additionally uses the robot dynamics and desired acceleration.
+      Both trackers were frozen before this comparison.</p>
+
+    <h3>Teach a narrowing family of paths</h3>
+    <p>Augmentation adds correlated, seeded joint-position perturbations to the demonstration.
+      The AR(1) process makes neighboring perturbations correlated in time; its coefficient φ controls
+      that persistence (the search used 0.98, 0.99, and 0.995). Velocities are then
+      recomputed from the perturbed positions, and invalid episodes are rejected. In the
+      <strong>contractive</strong> family, the perturbation shrinks with the demonstrated endpoint’s
+      distance to the target. The comparison family keeps that envelope uncontracted through most
+      of the reach. Both use the same smooth terminal taper and match the original before dwell.</p>
+    <figure>
+      <a href="plots/augmentation_strategy_v1/augmentation_task_space_families.png">
+        <img src="plots/augmentation_strategy_v1/augmentation_task_space_families.png" width="1667" height="684"
+          alt="Two endpoint-path panels: non-decaying augmentation spreads around the demonstration; contractive augmentation narrows toward the target." loading="lazy">
+      </a>
+      <figcaption><strong>The training idea, not a successful control result.</strong> Black is the original
+        demonstration; colors are 16 of 64 accepted synthetic episodes from seed bank 1, mapped into endpoint
+        space using forward kinematics. Both panels use σ = 0.05 rad and φ = 0.99; contraction uses γ = 1.
+        Shared axes make the spreads comparable. These paths come from the actual training augmentation code.</figcaption>
+    </figure>
+    <details>
+      <summary>How the augmentation scale and contraction strength change the paths</summary>
+      <p>σ controls the per-joint perturbation scale. γ controls how quickly the target-distance
+        envelope narrows; a larger γ suppresses deviations earlier as the reference approaches the target.</p>
+      <figure><a href="plots/augmentation_strategy_v1/augmentation_task_space_sigma.png"><img
+        src="plots/augmentation_strategy_v1/augmentation_task_space_sigma.png" loading="lazy"
+        alt="Non-decaying endpoint paths at perturbation scales 0.01, 0.025, 0.05, and 0.10 radians."></a>
+        <figcaption>Increasing σ broadens the family of accepted training paths.</figcaption></figure>
+      <figure><a href="plots/augmentation_strategy_v1/augmentation_task_space_gamma.png"><img
+        src="plots/augmentation_strategy_v1/augmentation_task_space_gamma.png" loading="lazy"
+        alt="Contractive endpoint paths for gamma 0.5, 1, and 2 with sigma fixed at 0.05 radians."></a>
+        <figcaption>Increasing γ narrows the perturbation envelope more rapidly. These are training-data comparisons.</figcaption></figure>
+    </details>
+    <div class="table-wrap"><table>
+      <caption>Each learned formulation received 500 sampled development trials. Reservoir capacity ranges,
+        applicable search bounds, scenarios, trackers, and limits were matched. Replay is the paired baseline.</caption>
+      <thead><tr><th scope="col">Formulation</th><th scope="col">Training data</th><th scope="col">Purpose</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Timing only</th><td>Original episode only</td><td>Test the new timing without augmentation</td></tr>
+        <tr><th scope="row">Non-decaying augmentation</th><td>Original + 16, 32, or 64 synthetic episodes</td><td>Test added variation without distance-based contraction</td></tr>
+        <tr><th scope="row">Contractive augmentation</th><td>Original + 16, 32, or 64 synthetic episodes</td><td>Test the proposed recovery mechanism</td></tr>
+        <tr><th scope="row">Residual output · exploratory</th><td>Contractive data</td><td>Predict a position increment added to measured position</td></tr>
+      </tbody>
+    </table></div>
+
+    <h3>What would count as recovery?</h3>
+    <p>Every feasible trial must complete the development suite under both trackers: 65 scenarios × 2
+      trackers = 130 RC evaluations, each compared with its matched replay baseline. The scenarios are
+      1 nominal, 20 small-posture offsets (0.05 rad norm), 20 large offsets (0.10 rad), 4 force directions
+      (12 N for 0.2 s), and 20 combinations of a small offset and force. The force acts at task time 1–1.2 s.
+      Trials stop at their first infeasible evaluation, so 2,000 trials does not mean 2,000 complete suites.</p>
+    <div class="two">
+      <div class="note"><p><strong>First: feasible motion.</strong> Complete without state or safety-limit
+        violations, with torque saturation at or below 0.5%. Actual motion and the generated reference
+        must each spend at least 90% of dwell within 1 cm, with each dwell joint speed at or below 0.05 rad/s.
+        Torque limits remain 10 and 5 N·m.</p></div>
+      <div class="note"><p><strong>Then: consistent improvement.</strong> In each of four comparisons
+        (small/large posture × PD/computed torque), both median command ratios must be below 1,
+        and at least <strong>15 of 20</strong> scenarios must improve both measures together.
+        Passing one comparison cannot compensate for failing another.</p></div>
+    </div>
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">Measure</th><th scope="col">Plain-language meaning</th><th scope="col">Role</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Activation jump · rad</th><td>Distance between the first desired joint position and the actual starting position</td><td>Is the first request closer to the robot?</td></tr>
+        <tr><th scope="row">Early command gap · rad·s</th><td>Integral of ‖desired − actual joint position‖ over the first 0.5 s</td><td>Does the command stay closer during the initial response?</td></tr>
+        <tr><th scope="row">Movement RMSE · rad</th><td>Actual motion’s time-aligned deviation from the original demonstration</td><td>Diagnostic only; a different safe path is allowed</td></tr>
+      </tbody>
+    </table></div>
+    <p>A paired ratio is <strong>RC’s value divided by replay’s value</strong> for the same scenario
+      and tracker: 1 means equal, and 0.7 means 30% smaller. A small command gap alone is insufficient:
+      a generator could simply follow the robot’s current position without ever guiding it to the target.
+      This is why target dwell is a separate mandatory check.</p>
+    <p class="small"><a href="plan.md">Sources: protocol §§4–7 and approved decisions D1–D6</a>;
+      <a href="../../../configs/evaluations/task_1a_recovery_dev_v1.toml">development scenario configuration</a>.</p>
+  </section>
+
+  <section id="results">
+    <div class="eyebrow">03 / Results</div>
+    <h2>Feasible motion, but no qualifying recovery model</h2>
+    <div class="table-wrap"><table>
+      <caption><a href="development_ablation_v2.md">Three-arm development ablation</a> and
+        <a href="residual_search_1a_v1.md">residual study</a>. These are model-trial counts, not run success rates.</caption>
+      <thead><tr><th scope="col">Formulation</th><th scope="col">Trials</th><th scope="col">Feasible</th><th scope="col">Outcome</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Timing only</th><td data-evidence="no_augmentation:budget">500</td><td data-evidence="no_augmentation:feasible">134</td><td>26.8% feasible; none eligible</td></tr>
+        <tr><th scope="row">Non-decaying augmentation</th><td data-evidence="non_decaying:budget">500</td><td data-evidence="non_decaying:feasible">0</td><td>No feasible model found in sampled trials</td></tr>
+        <tr><th scope="row">Contractive augmentation</th><td data-evidence="contractive:budget">500</td><td data-evidence="contractive:feasible">0</td><td>No feasible model found in sampled trials</td></tr>
+        <tr><th scope="row">Residual output · exploratory</th><td>500</td><td>0</td><td>No feasible model; outside the primary freeze comparison</td></tr>
+      </tbody>
+    </table></div>
+    <h3>Why a promising median was not enough</h3>
+    <p>The best feasible timing-only trial by the early-gap objective was <strong>trial 17</strong>,
+      with 100 reservoir neurons and 0.25 s warm-up. Its worst of the four cell-median gap ratios
+      was <strong>0.6704</strong>: roughly 33% lower than replay even in that comparison.
+      Nevertheless, its small-posture improvement was too inconsistent.</p>
+    <div class="table-wrap"><table>
+      <caption>Exact counts and rounded ratios from trial 17 in <a href="development_ablation_v2.json">the ablation evidence</a>.
+        “Both improve” counts scenarios where both individual ratios are below 1.</caption>
+      <thead><tr><th scope="col">Trial 17 comparison</th><th scope="col">Median gap ratio<br>&lt; 1 required</th><th scope="col">Median jump ratio<br>&lt; 1 required</th><th scope="col">Both improve<br>≥ 15 / 20 required</th><th scope="col">Cell result</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Small posture · PD</th><td data-evidence="posture_small:pd_v2:gap">0.6704</td><td data-evidence="posture_small:pd_v2:jump">0.9059</td><td class="numeric" data-evidence="posture_small:pd_v2:count">11 / 20</td><td class="fail" data-evidence="posture_small:pd_v2:passes">Fail</td></tr>
+        <tr><th scope="row">Small posture · computed torque</th><td data-evidence="posture_small:computed_torque:gap">0.3123</td><td data-evidence="posture_small:computed_torque:jump">0.9059</td><td class="numeric" data-evidence="posture_small:computed_torque:count">11 / 20</td><td class="fail" data-evidence="posture_small:computed_torque:passes">Fail</td></tr>
+        <tr><th scope="row">Large posture · PD</th><td data-evidence="posture_large:pd_v2:gap">0.5288</td><td data-evidence="posture_large:pd_v2:jump">0.7330</td><td class="numeric" data-evidence="posture_large:pd_v2:count">15 / 20</td><td class="pass" data-evidence="posture_large:pd_v2:passes">Pass</td></tr>
+        <tr><th scope="row">Large posture · computed torque</th><td data-evidence="posture_large:computed_torque:gap">0.2335</td><td data-evidence="posture_large:computed_torque:jump">0.7330</td><td class="numeric" data-evidence="posture_large:computed_torque:count">15 / 20</td><td class="pass" data-evidence="posture_large:computed_torque:passes">Pass</td></tr>
+      </tbody>
+    </table></div>
+    <p>This was not just a failure of trial 17. Across all 134 feasible trials, the highest small-posture
+      PD count was <strong data-evidence="small_pd_maximum">14</strong> of 20. Thus every feasible trial
+      failed at least that comparison. None advanced to the reservoir-seed stability panel, model freeze,
+      or confirmatory suite. Trial 17 is used below only as a development example.</p>
+    <figure><a href="plots/recovery_report_v1/cell_gap_medians.png"><img
+      src="plots/recovery_report_v1/cell_gap_medians.png" loading="lazy"
+      alt="Histograms of early command-gap cell medians across 134 feasible trials, split by posture size and tracker; many medians lie below the replay ratio of one."></a>
+      <figcaption><strong>A median improvement was common; eligibility required more.</strong> Each trial
+        contributes one median over 20 scenarios to each panel. The horizontal axis is the paired ratio,
+        the vertical axis counts trials, and the black line marks equality with replay. These are
+        distributions of trial medians, not all individual run ratios or confidence intervals.</figcaption></figure>
+    <details><summary>Activation jumps and warm-up: two additional views</summary>
+      <figure><a href="plots/recovery_report_v1/cell_jump_medians.png"><img
+        src="plots/recovery_report_v1/cell_jump_medians.png" loading="lazy"
+        alt="Activation-jump median ratio distributions for each posture-size and tracker comparison across feasible models."></a>
+        <figcaption>Lower than 1 means a smaller initial command jump. Even favorable jump and gap medians
+          do not ensure that the same 15 scenarios improve both.</figcaption></figure>
+      <figure><a href="plots/recovery_report_v1/feasible_by_warmup.png"><img
+        src="plots/recovery_report_v1/feasible_by_warmup.png" loading="lazy"
+        alt="Feasible timing-only trial counts by warm-up: 123 with zero seconds, 9 with 0.25 seconds, and 2 with one second."></a>
+        <figcaption>Of the 134 feasible trials, 123 used no warm-up, 9 used 0.25 s, and 2 used 1 s.
+          These are counts, not feasibility rates normalized by the number sampled at each duration;
+          they do not establish that zero warm-up is intrinsically better.</figcaption></figure>
+    </details>
+    <h3>Where did the unsuccessful trials fail?</h3>
+    <p>Most first failures were failure to settle and remain still at the target, or a joint-velocity
+      limit violation. The residual formulation was especially dominated by velocity-limit failures.</p>
+    <div class="table-wrap"><table>
+      <caption>Each infeasible trial contributes once, at its first failing scenario/tracker pair.
+        Totals are 366, 500, 500, and 500. Residual early terminations were invalid-output bounds failures.
+        <a href="development_ablation_v2.md">Ablation taxonomy</a> · <a href="residual_search_1a_v1.md">Residual taxonomy</a>.</caption>
+      <thead><tr><th scope="col">First failing check</th><th scope="col">Timing only</th><th scope="col">Non-decaying</th><th scope="col">Contractive</th><th scope="col">Residual</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">Actual-motion dwell</th><td>200</td><td>229</td><td>272</td><td>2</td></tr>
+        <tr><th scope="row">Joint-velocity limit</th><td>148</td><td>258</td><td>221</td><td>494</td></tr>
+        <tr><th scope="row">Early termination</th><td>0</td><td>13</td><td>4</td><td>4</td></tr>
+        <tr><th scope="row">Generated-reference dwell</th><td>18</td><td>0</td><td>3</td><td>0</td></tr>
+      </tbody>
+    </table></div>
+  </section>
+
+  <section id="motion">
+    <div class="eyebrow">04 / Representative motion</div>
+    <h2>See the behavior behind the numbers</h2>
+    <p>All four examples use timing-only trial 17 with the same PD v2 tracker for RC and replay.
+      Both arms hold their own initial posture for 0.25 s and activate at task time zero.
+      The small- and large-posture examples are chosen nearest their class-median early-gap ratio
+      under PD; nominal and the first force scenario by ID complete the set. These are curated
+      examples of a feasible development model, not evidence of a selected model or confirmatory success.</p>
+    <div class="note"><p><strong>How to read the visuals.</strong> Animations play back recorded
+      actual joint positions; they do not show the desired commands or rerun the controller.
+      The target ring is the 1 cm tolerance; a red arrow indicates applied force. In the joint plots,
+      black dashed = teacher/reference, blue = replay actual, green dashed = RC generated reference,
+      orange = RC actual. During warm-up the RC readout is inactive, so its generated-reference curve is absent.</p></div>
+    <p class="small">Motion is off until requested. “Stop motion” removes the GIFs. Paired GIFs are
+      independent playbacks, not frame-synchronized; use the time-series plots for precise timing.
+      Click any plot to open its full-resolution image.</p>
+
+    <details open><summary>Large posture offset · an altered path can still reach the target</summary>
+      <p>Initial joint offset: [+0.0415, −0.0910] rad, norm 0.10 rad; no force.
+        RC’s generated reference enters and remains within 0.05 rad of the original at task time
+        2.14 s. Its generated endpoint spends 100% of dwell within the target region. Actual-motion
+        RMSE is 0.03784 rad for RC versus 0.006452 rad for replay: reaching successfully and matching
+        the demonstrated motion precisely are different outcomes.</p>
+      <figure><a href="plots/recovery_report_v1/trajectory_posture_large.png"><img
+        src="plots/recovery_report_v1/trajectory_posture_large.png" loading="lazy"
+        alt="Large-offset joint trajectories: both arms hold until run time 0.25 seconds; RC takes a different path from replay before approaching the shared final posture."></a>
+        <figcaption><strong>Look just after activation.</strong> The initial response differs visibly,
+          especially at joint 2. Both end near the target; the RC path also departs from the original
+          throughout much of the reach. Scenario <code>posture-large-20261201-02</code>.</figcaption></figure>
+      <button type="button" class="motion-toggle" hidden aria-expanded="false" aria-controls="motion-large">Play motion pair</button>
+      <div class="motion-grid" id="motion-large" hidden></div>
+      <template>
+        <figure><img src="animations/posture_large_rc_pd.gif" alt="Recorded large-posture-offset motion with the RC reference and PD v2."><figcaption>RC + PD v2<br><code data-evidence="posture_large:rc:run">run-20260904-d9c6c77c5564</code></figcaption></figure>
+        <figure><img src="animations/posture_large_replay_pd.gif" alt="Recorded large-posture-offset motion with direct replay and PD v2."><figcaption>Replay + PD v2<br><code data-evidence="posture_large:replay:run">run-20260904-866853da673d</code></figcaption></figure>
+      </template>
+      <noscript><p>Open recorded motion: <a href="animations/posture_large_rc_pd.gif">RC</a> / <a href="animations/posture_large_replay_pd.gif">replay</a>. Run IDs are in the <a href="recovery_report_v1.md">detailed report</a>.</p></noscript>
+    </details>
+    <details><summary>Small posture offset · a successful example does not establish consistency</summary>
+      <p>Initial joint offset: [−0.0442, +0.0233] rad, norm 0.05 rad; no force.
+        The generated reference settles within the 0.05 rad band at 0.01 s and spends 100% of dwell
+        inside the target region. Actual-motion RMSE is 0.01623 / 0.004087 rad (RC / replay).
+        This run completes, but across all 20 small offsets, trial 17 improves both early metrics
+        in only 11 cases under each tracker.</p>
+      <figure><a href="plots/recovery_report_v1/trajectory_posture_small.png"><img
+        src="plots/recovery_report_v1/trajectory_posture_small.png" loading="lazy"
+        alt="Small-offset joint trajectories comparing the teacher, replay motion, RC generated reference, and RC motion."></a>
+        <figcaption>Scenario <code>posture-small-20261204-02</code>. The 0.05 rad settling band is
+          relatively permissive for a 0.05 rad initial offset; a near-zero settling time does not mean exact recovery.</figcaption></figure>
+      <button type="button" class="motion-toggle" hidden aria-expanded="false" aria-controls="motion-small">Play motion pair</button>
+      <div class="motion-grid" id="motion-small" hidden></div>
+      <template>
+        <figure><img src="animations/posture_small_rc_pd.gif" alt="Recorded small-posture-offset motion with the RC reference and PD v2."><figcaption>RC + PD v2<br><code data-evidence="posture_small:rc:run">run-20260904-449a5c19f80a</code></figcaption></figure>
+        <figure><img src="animations/posture_small_replay_pd.gif" alt="Recorded small-posture-offset motion with direct replay and PD v2."><figcaption>Replay + PD v2<br><code data-evidence="posture_small:replay:run">run-20260904-c8c77a5bc624</code></figcaption></figure>
+      </template>
+      <noscript><p>Open recorded motion: <a href="animations/posture_small_rc_pd.gif">RC</a> / <a href="animations/posture_small_replay_pd.gif">replay</a>. Run IDs are in the <a href="recovery_report_v1.md">detailed report</a>.</p></noscript>
+    </details>
+    <details><summary>Nominal start · replay remains the more precise reference follower</summary>
+      <p>No posture offset or force is applied. Actual-motion RMSE is 0.01145 rad for RC and
+        0.000254 rad for replay. The RC reference is already within the 0.05 rad band at activation
+        and spends 100% of dwell inside the target region. A visually similar reach can still have
+        a substantial difference in tracking accuracy.</p>
+      <figure><a href="plots/recovery_report_v1/trajectory_nominal.png"><img
+        src="plots/recovery_report_v1/trajectory_nominal.png" loading="lazy"
+        alt="Nominal joint trajectories: RC and replay reach similar final postures while following different intermediate trajectories."></a>
+        <figcaption>Scenario <code>nominal</code>. The RC activation jump is 0.02875 rad even with
+          no initial posture error.</figcaption></figure>
+      <button type="button" class="motion-toggle" hidden aria-expanded="false" aria-controls="motion-nominal">Play motion pair</button>
+      <div class="motion-grid" id="motion-nominal" hidden></div>
+      <template>
+        <figure><img src="animations/nominal_rc_pd.gif" alt="Recorded nominal motion with the RC reference and PD v2."><figcaption>RC + PD v2<br><code data-evidence="nominal:rc:run">run-20260904-27f7ccb98e4f</code></figcaption></figure>
+        <figure><img src="animations/nominal_replay_pd.gif" alt="Recorded nominal motion with direct replay and PD v2."><figcaption>Replay + PD v2<br><code data-evidence="nominal:replay:run">run-20260904-9c32cf3d8fba</code></figcaption></figure>
+      </template>
+      <noscript><p>Open recorded motion: <a href="animations/nominal_rc_pd.gif">RC</a> / <a href="animations/nominal_replay_pd.gif">replay</a>. Run IDs are in the <a href="recovery_report_v1.md">detailed report</a>.</p></noscript>
+    </details>
+    <details><summary>External force · the early-command score does not measure pulse recovery</summary>
+      <p>A 12 N pulse acts toward +x at task time 1–1.2 s (run time 1.25–1.45 s).
+        Under PD, actual-motion RMSE is 0.02766 / 0.02413 rad (RC / replay); both complete.
+        The first-0.5-second metric ends before the pulse, so it cannot support a claim about
+        recovery from this disturbance.</p>
+      <figure><a href="plots/recovery_report_v1/trajectory_force.png"><img
+        src="plots/recovery_report_v1/trajectory_force.png" loading="lazy"
+        alt="Force-pulse joint trajectories showing the disturbance response during movement for RC and replay under PD v2."></a>
+        <figcaption>Scenario <code>force-12N-000deg</code>. The generated reference spends 100% of
+          dwell in the target region. Under computed torque, the corresponding actual-motion RMSEs
+          are 0.151 / 0.1417 rad, showing a much larger force response shared by both reference methods.</figcaption></figure>
+      <button type="button" class="motion-toggle" hidden aria-expanded="false" aria-controls="motion-force">Play motion pair</button>
+      <div class="motion-grid" id="motion-force" hidden></div>
+      <template>
+        <figure><img src="animations/force_rc_pd.gif" alt="Recorded force-pulse response with the RC reference and PD v2; a red arrow shows the applied force."><figcaption>RC + PD v2<br><code data-evidence="force:rc:run">run-20260904-14646a0ce72e</code></figcaption></figure>
+        <figure><img src="animations/force_replay_pd.gif" alt="Recorded force-pulse response with direct replay and PD v2; a red arrow shows the applied force."><figcaption>Replay + PD v2<br><code data-evidence="force:replay:run">run-20260904-34dd8feced9e</code></figcaption></figure>
+      </template>
+      <noscript><p>Open recorded motion: <a href="animations/force_rc_pd.gif">RC</a> / <a href="animations/force_replay_pd.gif">replay</a>. Run IDs are in the <a href="recovery_report_v1.md">detailed report</a>.</p></noscript>
+    </details>
+    <p class="small">All 16 representative runs (four scenarios × two reference methods × two trackers)
+      completed. The eight RC runs had zero torque saturation; force-case acceleration and jerk were
+      markedly larger than in nominal motion. These observations concern the curated pairs only.
+      Computed-torque metrics, restoring-alignment diagnostics, effort, and smoothness appear in the
+      <a href="recovery_report_v1.md">full report</a>; identities and recovery metrics are in the
+      <a href="recovery_representative_v1.json">representative record</a>. The plotted settling times
+      concern the generated reference’s joint-space distance from the demonstration, not endpoint settling time.</p>
+  </section>
+
+  <section id="discussion">
+    <div class="eyebrow">05 / Discussion</div>
+    <h2>What this negative result tells us</h2>
+    <h3>The fairer timing comparison is useful in its own right</h3>
+    <p>The revised protocol removes replay’s earlier correction opportunity and makes activation
+      and feedback semantics explicit. The timing-only arm demonstrates that feasible closed-loop
+      reaching is still possible under those conditions. It does not meet the stronger requirement
+      for a consistent recovery benefit, even though some paired medians improve substantially.</p>
+    <h3>A narrowing training tube did not produce a qualified feedback behavior</h3>
+    <p>The synthetic trajectories converge by construction, but no feasible augmented model emerged
+      in either 500-trial absolute-output study. The distinction matters: a valid collection of
+      training paths does not guarantee that a learned next-position predictor will remain stable
+      when driven by its own robot’s feedback.</p>
+    <p>A plausible explanation is a mismatch between predicting the next sample along an augmented
+      path and learning a restoring response to arbitrary deviations. That is an interpretation,
+      not a cause isolated by this experiment. The observed dwell and velocity failures identify
+      symptoms; they do not distinguish effects of training coverage, readout fit, derivative
+      filtering, and closed-loop dynamics.</p>
+    <h3>“No model found” has a specific scope</h3>
+    <p>The search was sampled, not exhaustive. Contractive augmentation visited 100 of 108 discrete
+      augmentation combinations and 284 of 540 combinations including warm-up; non-decaying augmentation
+      visited 93 of 108 and 244 of 540. Continuous ESN parameters also varied. Every infeasible trial
+      received the same penalty, so the sampler could not rank partial progress within an infeasible
+      region. These results do not prove that no suitable augmented model exists.</p>
+    <p>There are other limits to the inference. Augmentation changes both trajectory variation and
+      training-set size (17–65 episodes versus one), so those effects are confounded. Stopping at the
+      first failing evaluation censors later failures. One scripted demonstration supplies no independent
+      evidence of a broad attraction region or of performance on human demonstrations. All results are
+      developmental, in a two-joint, gravity-free simulation; neither hardware robustness nor online
+      weight adaptation was tested.</p>
+    <div class="verdict"><p><strong>The appropriate next step is a new hypothesis, with a new protocol.</strong>
+      The <a href="../task_1b_multi_demonstration/plan.md">task 1-b draft</a> proposes several demonstrations
+      reaching the same target from different initial postures, then testing unseen postures against
+      replay-nearest and model-based baselines. This could test independent state coverage more directly.
+      It remains a proposal awaiting protocol lock. Graded feasibility objectives or revised augmentation
+      would also require future protocol work; v1’s thresholds remain as approved.</p></div>
+    <p class="small"><a href="model_freeze_v2.md">Freeze decision</a> ·
+      <a href="development_ablation_v2.md">Coverage and limitations</a> ·
+      <a href="../../TASKS.md">Task ledger: M3R closed; M4-001 in progress</a>.</p>
+  </section>
+
+  <section id="sources">
+    <div class="eyebrow">06 / Evidence &amp; reproduction</div>
+    <h2>A readable view of the recorded evidence</h2>
+    <p>This HTML is an editorial companion to the existing reports. It uses their committed plots
+      and animations unchanged; no new experimental results or visual-generation scripts were needed.
+      It opens directly from disk without a server, internet access, or the external data store.
+      Keep it beside the <code>plots/</code> and <code>animations/</code> folders when copying it.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">Evidence</th><th scope="col">What it supports</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><a href="plan.md">Approved protocol</a></th><td>Hypotheses, timing, augmentation, fairness, and eligibility thresholds</td></tr>
+        <tr><th scope="row"><a href="recovery_report_v1.md">Detailed results</a></th><td>Metrics, failures, representative runs, and visual interpretation</td></tr>
+        <tr><th scope="row"><a href="development_ablation_v2.json">Development evidence JSON</a></th><td>All 134 candidates’ four eligibility cells and the three primary study summaries</td></tr>
+        <tr><th scope="row"><a href="model_freeze_v2.json">Freeze record JSON</a></th><td>Zero eligible models and the closed confirmatory gate</td></tr>
+        <tr><th scope="row"><a href="recovery_representative_v1.json">Representative record JSON</a></th><td>Trial 17 recipe, selection rule, run identities, and recovery metrics</td></tr>
+        <tr><th scope="row"><a href="reproduction_audit_v3.md">Signed reproduction audit v3</a></th><td>Ten steps passed; zero metric deviation; 16 run arrays identical; seven plots and eight GIFs reproduced byte-for-byte</td></tr>
+      </tbody>
+    </table></div>
+    <p class="small">Dataset <code>processed-20260903-ce343c8ce6a5</code> · freeze evidence commit
+      <code>0e15b6270deb</code>. Machine-readable records retain code/submodule revisions, resolved
+      configurations, hashes, seeds, environment, and worktree state. The independent audit reran on
+      the same host; it is not a cross-machine replication. That audit predates this overview and the
+      three augmentation-strategy figures; their later reproduction checks are recorded under TOOL-002.</p>
+    <details><summary>Reproduce the existing plots and animations</summary>
+      <p>Run from the repository root after the <a href="../../../README.md">documented environment
+        and external-store setup</a>. The commands below regenerate scientific assets from their sources;
+        merely viewing this page needs none of that setup. Use fresh output locations.</p>
+      <p>All seven recovery result plots, plus a fresh detailed Markdown report:</p>
+      <pre><code>uv run python -m arm_rc_ctrl.experiments.recovery_report \
+  --docs docs/experiments/task_1a_state_conditioned_recovery \
+  --output /tmp/recovery-report.md \
+  --plots-dir /tmp/recovery-result-plots</code></pre>
+      <p>The three augmentation-strategy plots:</p>
+      <pre><code>uv run python scripts/plot_recovery_augmentation.py \
+  --output-dir /tmp/recovery-augmentation-plots</code></pre>
+      <p>For any animation, substitute its caption’s run ID. This example regenerates large-offset RC motion:</p>
+      <pre><code>uv run python scripts/play_run.py \
+  --run run-20260904-d9c6c77c5564 \
+  --scenario configs/tasks/task_1a.toml \
+  --export /tmp/recovery-large-rc.gif --fps 12</code></pre>
+      <p>Full audited reproduction, from a clean checkout with matching evidence dependencies and the
+        configured external store (see the audit for recorded revisions):</p>
+      <pre><code>uv run python scripts/reproduce_recovery.py</code></pre>
+      <p class="small">The full audit verifies the four stored studies and reproduces the representative
+        model and runs; it does not rerun the entire 2,000-trial search. This HTML is maintained as prose;
+        <code>tests/regression/test_recovery_overview.py</code> checks its central numbers against the
+        committed records and validates its local links and animation identities.</p>
+    </details>
+  </section>
+</main>
+<footer>Task 1-a state-conditioned recovery · Development evidence v1 · Human overview, 7 September 2026.<br>
+  Original work: GPL-3.0-only. <a href="#main">Back to top ↑</a></footer>
+<script>
+  // Existing GIFs are loaded only on request, including for reduced-motion users.
+  const stopMotion = (button, panel) => {
+    panel.replaceChildren();
+    panel.hidden = true;
+    button.textContent = 'Play motion pair';
+    button.setAttribute('aria-expanded', 'false');
+  };
+  document.querySelectorAll('.motion-toggle').forEach(button => {
+    const panel = document.getElementById(button.getAttribute('aria-controls'));
+    const example = button.closest('details');
+    const template = example.querySelector('template');
+    button.hidden = false;
+    button.addEventListener('click', () => {
+      if (!panel.hidden) {
+        stopMotion(button, panel);
+      } else {
+        panel.replaceChildren(template.content.cloneNode(true));
+        panel.hidden = false;
+        button.textContent = 'Stop motion';
+        button.setAttribute('aria-expanded', 'true');
+      }
+    });
+    example.addEventListener('toggle', () => {
+      if (!example.open) stopMotion(button, panel);
+    });
+  });
+  let printDetails = [];
+  window.addEventListener('beforeprint', () => {
+    printDetails = [...document.querySelectorAll('details')].filter(detail => !detail.open);
+    printDetails.forEach(detail => { detail.open = true; });
+  });
+  window.addEventListener('afterprint', () => {
+    printDetails.forEach(detail => { detail.open = false; });
+    printDetails = [];
+  });
+</script>
+</body>
+</html>

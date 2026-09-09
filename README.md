@@ -39,6 +39,13 @@ Recorded results live under
 `docs/experiments/task_1a/` with Git-tracked records under `data/records/`;
 see `docs/TASKS.md` for the ledger.
 
+The follow-up recovery experiment is explained in the
+[browser-readable recovery overview](docs/experiments/task_1a_state_conditioned_recovery/overview.html).
+Open it directly in a browser for the motivation, method, development results,
+and recorded-motion comparisons. It reports the accepted negative result:
+134 feasible models, none eligible for freeze or confirmatory evaluation.
+The page uses the adjacent committed visual assets and includes reproduction commands.
+
 The reservoir-computing commands (`python -m arm_rc_ctrl.rc.train`,
 `arm_rc_ctrl.experiments.closed_loop`, `arm_rc_ctrl.experiments.paired`,
 `arm_rc_ctrl.experiments.scale_pilot`, `arm_rc_ctrl.experiments.esn_study`)
