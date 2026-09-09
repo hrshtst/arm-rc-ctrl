@@ -1043,7 +1043,7 @@ def render_validation_markdown(validation: NumericalValidation) -> str:
         "| entry | bank | episodes | rows | attempts | rejections | states sha256 | anchors sha256 |",
         "| --- | --- | ---: | ---: | ---: | ---: | --- | --- |",
     ]
-    for label, banks in v.probes.items():
+    for label, banks in sorted(v.probes.items()):  # label order: the JSON form sorts keys
         lines.extend(
             f"| {label} | {b.bank} | {b.episodes} | {b.rows} | {'' if b.attempts_used is None else b.attempts_used} "
             f"| {'' if b.rejections is None else b.rejections} | `{b.states_sha256[:12]}` | `{b.anchors_sha256[:12]}` |"

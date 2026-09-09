@@ -41,10 +41,21 @@ from arm_rc_ctrl.data.recovery import (
 )
 from arm_rc_ctrl.data.samples import SampleSet, save_samples
 from arm_rc_ctrl.execution import AffinityRequest, ExecutionRecord, collect_execution
-from arm_rc_ctrl.experiments import repetition_numerics
+from arm_rc_ctrl.experiments import repetition_diagnosis, repetition_numerics
 from arm_rc_ctrl.experiments.closed_loop import EstimatorSpec
 from arm_rc_ctrl.experiments.esn_search import TrialPoint
 from arm_rc_ctrl.experiments.recovery_search import RecoveryTrialPoint
+from arm_rc_ctrl.experiments.repetition_diagnosis import (
+    EPS64,
+    Diagnosis,
+    diagnose_comparison,
+    diagnosis_to_json,
+    extended_solve,
+    load_diagnosis,
+    render_diagnosis_markdown,
+    run_diagnosis,
+)
+from arm_rc_ctrl.experiments.repetition_diagnosis import main as diagnosis_main
 from arm_rc_ctrl.experiments.repetition_fits import (
     FIT_FILE,
     RECIPE_FILE,
@@ -883,3 +894,202 @@ def test_cache_uri_and_recipe_text(fixture: Fixture) -> None:
     path.write_text(text, encoding="utf-8")
     assert load_recipe(path) == recipe
     assert str(cache_uri(recipe.rclib.commit + "0" * 24)).startswith("armrc://models/task_1a_repetition_v1/")
+
+
+# --- diagnosis ----------------------------------------------------------------------------
+
+
+def test_extended_solve_matches_the_float64_solution_and_rejects_indefinite_systems() -> None:
+    """The longdouble Cholesky solve agrees with numpy on a well-conditioned SPD system and refuses others."""
+    rng = np.random.default_rng(11)
+    x = rng.standard_normal((200, 9))
+    a = x.T @ x + 0.5 * np.eye(9)
+    b = rng.standard_normal((9, 2))
+    solution = extended_solve(a, b)
+    assert solution.dtype == np.longdouble
+    assert np.allclose(solution.astype(np.float64), np.linalg.solve(a, b), rtol=1e-12, atol=0.0)
+    with pytest.raises(ValueError, match="not positive definite"):
+        extended_solve(-a, b)
+    with pytest.raises(ValueError, match="conformable"):
+        extended_solve(a, b[:-1])
+
+
+def test_diagnosis_decomposes_a_comparison_gap(
+    fixture: Fixture, validation: NumericalValidation, tmp_path: Path
+) -> None:
+    """A diagnosed comparison reproduces the recorded gap and splits it into accumulation and solver roundoff."""
+    f = fixture
+    fits = FitStore(f.store)
+    comparison = next(
+        c
+        for c in validation.comparisons
+        if c.formulation == "absolute" and c.count == 17 and c.candidate.endswith("/R/K17")
+    )
+    candidate = fits.fit_or_load(f.entry, ArmSpec("absolute", "R", 16), f.inputs)
+    reference = fits.fit_or_load(f.entry, ArmSpec("absolute", "S-effective", 16), f.inputs)
+    single = fits.fit_or_load(f.entry, ArmSpec("absolute", "S"), f.inputs)
+    probes = build_probes(
+        single.model,
+        single.recipe.encoder(),
+        f.samples,
+        scenario=f.inputs.scenario,
+        warmup_s=f.entry.warmup_s,
+        period_s=DT,
+        derivative_method="central-difference",
+        task_code=f.samples.task_code,
+        bank_count=BANK_COUNT,
+    )
+    diagnosed = diagnose_comparison(comparison, candidate, reference, probes)
+    assert diagnosed.failed is False
+    assert diagnosed.observed_max_abs == comparison.differences[0].max_abs
+    assert diagnosed.observed_coefficient_fro_rel == comparison.coefficient_fro_rel
+    assert diagnosed.count == 17
+    assert diagnosed.cond2_reference > 1.0
+    assert diagnosed.sensitivity == pytest.approx(diagnosed.cond2_reference * EPS64)
+    assert diagnosed.accumulation_a_rel < 1e-13  # 17 stacked copies accumulate to 17 times the single block
+    assert diagnosed.accumulation_b_rel < 1e-13
+    assert diagnosed.accumulation_bound == pytest.approx(
+        diagnosed.cond2_reference * (diagnosed.accumulation_a_rel + diagnosed.accumulation_b_rel)
+    )
+    assert diagnosed.accumulation_coefficient_fro_rel < 100.0 * diagnosed.sensitivity
+    assert diagnosed.candidate_solve.normal_residual_extended < 1e-15
+    assert diagnosed.reference_solve.normal_residual_extended < 1e-15
+    assert diagnosed.candidate_solve.coefficient_fro_rel < 1e-6
+    assert diagnosed.reference_solve.coefficient_fro_rel < 1e-6
+    # The observed gap is bounded by the accumulation gap plus both solver gaps (triangle inequality).
+    total = (
+        diagnosed.accumulation_prediction_max_abs
+        + diagnosed.candidate_solve.prediction_max_abs
+        + diagnosed.reference_solve.prediction_max_abs
+    )
+    assert diagnosed.observed_max_abs <= total * (1.0 + 1e-6) + 1e-18
+    assert diagnosed.output_scale > 0.0
+    with pytest.raises(ValueError, match="not the comparison's candidate"):
+        diagnose_comparison(comparison, reference, candidate, probes)
+    with pytest.raises(ValueError, match="not a comparison of the plan"):
+        replace(diagnosed, candidate="absolute/S", reference="absolute/R/K17")
+    with pytest.raises(ValueError, match="64 lowercase hex"):
+        replace(diagnosed, candidate_identity="x")
+    del tmp_path
+
+
+def test_run_diagnosis_diagnoses_failures_with_their_contrasts(
+    fixture: Fixture, validation: NumericalValidation
+) -> None:
+    """Every failed comparison is diagnosed together with its other-formulation and other-pair contrasts."""
+    f = fixture
+    failing = next(
+        c for c in validation.comparisons if c.formulation == "residual" and c.count == 33 and "/R/" in c.candidate
+    )
+    forced = replace(failing, differences=tuple(replace(d, passed=False) for d in failing.differences), passed=False)
+    flawed = replace(
+        validation,
+        comparisons=tuple(forced if c is failing else c for c in validation.comparisons),
+        n_comparisons_passed=validation.n_comparisons_passed - 1,
+        all_passed=False,
+    )
+    diagnosis = run_diagnosis(
+        flawed,
+        [f.entry],
+        f.inputs,
+        store=FitStore(f.store),
+        validation_file="docs/numerical_validation.json",
+        validation_sha256="e" * 64,
+        provenance=_provenance(),  # type: ignore[arg-type]
+    )
+    assert diagnosis.n_failed == 1
+    assert [(d.formulation, d.candidate.split("/")[1], d.failed) for d in diagnosis.diagnoses] == [
+        ("residual", "R", True),
+        ("absolute", "R", False),
+        ("residual", "R-scaled", False),
+    ]
+    assert all(d.count == 33 for d in diagnosis.diagnoses)
+    assert diagnosis.execution_identity == f.execution.identity
+    text = diagnosis_to_json(diagnosis)
+    assert from_mapping(json.loads(text), Diagnosis) == diagnosis
+    markdown = render_diagnosis_markdown(diagnosis)
+    assert "1 failed comparison(s) diagnosed" in markdown
+    assert "| **yes** |" in markdown
+    assert markdown.count("| no |") == 2
+    with pytest.raises(ValueError, match="n_failed contradicts"):
+        replace(diagnosis, n_failed=2)
+    with pytest.raises(ValueError, match="unsupported diagnosis schema_version"):
+        replace(diagnosis, schema_version=2)
+    with pytest.raises(ValueError, match="must run in the validation's execution environment"):
+        run_diagnosis(
+            flawed,
+            [f.entry],
+            replace(f.inputs, execution_identity="a" * 64),
+            store=FitStore(f.store),
+            validation_file="x",
+            validation_sha256="e" * 64,
+            provenance=_provenance(),  # type: ignore[arg-type]
+        )
+    # A validation without failures diagnoses nothing.
+    clean = run_diagnosis(
+        validation,
+        [f.entry],
+        f.inputs,
+        store=FitStore(f.store),
+        validation_file="x",
+        validation_sha256="e" * 64,
+        provenance=_provenance(),  # type: ignore[arg-type]
+    )
+    assert clean.n_failed == 0
+    assert clean.diagnoses == ()
+
+
+@pytest.mark.usefixtures("pinned_environment")
+def test_diagnosis_command(
+    fixture: Fixture, validation: NumericalValidation, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The command loads the validation and panel, diagnoses the failures, and writes both evidence files."""
+    f = fixture
+    failing = next(
+        c for c in validation.comparisons if c.formulation == "absolute" and c.count == 65 and "/R/" in c.candidate
+    )
+    forced = replace(failing, differences=tuple(replace(d, passed=False) for d in failing.differences), passed=False)
+    flawed = replace(
+        validation,
+        comparisons=tuple(forced if c is failing else c for c in validation.comparisons),
+        n_comparisons_passed=validation.n_comparisons_passed - 1,
+        all_passed=False,
+    )
+    validation_file = tmp_path / "numerical_validation.json"
+    validation_file.write_text(validation_to_json(flawed) + "\n", encoding="utf-8")
+    manifest = tmp_path / "panel.json"
+    manifest.write_text("{}", encoding="utf-8")
+
+    def fake_load(manifest_file: Path, *, store: StorageRoot, root: Path, execution: ExecutionRecord) -> PanelContext:
+        del store, root, manifest_file
+        return PanelContext(
+            manifest=_FakeManifest(entries=(f.entry,)),  # type: ignore[arg-type]
+            manifest_sha256="d" * 64,
+            inputs=replace(f.inputs, execution_identity=execution.identity),
+            dataset=f.record,
+            payload=f.payload,
+        )
+
+    monkeypatch.setattr(PanelContext, "load", fake_load)
+    monkeypatch.setattr(repetition_diagnosis, "repository_root", lambda: f.root)
+    output, markdown = tmp_path / "diagnosis.json", tmp_path / "diagnosis.md"
+    argv = [
+        "--validation",
+        str(validation_file),
+        "--manifest",
+        str(manifest),
+        "--output",
+        str(output),
+        "--markdown",
+        str(markdown),
+        "--exploratory",
+    ]
+    assert diagnosis_main(argv) == 0
+    written = load_diagnosis(output)
+    assert written.n_failed == 1
+    assert len(written.diagnoses) == 3
+    assert written.validation_sha256 == sha256_file(validation_file)
+    assert written.provenance.exploratory
+    assert markdown.read_text(encoding="utf-8") == render_diagnosis_markdown(written)
+    with pytest.raises(FileExistsError, match="refusing to overwrite"):
+        diagnosis_main(argv)

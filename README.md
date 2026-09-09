@@ -80,8 +80,10 @@ freezes its panel with `scripts/freeze_repetition_panel.py`, validates its ridge
 equivalences and fresh-process reproducibility with
 `arm_rc_ctrl.experiments.repetition_numerics validate --manifest … --output …
 --markdown … --workspace …` (launched pinned through `arm_rc_ctrl.execution run`),
-and records dependency-build parity across a submodule pin advance with
-`arm_rc_ctrl.experiments.build_parity probe` / `compare`.
+diagnoses any comparison that validation retained as failed with
+`arm_rc_ctrl.experiments.repetition_diagnosis --validation … --manifest …
+--output … --markdown …`, and records dependency-build parity across a
+submodule pin advance with `arm_rc_ctrl.experiments.build_parity probe` / `compare`.
 
 ## Requirements
 
