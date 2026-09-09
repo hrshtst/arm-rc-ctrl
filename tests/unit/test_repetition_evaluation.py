@@ -10,7 +10,6 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
-import numpy as np
 import pytest
 
 from arm_rc_ctrl.config import to_mapping
@@ -23,7 +22,6 @@ from arm_rc_ctrl.experiments.repetition_evaluation import (
     PAIR_STATUSES,
     ModelEvidence,
     PairRecord,
-    PilotRunner,
     RepetitionEvaluationConfig,
     SimulationLimits,
     augmentation_bank_record,
@@ -33,206 +31,34 @@ from arm_rc_ctrl.experiments.repetition_evaluation import (
     load_pointer,
     load_replay_bank,
     main,
-    numerical_binding,
     pointer_name,
 )
 from arm_rc_ctrl.experiments.repetition_fits import FitStore
-from arm_rc_ctrl.experiments.repetition_fixture import DT, N, PlanarFixture
+from arm_rc_ctrl.experiments.repetition_fixture import (
+    DOCS,
+    PLANAR_DIGESTS,
+    PLANAR_SCENARIOS,
+    PLANAR_TRACKER,
+    WARMUP_ROWS,
+    CraftedSimulator,
+    N,
+    PlanarFixture,
+    build_pilot_runner,
+    committed_numerical_binding,
+    write_pilot_evaluation_config,
+)
 from arm_rc_ctrl.experiments.repetition_numerics import PanelContext
 from arm_rc_ctrl.experiments.repetition_recipes import ArmSpec
-from arm_rc_ctrl.experiments.run_record import RunArrays, RunPointerRecord, RunSummary, load_run
-from arm_rc_ctrl.experiments.simulation import CheckedState
-from arm_rc_ctrl.experiments.termination import Termination, completed
-from arm_rc_ctrl.provenance import collect_provenance, sha256_file
+from arm_rc_ctrl.experiments.run_record import RunPointerRecord, RunSummary, load_run
+from arm_rc_ctrl.provenance import sha256_file
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.storage import StorageRoot
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from arm_rc_ctrl.data.samples import SampleSet
     from arm_rc_ctrl.execution import ExecutionRecord
-    from arm_rc_ctrl.provenance import ProvenanceRecord
 
 REPO_ROOT = repository_root()
 EVALUATION_FILE = REPO_ROOT / "configs" / "evaluations" / "task_1a_repetition_dev_v1.toml"
-DOCS = REPO_ROOT / "docs" / "experiments" / "task_1a_repeated_demonstration"
-TRACKER = TrackerConfig(type="pd", kp=(10.0, 5.0), kd=(1.5, 0.8))
-"""Gains under which the fixture's direct replay tracks without torque saturation."""
-DIGESTS = {"pd_v2": "a" * 64, "computed_torque": "b" * 64}
-WARMUP_ROWS = 25
-SCENARIOS = (
-    RobustnessScenario("nominal", "nominal", (0.0, 0.0)),
-    RobustnessScenario("small-1", "posture_small", (0.02, 0.0), seed=1, draw=0, magnitude_rad=0.05),
-    RobustnessScenario("small-2", "posture_small", (-0.02, 0.01), seed=1, draw=1, magnitude_rad=0.05),
-    RobustnessScenario("large-1", "posture_large", (0.05, -0.02), seed=2, draw=0, magnitude_rad=0.1),
-    RobustnessScenario(
-        "force-000deg",
-        "force",
-        (0.0, 0.0),
-        force_magnitude_n=3.0,
-        force_start_s=0.3,
-        force_duration_s=0.1,
-        direction_deg=0.0,
-    ),
-)
-_RAMP = 1.0 + 0.05 * np.linspace(0.0, 1.0, N)
-
-
-def crafted(
-    samples: SampleSet, *, rc: bool, error: float, saturation: float = 0.0, residual: bool = False, n: int | None = None
-) -> RunArrays:
-    """Run arrays on the pilot schedule: a 0.25 s hold, then the reference plus a gently ramped offset."""
-    dof = samples.dof
-    rows = WARMUP_ROWS + samples.n_samples
-    t = np.arange(rows, dtype=np.float64) * DT
-    ramp = _RAMP[:, None]
-    q = np.vstack([np.tile(samples.q[0], (WARMUP_ROWS, 1)), samples.q + error * ramp])
-    dq = np.vstack([np.zeros((WARMUP_ROWS, dof)), samples.dq])
-    tip = np.vstack([np.tile(samples.tip[0], (WARMUP_ROWS, 1)), samples.tip])
-    saturated = np.zeros(rows, dtype=np.int64)
-    saturated[: round(saturation * rows)] = 1
-    zeros = np.zeros((rows, dof), dtype=np.float64)
-    data: dict[str, Any] = {
-        "t": t,
-        "q": q,
-        "dq": dq,
-        "tip": tip,
-        "q_desired": np.vstack([np.tile(samples.q[0], (WARMUP_ROWS, 1)), samples.q]),
-        "dq_desired": dq.copy(),
-        "dq_desired_raw": dq.copy(),
-        "ddq_desired": zeros.copy(),
-        "ddq_desired_raw": zeros.copy(),
-        "tracking_error": zeros.copy(),
-        "task_code": np.zeros((rows, 0), dtype=np.float64),
-        "saturation": saturated,
-        "tau_requested": zeros.copy(),
-    }
-    if rc:
-        data["generator_output_q"] = np.vstack([np.full((WARMUP_ROWS, dof), np.nan), samples.q + 0.5 * error * ramp])
-        data["phase"] = np.concatenate(
-            [np.zeros(WARMUP_ROWS, dtype=np.int64), np.ones(samples.n_samples, dtype=np.int64)]
-        )
-        if residual:
-            data["generator_increment_q"] = np.vstack(
-                [np.full((WARMUP_ROWS, dof), np.nan), np.diff(samples.q, axis=0, append=samples.q[-1:])]
-            )
-    if n is not None:
-        data = {name: values[:n] for name, values in data.items()}
-    return RunArrays(data)
-
-
-class Crafted:
-    """A ``simulate`` stand-in that crafts feasible runs and records what it was asked to do."""
-
-    def __init__(
-        self,
-        samples: SampleSet,
-        *,
-        blocked_replays: tuple[str, ...] = (),
-        interrupt_after_rc: int | None = None,
-    ) -> None:
-        self.samples = samples
-        self.blocked_replays = blocked_replays
-        self.interrupt_after_rc = interrupt_after_rc
-        self.rc_calls = 0
-        self.replay_calls = 0
-        self.aborts: list[tuple[float, ...]] = []
-
-    def __call__(self, scenario: object, controller: object, **kwargs: object) -> tuple[RunArrays, Termination]:
-        """Craft the run of one call; ``channels`` marks an rc run, everything else is a replay."""
-        del scenario, controller
-        rc = kwargs.get("channels") is not None
-        residual = rc and getattr(kwargs.get("channels"), "generator_increment_q", None) is not None
-        self.aborts.append(cast("tuple[float, ...]", kwargs["velocity_abort"]))
-        if rc:
-            if self.interrupt_after_rc is not None and self.rc_calls >= self.interrupt_after_rc:
-                msg = "interrupted"
-                raise KeyboardInterrupt(msg)
-            self.rc_calls += 1
-            arrays = crafted(self.samples, rc=True, error=0.01, residual=residual)
-        else:
-            self.replay_calls += 1
-            start = cast("tuple[float, ...]", kwargs["initial_q"])
-            blocked = any(np.allclose(start, self._start(label)) for label in self.blocked_replays)
-            arrays = crafted(self.samples, rc=False, error=0.02, saturation=1.0 if blocked else 0.0)
-        termination = completed(float(arrays.arrays["t"][-1]), arrays.n_samples - 1)
-        sink = cast("list[CheckedState] | None", kwargs.get("checked_states"))
-        if sink is not None:
-            sink.extend(
-                CheckedState(t=float(t), step=k, q=q, dq=dq)
-                for k, (t, q, dq) in enumerate(
-                    zip(arrays.arrays["t"], arrays.arrays["q"], arrays.arrays["dq"], strict=True)
-                )
-            )
-        return arrays, termination
-
-    def _start(self, label: str) -> tuple[float, ...]:
-        case = next(s for s in SCENARIOS if s.scenario_id == label)
-        return case.initial_q(tuple(float(v) for v in self.samples.q[0]))
-
-
-def _silent(message: str) -> None:
-    del message
-
-
-def _provenance() -> ProvenanceRecord:
-    return collect_provenance({"kind": "test"}, seeds={}, exploratory=True)
-
-
-def _numerical() -> repetition_evaluation.NumericalExceptionBinding:
-    return numerical_binding(DOCS / "numerical_validation_v1.json", root=REPO_ROOT)
-
-
-def _evaluation(
-    root: Path, *, velocity_abort: tuple[float, ...] = (40.0, 40.0)
-) -> tuple[RepetitionEvaluationConfig, Path]:
-    """Write a pilot evaluation config under ``root`` naming the fixture's development levels."""
-    development = root / "configs" / "evaluations" / "task_1a_recovery_dev_v1.toml"
-    development.parent.mkdir(parents=True, exist_ok=True)
-    if not development.exists():
-        development.write_text(
-            (REPO_ROOT / "configs" / "evaluations" / "task_1a_recovery_dev_v1.toml").read_text(encoding="utf-8"),
-            encoding="utf-8",
-        )
-    stem = "_".join(f"{v:g}" for v in velocity_abort)
-    file = root / "configs" / "evaluations" / f"task_1a_repetition_dev_v1_{stem}.toml"
-    bounds = ", ".join(repr(float(v)) for v in velocity_abort)
-    file.write_text(
-        'name = "task-1a-repetition-dev-fixture"\n'
-        'development = "task_1a_recovery_dev_v1.toml"\n\n'
-        f"[simulation]\nvelocity_abort = [{bounds}]\n",
-        encoding="utf-8",
-    )
-    return load_evaluation_config(file), file
-
-
-def _runner(
-    f: PlanarFixture,
-    *,
-    velocity_abort: tuple[float, ...] = (40.0, 40.0),
-    scenarios: tuple[RobustnessScenario, ...] = SCENARIOS,
-    simulate_fn: Callable[..., Any] | None = None,
-    log: list[str] | None = None,
-) -> PilotRunner:
-    evaluation, file = _evaluation(f.root, velocity_abort=velocity_abort)
-    return PilotRunner(
-        store=f.store,
-        inputs=f.inputs,
-        dataset=f.record,
-        evaluation=evaluation,
-        evaluation_file=file,
-        root=f.root,
-        execution=f.execution,
-        provenance=_provenance(),
-        numerical=_numerical(),
-        scenarios=scenarios,
-        trackers={"pd_v2": TRACKER, "computed_torque": TRACKER},
-        tracker_digests=DIGESTS,
-        development_sha256=sha256_file(evaluation.development),
-        simulate_fn=simulate_fn,
-        log=_silent if log is None else log.append,
-    )
 
 
 def _pointer(store: StorageRoot, artifact_id: str) -> RunPointerRecord:
@@ -293,7 +119,7 @@ def test_committed_evaluation_config_relaxes_the_abort_only() -> None:
 
 def test_numerical_binding_carries_the_accepted_exception() -> None:
     """The M3REP-003 evidence binds with its one exception and the C11 caveat text."""
-    binding = _numerical()
+    binding = committed_numerical_binding()
     assert not binding.all_passed
     assert binding.comparisons == 72
     assert binding.comparisons_passed == 71
@@ -308,15 +134,15 @@ def test_numerical_binding_carries_the_accepted_exception() -> None:
 def test_conditions_identity_binds_limits_warmup_trackers_and_environment(fixture: PlanarFixture) -> None:
     """Changing the velocity abort, the warm-up, a tracker digest, the estimator, or the environment changes the key."""
     f = fixture
-    base = _runner(f).conditions(f.entry)
+    base = build_pilot_runner(f).conditions(f.entry)
     replay = base.replay
     assert base.velocity_abort == replay.velocity_abort == (40.0, 40.0)
     assert replay.historical_velocity_limit == tuple(f.inputs.scenario.limits.velocity)
-    assert replay.scenario_ids == tuple(s.scenario_id for s in SCENARIOS)
+    assert replay.scenario_ids == tuple(s.scenario_id for s in PLANAR_SCENARIOS)
     assert len(base.pairs) == 10
     assert base.pairs[0] == ("nominal", "pd_v2")
     assert base.warmup_s == 0.25
-    relaxed = _runner(f, velocity_abort=(60.0, 60.0)).conditions(f.entry)
+    relaxed = build_pilot_runner(f, velocity_abort=(60.0, 60.0)).conditions(f.entry)
     assert relaxed.identity != base.identity
     assert relaxed.replay.identity != replay.identity
     assert replace(replay, warmup_s=1.0).identity != replay.identity
@@ -326,7 +152,7 @@ def test_conditions_identity_binds_limits_warmup_trackers_and_environment(fixtur
     with_other_estimator = replace(base, estimator=replace(base.estimator, max_dt_ratio=2.0))
     assert with_other_estimator.identity != base.identity
     assert with_other_estimator.replay.identity == replay.identity
-    assert base.identity == _runner(f).conditions(f.entry).identity
+    assert base.identity == build_pilot_runner(f).conditions(f.entry).identity
     with pytest.raises(ValueError, match="same joints"):
         replace(replay, velocity_abort=(40.0,))
     with pytest.raises(ValueError, match="distinct scenario ids"):
@@ -335,7 +161,7 @@ def test_conditions_identity_binds_limits_warmup_trackers_and_environment(fixtur
         replace(replay, tracker_order=("pd_v2",))
     assert replay.tracker_order == ("pd_v2", "computed_torque")
     with pytest.raises(ValueError, match="execution identity"):
-        _runner(replace(f, inputs=replace(f.inputs, execution_identity="e" * 64)))
+        build_pilot_runner(replace(f, inputs=replace(f.inputs, execution_identity="e" * 64)))
 
 
 # --- the real simulator: replay bank and the velocity abort -----------------------------
@@ -345,9 +171,9 @@ def test_real_replay_bank_is_feasible_and_diagnosed(fixture: PlanarFixture) -> N
     """The fixture's direct replay under the gentle tracker completes every pair without saturation."""
     f = fixture
     log: list[str] = []
-    bank = _runner(f, log=log).replay_bank(f.entry)
+    bank = build_pilot_runner(f, log=log).replay_bank(f.entry)
     assert bank.complete
-    assert bank.identity == _runner(f).conditions(f.entry).replay.identity
+    assert bank.identity == build_pilot_runner(f).conditions(f.entry).replay.identity
     assert [p.status for p in bank.pairs] == ["completed"] * 10
     assert [(p.scenario_id, p.tracker) for p in bank.pairs] == list(bank.conditions.pairs)
     assert len(log) == 10
@@ -368,7 +194,7 @@ def test_real_replay_bank_is_feasible_and_diagnosed(fixture: PlanarFixture) -> N
         assert loaded.summary.provenance.seeds == {}
     # A second runner serves the bank from the store without simulating.
     log2: list[str] = []
-    again = _runner(f, log=log2).replay_bank(f.entry)
+    again = build_pilot_runner(f, log=log2).replay_bank(f.entry)
     assert again == bank
     assert log2 == []
     bank_dir = f.store.root / "reports" / "task_1a_repetition_v1" / "replay" / bank.identity
@@ -379,7 +205,7 @@ def test_real_replay_bank_is_feasible_and_diagnosed(fixture: PlanarFixture) -> N
 def test_real_rc_gate_failure_stops_the_sweep_and_marks_the_rest_unexecuted(fixture: PlanarFixture) -> None:
     """A tight abort makes the first RC run infeasible; later pairs are unexecuted, not missing or successful."""
     f = fixture
-    evidence = _runner(f, velocity_abort=(0.05, 0.05)).evaluate(f.entry, ArmSpec("absolute", "R", 16))
+    evidence = build_pilot_runner(f, velocity_abort=(0.05, 0.05)).evaluate(f.entry, ArmSpec("absolute", "R", 16))
     assert evidence.status == "rc_gate_failure"
     assert evidence.first_failure is not None
     assert evidence.first_failure.startswith("scenario 0 [pd_v2]: limit_violation:joint_velocity")
@@ -402,7 +228,7 @@ def test_real_rc_gate_failure_stops_the_sweep_and_marks_the_rest_unexecuted(fixt
     assert loaded.arrays.n_samples == first.velocity.abort.step  # the offending state never enters the telemetry
     # The replay bank of the tight abort is a different bank (the resolved limits are part of the key).
     assert evidence.conditions.velocity_abort == (0.05, 0.05)
-    assert evidence.replay_bank != _runner(f).conditions(f.entry).replay.identity
+    assert evidence.replay_bank != build_pilot_runner(f).conditions(f.entry).replay.identity
     for pair in evidence.pairs[1:]:
         assert pair.run is None
         assert pair.rc is None
@@ -414,17 +240,17 @@ def test_real_rc_gate_failure_stops_the_sweep_and_marks_the_rest_unexecuted(fixt
 
 
 @pytest.fixture(scope="module")
-def evaluated(fixture: PlanarFixture) -> tuple[Crafted, ModelEvidence]:
+def evaluated(fixture: PlanarFixture) -> tuple[CraftedSimulator, ModelEvidence]:
     """The absolute S arm of the fixture entry over the five scenarios and both trackers, on crafted runs."""
-    fake = Crafted(fixture.samples)
-    evidence = _runner(fixture, velocity_abort=(41.0, 41.0), simulate_fn=fake).evaluate(
+    fake = CraftedSimulator(fixture.samples)
+    evidence = build_pilot_runner(fixture, velocity_abort=(41.0, 41.0), simulate_fn=fake).evaluate(
         fixture.entry, ArmSpec("absolute", "S")
     )
     return fake, evidence
 
 
 def test_feasible_sweep_records_every_pair_with_runs_and_diagnostics(
-    fixture: PlanarFixture, evaluated: tuple[Crafted, ModelEvidence]
+    fixture: PlanarFixture, evaluated: tuple[CraftedSimulator, ModelEvidence]
 ) -> None:
     """Ten RC pairs completed against ten replay pairs; every run is stored, digest-bound, and diagnosed."""
     f = fixture
@@ -449,7 +275,7 @@ def test_feasible_sweep_records_every_pair_with_runs_and_diagnostics(
     assert evidence.augmentation is None
     assert evidence.augmentation_prefix_verified is None
     assert C11_CAVEAT in evidence.caveats
-    assert evidence.numerical == _numerical()
+    assert evidence.numerical == committed_numerical_binding()
     assert evidence.execution == f.execution
     assert [p.status for p in evidence.pairs] == ["completed"] * 10
     assert [(p.scenario_id, p.tracker) for p in evidence.pairs] == list(evidence.conditions.pairs)
@@ -472,13 +298,15 @@ def test_feasible_sweep_records_every_pair_with_runs_and_diagnostics(
 
 
 def test_resume_serves_completed_runs_and_refuses_corruption(
-    fixture: PlanarFixture, evaluated: tuple[Crafted, ModelEvidence]
+    fixture: PlanarFixture, evaluated: tuple[CraftedSimulator, ModelEvidence]
 ) -> None:
     """A second evaluation re-simulates nothing and reproduces the manifest; a tampered run stops the resume."""
     f = fixture
     _fake, evidence = evaluated
-    counting = Crafted(f.samples)
-    resumed = _runner(f, velocity_abort=(41.0, 41.0), simulate_fn=counting).evaluate(f.entry, ArmSpec("absolute", "S"))
+    counting = CraftedSimulator(f.samples)
+    resumed = build_pilot_runner(f, velocity_abort=(41.0, 41.0), simulate_fn=counting).evaluate(
+        f.entry, ArmSpec("absolute", "S")
+    )
     assert (counting.replay_calls, counting.rc_calls) == (0, 0)
     assert resumed == evidence
     pair = evidence.pairs[3]
@@ -487,9 +315,13 @@ def test_resume_serves_completed_runs_and_refuses_corruption(
     original = run_json.read_bytes()
     run_json.write_bytes(original + b"\n")
     with pytest.raises(ValueError, match="no longer matches its record"):
-        _runner(f, velocity_abort=(41.0, 41.0), simulate_fn=counting).evaluate(f.entry, ArmSpec("absolute", "S"))
+        build_pilot_runner(f, velocity_abort=(41.0, 41.0), simulate_fn=counting).evaluate(
+            f.entry, ArmSpec("absolute", "S")
+        )
     run_json.write_bytes(original)
-    again = _runner(f, velocity_abort=(41.0, 41.0), simulate_fn=counting).evaluate(f.entry, ArmSpec("absolute", "S"))
+    again = build_pilot_runner(f, velocity_abort=(41.0, 41.0), simulate_fn=counting).evaluate(
+        f.entry, ArmSpec("absolute", "S")
+    )
     assert again == evidence
     assert (counting.replay_calls, counting.rc_calls) == (0, 0)
 
@@ -499,11 +331,11 @@ def test_interrupted_sweep_resumes_at_run_granularity(fixture: PlanarFixture) ->
     f = fixture
     arm = ArmSpec("residual", "S")
     with pytest.raises(KeyboardInterrupt):
-        _runner(f, velocity_abort=(41.0, 41.0), simulate_fn=Crafted(f.samples, interrupt_after_rc=3)).evaluate(
-            f.entry, arm
-        )
-    counting = Crafted(f.samples)
-    evidence = _runner(f, velocity_abort=(41.0, 41.0), simulate_fn=counting).evaluate(f.entry, arm)
+        build_pilot_runner(
+            f, velocity_abort=(41.0, 41.0), simulate_fn=CraftedSimulator(f.samples, interrupt_after_rc=3)
+        ).evaluate(f.entry, arm)
+    counting = CraftedSimulator(f.samples)
+    evidence = build_pilot_runner(f, velocity_abort=(41.0, 41.0), simulate_fn=counting).evaluate(f.entry, arm)
     assert (counting.replay_calls, counting.rc_calls) == (0, 7)
     assert evidence.status == "feasible"
     assert evidence.n_completed == 10
@@ -518,8 +350,8 @@ def test_interrupted_sweep_resumes_at_run_granularity(fixture: PlanarFixture) ->
 def test_replay_blocked_models_are_labelled_and_reported_apart(fixture: PlanarFixture) -> None:
     """A posture-class replay failure blocks the paired RC run (C7): replay-blocked model, the rest unexecuted."""
     f = fixture
-    fake = Crafted(f.samples, blocked_replays=("small-2",))
-    evidence = _runner(f, velocity_abort=(42.0, 42.0), simulate_fn=fake).evaluate(
+    fake = CraftedSimulator(f.samples, blocked_replays=("small-2",))
+    evidence = build_pilot_runner(f, velocity_abort=(42.0, 42.0), simulate_fn=fake).evaluate(
         f.entry, ArmSpec("absolute", "R-scaled", 16)
     )
     assert evidence.status == "replay_blocked"
@@ -546,7 +378,7 @@ def test_training_failure_is_recorded_without_pairs(fixture: PlanarFixture, monk
         raise ValueError(msg)
 
     monkeypatch.setattr(FitStore, "fit_or_load", failing)
-    evidence = _runner(f, velocity_abort=(41.0, 41.0), simulate_fn=Crafted(f.samples)).evaluate(
+    evidence = build_pilot_runner(f, velocity_abort=(41.0, 41.0), simulate_fn=CraftedSimulator(f.samples)).evaluate(
         f.entry, ArmSpec("absolute", "R", 32)
     )
     assert evidence.status == "training_failure"
@@ -574,7 +406,7 @@ def test_augmented_arms_record_their_bank_and_prefix(fixture: PlanarFixture) -> 
     assert not check_bank_prefix(replace(small, family="contractive"), large)
     with pytest.raises(ValueError, match="accepted episodes"):
         replace(small, accepted_attempts=(1, 2))
-    evidence = _runner(f, velocity_abort=(41.0, 41.0), simulate_fn=Crafted(f.samples)).evaluate(
+    evidence = build_pilot_runner(f, velocity_abort=(41.0, 41.0), simulate_fn=CraftedSimulator(f.samples)).evaluate(
         f.entry, ArmSpec("absolute", "A-contractive", 16)
     )
     assert evidence.augmentation is not None
@@ -588,16 +420,16 @@ def test_augmented_arms_record_their_bank_and_prefix(fixture: PlanarFixture) -> 
 def test_numerical_reference_arms_are_refused(fixture: PlanarFixture) -> None:
     """S-effective is a numerical reference, never evaluated behaviorally."""
     with pytest.raises(ValueError, match="numerical reference"):
-        _runner(fixture).evaluate(fixture.entry, ArmSpec("absolute", "S-effective", 16))
+        build_pilot_runner(fixture).evaluate(fixture.entry, ArmSpec("absolute", "S-effective", 16))
 
 
 def test_pointers_are_written_once_and_never_overwritten(
-    fixture: PlanarFixture, evaluated: tuple[Crafted, ModelEvidence], tmp_path: Path
+    fixture: PlanarFixture, evaluated: tuple[CraftedSimulator, ModelEvidence], tmp_path: Path
 ) -> None:
     """Pointers of completed manifests are written idempotently; a differing pointer is refused."""
     f = fixture
     _fake, evidence = evaluated
-    runner = _runner(f, velocity_abort=(41.0, 41.0), simulate_fn=Crafted(f.samples))
+    runner = build_pilot_runner(f, velocity_abort=(41.0, 41.0), simulate_fn=CraftedSimulator(f.samples))
     assert runner.evaluate(f.entry, ArmSpec("absolute", "S")) == evidence
     written = runner.write_pointers(tmp_path / "evidence")
     assert sorted(p.name for p in written) == sorted(
@@ -619,7 +451,9 @@ def test_pointers_are_written_once_and_never_overwritten(
         runner.write_pointers(tmp_path / "evidence")
 
 
-def test_records_rederive_their_invariants(fixture: PlanarFixture, evaluated: tuple[Crafted, ModelEvidence]) -> None:
+def test_records_rederive_their_invariants(
+    fixture: PlanarFixture, evaluated: tuple[CraftedSimulator, ModelEvidence]
+) -> None:
     """Counts, statuses, and the caveat cannot be edited independently of the pairs."""
     _fake, evidence = evaluated
     pair = evidence.pairs[0]
@@ -658,13 +492,13 @@ def test_run_command_evaluates_selected_arms_and_writes_pointers(
 ) -> None:
     """The command loads the panel, checks the bound development file and trackers, evaluates, and writes pointers."""
     f = fixture
-    evaluation, file = _evaluation(f.root, velocity_abort=(43.0, 43.0))
+    evaluation, file = write_pilot_evaluation_config(f.root, velocity_abort=(43.0, 43.0))
     manifest = tmp_path / "panel.json"
     manifest.write_text("{}", encoding="utf-8")
 
     class FakeConfigs:
         development_sha256 = sha256_file(evaluation.development)
-        trackers = DIGESTS
+        trackers = PLANAR_DIGESTS
 
     class FakeRule:
         labels = ("feasible-best",)
@@ -685,23 +519,23 @@ def test_run_command_evaluates_selected_arms_and_writes_pointers(
             manifest_sha256=sha256_file(manifest_file),
             inputs=replace(f.inputs, execution_identity=execution.identity),
             dataset=f.record,
-            payload=cast("Any", f.record.artifact.payload),
+            payload=f.payload,
         )
 
     def fixture_scenarios(*args: object, **kwargs: object) -> tuple[RobustnessScenario, ...]:
         del args, kwargs
-        return SCENARIOS
+        return PLANAR_SCENARIOS
 
     def fixture_tracker(name: str) -> TrackerConfig:
         del name
-        return TRACKER
+        return PLANAR_TRACKER
 
     monkeypatch.setattr(PanelContext, "load", fake_load)
     monkeypatch.setattr(repetition_evaluation, "repository_root", lambda: f.root)
     monkeypatch.setattr(repetition_evaluation, "robustness_scenarios", fixture_scenarios)
     monkeypatch.setattr(repetition_evaluation, "load_frozen_baseline", fixture_tracker)
-    monkeypatch.setattr(repetition_evaluation, "frozen_baseline_digest", DIGESTS.__getitem__)
-    monkeypatch.setattr(repetition_evaluation, "simulate", Crafted(f.samples))
+    monkeypatch.setattr(repetition_evaluation, "frozen_baseline_digest", PLANAR_DIGESTS.__getitem__)
+    monkeypatch.setattr(repetition_evaluation, "simulate", CraftedSimulator(f.samples))
     argv = [
         "run",
         "--manifest",

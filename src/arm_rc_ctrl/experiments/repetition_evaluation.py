@@ -41,6 +41,7 @@ import json
 import math
 import os
 import sys
+import time
 from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -122,13 +123,16 @@ __all__ = [
     "EvaluationConditions",
     "EvidencePointer",
     "ModelEvidence",
+    "ModelSweepTiming",
     "NumericalExceptionBinding",
     "PairRecord",
     "PilotRunner",
+    "PreparedRun",
     "RepetitionEvaluationConfig",
     "ReplayBank",
     "ReplayConditions",
     "RunArtifact",
+    "RunTiming",
     "SimulationLimits",
     "augmentation_bank_record",
     "check_bank_prefix",
@@ -139,6 +143,7 @@ __all__ = [
     "main",
     "numerical_binding",
     "pointer_name",
+    "prepare_runner",
 ]
 
 EVALUATION_SCHEMA_VERSION: Final = 1
@@ -662,6 +667,36 @@ def load_replay_bank(path: Path) -> ReplayBank:
     return from_mapping(cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8"))), ReplayBank)
 
 
+@dataclass(frozen=True)
+class RunTiming:
+    """Wall time and size of one run this runner simulated and persisted (M3REP-005 measurements)."""
+
+    arm: str
+    label: str
+    """The model label (``<entry>/<arm>``) or ``replay:<bank identity prefix>``."""
+    scenario_id: str
+    tracker: str
+    rows: int
+    simulate_seconds: float
+    persist_seconds: float
+    run_bytes: int
+
+    def __post_init__(self) -> None:
+        """Figures are non-negative."""
+        if min(self.rows, self.simulate_seconds, self.persist_seconds, self.run_bytes) < 0:
+            msg = "run timings are non-negative"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
+class ModelSweepTiming:
+    """Wall time of one model's sweep and how its fit was obtained."""
+
+    fit_cache_hit: bool
+    fit_seconds: float
+    sweep_seconds: float
+
+
 # --- persistence --------------------------------------------------------------------------
 
 
@@ -828,6 +863,13 @@ class PilotRunner:
         self._banks: dict[str, ReplayBank] = {}
         self.pointers: list[tuple[str, str, EvidencePointer]] = []
         """``(kind, label, pointer)`` of every manifest this runner completed, written by :meth:`write_pointers`."""
+        self.run_timings: list[RunTiming] = []
+        """Every run this runner simulated (resumed runs are not re-timed)."""
+        self.model_timings: dict[str, ModelSweepTiming] = {}
+        """Sweep timing by evaluation identity for the models this runner evaluated."""
+        self.manifest_bytes = 0
+        """Bytes of the manifests this runner installed."""
+        self._last_run_bytes = 0
 
     # -- conditions -------------------------------------------------------------------------
 
@@ -921,12 +963,37 @@ class PilotRunner:
                 f"abort {list(self.velocity_abort)} rad/s (historical limit {list(self.scenario.limits.velocity)})."
             ),
         )
+        self._last_run_bytes = sum(p.stat().st_size for p in _directory.iterdir() if p.is_file())
         return RunArtifact(
             artifact_id=pointer.artifact.artifact_id,
             uri=pointer.artifact.payload.uri,
             sha256=pointer.artifact.payload.sha256,
             size=pointer.artifact.payload.size,
             arrays_sha256=summary.arrays_sha256,
+        )
+
+    def _time_run(
+        self,
+        *,
+        arm: str,
+        label: str,
+        case: RobustnessScenario,
+        tracker: str,
+        rows: int,
+        simulate_s: float,
+        persist_s: float,
+    ) -> None:
+        self.run_timings.append(
+            RunTiming(
+                arm=arm,
+                label=label,
+                scenario_id=case.scenario_id,
+                tracker=tracker,
+                rows=rows,
+                simulate_seconds=simulate_s,
+                persist_seconds=persist_s,
+                run_bytes=self._last_run_bytes,
+            )
         )
 
     def _diagnostics(
@@ -958,6 +1025,7 @@ class PilotRunner:
         )
         controller = LimitedTracker(cast("Any", held), self.trackers[tracker], self.scenario.limits.torque)
         states: list[CheckedState] = []
+        started = time.perf_counter()
         arrays, termination = self.simulate(
             self.scenario,
             controller,
@@ -967,6 +1035,7 @@ class PilotRunner:
             velocity_abort=self.velocity_abort,
             checked_states=states,
         )
+        simulated = time.perf_counter()
         component = replay_component(
             index,
             case,
@@ -988,6 +1057,15 @@ class PilotRunner:
             arm="replay",
             seeds={},
             run_force=run_force,
+        )
+        self._time_run(
+            arm="replay",
+            label=f"replay:{prepared.conditions.replay.identity[:12]}",
+            case=case,
+            tracker=tracker,
+            rows=arrays.n_samples,
+            simulate_s=simulated - started,
+            persist_s=time.perf_counter() - simulated,
         )
         diagnostics = self._diagnostics(states, termination, prepared)
         return PairRecord(
@@ -1041,6 +1119,7 @@ class PilotRunner:
             provenance=self.provenance,
         )
         payload = _install_manifest(self.store, self._bank_uri(conditions), canonical_json(to_mapping(bank)) + "\n")
+        self.manifest_bytes += payload.size
         self._register_bank(entry, bank, payload)
         return bank
 
@@ -1117,6 +1196,7 @@ class PilotRunner:
             )
         states: list[CheckedState] = []
         channels = RESIDUAL_CHANNELS if cached.recipe.output == "increment" else GENERATOR_CHANNELS
+        started = time.perf_counter()
         arrays, termination = self.simulate(
             self.scenario,
             controller,
@@ -1127,6 +1207,7 @@ class PilotRunner:
             velocity_abort=self.velocity_abort,
             checked_states=states,
         )
+        simulated = time.perf_counter()
         component = recovery_component(
             index,
             case,
@@ -1150,6 +1231,15 @@ class PilotRunner:
             arm="rc",
             seeds={"reservoir": cached.recipe.esn.reservoir.seed},
             run_force=run_force,
+        )
+        self._time_run(
+            arm="rc",
+            label=f"{prepared.entry.label}/{cached.record.arm.label}",
+            case=case,
+            tracker=tracker,
+            rows=arrays.n_samples,
+            simulate_s=simulated - started,
+            persist_s=time.perf_counter() - simulated,
         )
         diagnostics = self._diagnostics(states, termination, prepared)
         return PairRecord(
@@ -1208,6 +1298,7 @@ class PilotRunner:
         prepared = self._prepare(entry)
         conditions = prepared.conditions
         bank = self.replay_bank(entry)
+        sweep_started = time.perf_counter()
         try:
             cached = self.fits.fit_or_load(entry, arm, self.inputs)
         except (ValueError, RuntimeError, FloatingPointError, np.linalg.LinAlgError) as exc:
@@ -1241,6 +1332,11 @@ class PilotRunner:
                 progress.add(pair)
                 pairs.append(pair)
                 ran = True
+        self.model_timings[identity] = ModelSweepTiming(
+            fit_cache_hit=cached.cache_hit,
+            fit_seconds=cached.record.fit_seconds,
+            sweep_seconds=time.perf_counter() - sweep_started,
+        )
         if not ran:
             stored = self._stored_model(identity, entry, arm)
             if stored is not None:
@@ -1340,6 +1436,7 @@ class PilotRunner:
             training_failure=training_failure,
         )
         payload = _install_manifest(self.store, self._model_uri(identity), canonical_json(to_mapping(evidence)) + "\n")
+        self.manifest_bytes += payload.size
         self._register_model(entry, arm, evidence, payload)
         return evidence
 
@@ -1407,15 +1504,31 @@ def _select_arms(labels: Sequence[str] | None) -> tuple[ArmSpec, ...]:
     return tuple(by_label[label] for label in labels)
 
 
-def _run(args: argparse.Namespace) -> int:
+@dataclass(frozen=True)
+class PreparedRun:
+    """A runner built from the command-line arguments, with what it was built from."""
+
+    runner: PilotRunner
+    context: PanelContext
+    evaluation_file: Path
+    entries: tuple[PanelEntry, ...]
+    arms: tuple[ArmSpec, ...]
+
+
+def prepare_runner(args: argparse.Namespace, *, module: str = _MODULE, argv: Sequence[str] = ()) -> PreparedRun:
+    """Verify the pinned environment, bind the panel, config, trackers, and validation, and build the runner.
+
+    Shared by the ``run`` command and the M3REP-005 smoke check; the caller's
+    ``module`` and ``argv`` are recorded as the launch command.
+    """
     require_canonical()
     ensure_single_thread()
     for name in ("numpy", "rclib"):
         importlib.import_module(name)
     root = repository_root()
     store = open_storage()
-    argv = cast("list[str]", args.argv)
-    execution = collect_execution(command=command_line(_MODULE, argv), role="main", now=datetime.now(tz=UTC))
+    command = command_line(module, list(argv))
+    execution = collect_execution(command=command, role="main", now=datetime.now(tz=UTC))
     execution.check_canonical()
     context = PanelContext.load(Path(cast("str", args.manifest)), store=store, root=root, execution=execution)
     evaluation_file = Path(cast("str", args.evaluation))
@@ -1437,10 +1550,8 @@ def _run(args: argparse.Namespace) -> int:
         msg = "the frozen trackers differ from the ones the panel manifest bound"
         raise ValueError(msg)
     numerical = numerical_binding(Path(cast("str", args.validation)), root=root)
-    entries = tuple(
-        context.manifest.entry(label)
-        for label in (cast("list[str] | None", args.entries) or context.manifest.rule.labels)
-    )
+    labels = cast("list[str] | None", args.entries) or list(context.manifest.rule.labels)
+    entries = tuple(context.manifest.entry(label) for label in labels)
     arms = _select_arms(cast("list[str] | None", args.arms))
     resolved = {
         "manifest": context.manifest_sha256,
@@ -1451,7 +1562,7 @@ def _run(args: argparse.Namespace) -> int:
         "arms": [a.label for a in arms],
         "numerical_validation": numerical.validation_sha256,
         "execution_identity": execution.identity,
-        "command": command_line(_MODULE, argv),
+        "command": command,
     }
     provenance = collect_provenance(
         resolved, seeds={}, artifacts=[context.payload], exploratory=bool(args.exploratory), now=datetime.now(tz=UTC)
@@ -1471,10 +1582,15 @@ def _run(args: argparse.Namespace) -> int:
         trackers=trackers,
         tracker_digests=digests,
         development_sha256=development_sha256,
-        command=command_line(_MODULE, argv),
+        command=command,
     )
-    evidences = runner.run(entries, arms)
-    written = runner.write_pointers(Path(cast("str", args.evidence_dir)))
+    return PreparedRun(runner, context, evaluation_file, entries, arms)
+
+
+def _run(args: argparse.Namespace) -> int:
+    prepared = prepare_runner(args, argv=cast("list[str]", args.argv))
+    evidences = prepared.runner.run(prepared.entries, prepared.arms)
+    written = prepared.runner.write_pointers(Path(cast("str", args.evidence_dir)))
     print(
         json.dumps(
             {

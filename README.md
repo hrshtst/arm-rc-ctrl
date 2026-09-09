@@ -86,8 +86,10 @@ diagnoses any comparison that validation retained as failed with
 replay with `arm_rc_ctrl.experiments.repetition_evaluation run --manifest …
 --evaluation configs/evaluations/task_1a_repetition_dev_v1.toml --validation …
 --evidence-dir …` (resumable at run granularity; one Git pointer per model
-configuration and per replay bank), and records dependency-build parity across a
-submodule pin advance with `arm_rc_ctrl.experiments.build_parity probe` / `compare`.
+configuration and per replay bank), measures one entry's cost with
+`arm_rc_ctrl.experiments.repetition_timing smoke … --output … --markdown …`, and
+records dependency-build parity across a submodule pin advance with
+`arm_rc_ctrl.experiments.build_parity probe` / `compare`.
 
 ## Requirements
 

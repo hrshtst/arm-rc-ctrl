@@ -16,10 +16,11 @@ import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
+from arm_rc_ctrl.controllers.tracking import TrackerConfig
 from arm_rc_ctrl.data.derivatives import DerivativeConfig, differentiate
 from arm_rc_ctrl.data.normalization import fit_normalization
 from arm_rc_ctrl.data.records import (
@@ -45,10 +46,21 @@ from arm_rc_ctrl.data.recovery import (
 from arm_rc_ctrl.data.samples import SampleSet, save_samples
 from arm_rc_ctrl.experiments.closed_loop import EstimatorSpec
 from arm_rc_ctrl.experiments.esn_search import TrialPoint
+from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
 from arm_rc_ctrl.experiments.recovery_search import RecoveryTrialPoint
+from arm_rc_ctrl.experiments.repetition_evaluation import (
+    NumericalExceptionBinding,
+    PilotRunner,
+    RepetitionEvaluationConfig,
+    load_evaluation_config,
+    numerical_binding,
+)
 from arm_rc_ctrl.experiments.repetition_fits import FitInputs
 from arm_rc_ctrl.experiments.repetition_panel import PanelEntry
-from arm_rc_ctrl.provenance import ArtifactReference, sha256_file
+from arm_rc_ctrl.experiments.run_record import RunArrays
+from arm_rc_ctrl.experiments.simulation import CheckedState
+from arm_rc_ctrl.experiments.termination import completed
+from arm_rc_ctrl.provenance import ArtifactReference, collect_provenance, sha256_file
 from arm_rc_ctrl.rc.esn import EsnConfig, ReadoutConfig, ReservoirConfig
 from arm_rc_ctrl.rc.recipe import DatasetSource, RclibIdentity
 from arm_rc_ctrl.rc.train import InputTransformSpec, ModelConfig
@@ -57,23 +69,39 @@ from arm_rc_ctrl.scenario import endpoint_positions, load_scenario
 from arm_rc_ctrl.storage import StorageRoot
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from arm_rc_ctrl.execution import ExecutionRecord
+    from arm_rc_ctrl.experiments.termination import Termination
+    from arm_rc_ctrl.provenance import ProvenanceRecord
 
 __all__ = [
     "BANK_COUNT",
     "BASE_MODEL",
+    "DOCS",
     "DT",
     "ENTRY",
     "FIXTURE_CREATED",
     "GOAL_Q",
     "MOVE_END_S",
     "NOW",
+    "PLANAR_DIGESTS",
+    "PLANAR_SCENARIOS",
+    "PLANAR_TRACKER",
     "SCENARIO_RELATIVE",
     "TASK",
+    "WARMUP_ROWS",
+    "CraftedSimulator",
     "N",
     "PlanarFixture",
+    "build_pilot_runner",
     "build_planar_fixture",
+    "committed_numerical_binding",
+    "crafted_run",
+    "exploratory_provenance",
     "planar_samples",
+    "silent",
+    "write_pilot_evaluation_config",
 ]
 
 SCENARIO_RELATIVE = Path("tests") / "fixtures" / "configs" / "planar_2dof_fixture.toml"
@@ -294,3 +322,195 @@ def build_planar_fixture(
         rclib=RclibIdentity.current(),
     )
     return PlanarFixture(root, store, record, samples, inputs, entry, env, execution)
+
+
+# --- pilot test support (M3REP-004/005) ------------------------------------------------------
+
+DOCS = repository_root() / "docs" / "experiments" / "task_1a_repeated_demonstration"
+REPO_ROOT = repository_root()
+WARMUP_ROWS = 25
+"""Hold rows before activation at the fixture entry's 0.25 s warm-up."""
+PLANAR_TRACKER = TrackerConfig(type="pd", kp=(10.0, 5.0), kd=(1.5, 0.8))
+"""Gains under which the fixture's direct replay tracks without torque saturation."""
+PLANAR_DIGESTS = {"pd_v2": "a" * 64, "computed_torque": "b" * 64}
+PLANAR_SCENARIOS = (
+    RobustnessScenario("nominal", "nominal", (0.0, 0.0)),
+    RobustnessScenario("small-1", "posture_small", (0.02, 0.0), seed=1, draw=0, magnitude_rad=0.05),
+    RobustnessScenario("small-2", "posture_small", (-0.02, 0.01), seed=1, draw=1, magnitude_rad=0.05),
+    RobustnessScenario("large-1", "posture_large", (0.05, -0.02), seed=2, draw=0, magnitude_rad=0.1),
+    RobustnessScenario(
+        "force-000deg",
+        "force",
+        (0.0, 0.0),
+        force_magnitude_n=3.0,
+        force_start_s=0.3,
+        force_duration_s=0.1,
+        direction_deg=0.0,
+    ),
+)
+_RAMP = 1.0 + 0.05 * np.linspace(0.0, 1.0, N)
+
+
+def crafted_run(
+    samples: SampleSet, *, rc: bool, error: float, saturation: float = 0.0, residual: bool = False, n: int | None = None
+) -> RunArrays:
+    """Crafted run arrays on the pilot schedule: a 0.25 s hold, then the reference plus a gently ramped offset."""
+    dof = samples.dof
+    rows = WARMUP_ROWS + samples.n_samples
+    t = np.arange(rows, dtype=np.float64) * DT
+    ramp = _RAMP[:, None]
+    q = np.vstack([np.tile(samples.q[0], (WARMUP_ROWS, 1)), samples.q + error * ramp])
+    dq = np.vstack([np.zeros((WARMUP_ROWS, dof)), samples.dq])
+    tip = np.vstack([np.tile(samples.tip[0], (WARMUP_ROWS, 1)), samples.tip])
+    saturated = np.zeros(rows, dtype=np.int64)
+    saturated[: round(saturation * rows)] = 1
+    zeros = np.zeros((rows, dof), dtype=np.float64)
+    data: dict[str, Any] = {
+        "t": t,
+        "q": q,
+        "dq": dq,
+        "tip": tip,
+        "q_desired": np.vstack([np.tile(samples.q[0], (WARMUP_ROWS, 1)), samples.q]),
+        "dq_desired": dq.copy(),
+        "dq_desired_raw": dq.copy(),
+        "ddq_desired": zeros.copy(),
+        "ddq_desired_raw": zeros.copy(),
+        "tracking_error": zeros.copy(),
+        "task_code": np.zeros((rows, 0), dtype=np.float64),
+        "saturation": saturated,
+        "tau_requested": zeros.copy(),
+    }
+    if rc:
+        data["generator_output_q"] = np.vstack([np.full((WARMUP_ROWS, dof), np.nan), samples.q + 0.5 * error * ramp])
+        data["phase"] = np.concatenate(
+            [np.zeros(WARMUP_ROWS, dtype=np.int64), np.ones(samples.n_samples, dtype=np.int64)]
+        )
+        if residual:
+            data["generator_increment_q"] = np.vstack(
+                [np.full((WARMUP_ROWS, dof), np.nan), np.diff(samples.q, axis=0, append=samples.q[-1:])]
+            )
+    if n is not None:
+        data = {name: values[:n] for name, values in data.items()}
+    return RunArrays(data)
+
+
+class CraftedSimulator:
+    """A ``simulate`` stand-in that crafts feasible runs and records what it was asked to do.
+
+    The planar fixture cannot run a feasible real RC closed loop (its torque limits saturate any tracker fast
+    enough to follow the reach), so the pilot's sweep logic is tested on crafted runs; the real simulator covers
+    the replay bank and the velocity abort.
+    """
+
+    def __init__(
+        self,
+        samples: SampleSet,
+        *,
+        blocked_replays: tuple[str, ...] = (),
+        interrupt_after_rc: int | None = None,
+    ) -> None:
+        self.samples = samples
+        self.blocked_replays = blocked_replays
+        self.interrupt_after_rc = interrupt_after_rc
+        self.rc_calls = 0
+        self.replay_calls = 0
+        self.aborts: list[tuple[float, ...]] = []
+
+    def __call__(self, scenario: object, controller: object, **kwargs: object) -> tuple[RunArrays, Termination]:
+        """Craft the run of one call; ``channels`` marks an rc run, everything else is a replay."""
+        del scenario, controller
+        rc = kwargs.get("channels") is not None
+        residual = rc and getattr(kwargs.get("channels"), "generator_increment_q", None) is not None
+        self.aborts.append(cast("tuple[float, ...]", kwargs["velocity_abort"]))
+        if rc:
+            if self.interrupt_after_rc is not None and self.rc_calls >= self.interrupt_after_rc:
+                msg = "interrupted"
+                raise KeyboardInterrupt(msg)
+            self.rc_calls += 1
+            arrays = crafted_run(self.samples, rc=True, error=0.01, residual=residual)
+        else:
+            self.replay_calls += 1
+            start = cast("tuple[float, ...]", kwargs["initial_q"])
+            blocked = any(np.allclose(start, self._start(label)) for label in self.blocked_replays)
+            arrays = crafted_run(self.samples, rc=False, error=0.02, saturation=1.0 if blocked else 0.0)
+        termination = completed(float(arrays.arrays["t"][-1]), arrays.n_samples - 1)
+        sink = cast("list[CheckedState] | None", kwargs.get("checked_states"))
+        if sink is not None:
+            sink.extend(
+                CheckedState(t=float(t), step=k, q=q, dq=dq)
+                for k, (t, q, dq) in enumerate(
+                    zip(arrays.arrays["t"], arrays.arrays["q"], arrays.arrays["dq"], strict=True)
+                )
+            )
+        return arrays, termination
+
+    def _start(self, label: str) -> tuple[float, ...]:
+        case = next(s for s in PLANAR_SCENARIOS if s.scenario_id == label)
+        return case.initial_q(tuple(float(v) for v in self.samples.q[0]))
+
+
+def silent(message: str) -> None:
+    """A log sink that drops its messages."""
+    del message
+
+
+def exploratory_provenance() -> ProvenanceRecord:
+    """An exploratory provenance record of the current checkout (tests tolerate a dirty tree)."""
+    return collect_provenance({"kind": "test"}, seeds={}, exploratory=True)
+
+
+def committed_numerical_binding() -> NumericalExceptionBinding:
+    """The committed M3REP-003 validation's binding."""
+    return numerical_binding(DOCS / "numerical_validation_v1.json", root=REPO_ROOT)
+
+
+def write_pilot_evaluation_config(
+    root: Path, *, velocity_abort: tuple[float, ...] = (40.0, 40.0)
+) -> tuple[RepetitionEvaluationConfig, Path]:
+    """Write a pilot evaluation config under ``root`` naming the fixture's development levels."""
+    development = root / "configs" / "evaluations" / "task_1a_recovery_dev_v1.toml"
+    development.parent.mkdir(parents=True, exist_ok=True)
+    if not development.exists():
+        development.write_text(
+            (REPO_ROOT / "configs" / "evaluations" / "task_1a_recovery_dev_v1.toml").read_text(encoding="utf-8"),
+            encoding="utf-8",
+        )
+    stem = "_".join(f"{v:g}" for v in velocity_abort)
+    file = root / "configs" / "evaluations" / f"task_1a_repetition_dev_v1_{stem}.toml"
+    bounds = ", ".join(repr(float(v)) for v in velocity_abort)
+    file.write_text(
+        'name = "task-1a-repetition-dev-fixture"\n'
+        'development = "task_1a_recovery_dev_v1.toml"\n\n'
+        f"[simulation]\nvelocity_abort = [{bounds}]\n",
+        encoding="utf-8",
+    )
+    return load_evaluation_config(file), file
+
+
+def build_pilot_runner(
+    f: PlanarFixture,
+    *,
+    velocity_abort: tuple[float, ...] = (40.0, 40.0),
+    scenarios: tuple[RobustnessScenario, ...] = PLANAR_SCENARIOS,
+    simulate_fn: Callable[..., Any] | None = None,
+    log: list[str] | None = None,
+) -> PilotRunner:
+    """A pilot runner over the fixture with the planar tracker under both frozen names (exploratory provenance)."""
+    evaluation, file = write_pilot_evaluation_config(f.root, velocity_abort=velocity_abort)
+    return PilotRunner(
+        store=f.store,
+        inputs=f.inputs,
+        dataset=f.record,
+        evaluation=evaluation,
+        evaluation_file=file,
+        root=f.root,
+        execution=f.execution,
+        provenance=exploratory_provenance(),
+        numerical=committed_numerical_binding(),
+        scenarios=scenarios,
+        trackers={"pd_v2": PLANAR_TRACKER, "computed_torque": PLANAR_TRACKER},
+        tracker_digests=PLANAR_DIGESTS,
+        development_sha256=sha256_file(evaluation.development),
+        simulate_fn=simulate_fn,
+        log=silent if log is None else log.append,
+    )
