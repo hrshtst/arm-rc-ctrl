@@ -12,7 +12,7 @@ metric_rel = 1e-06
 state_abs = 1e-06
 
 [snapshot]
-recipe_id = "model-20260901-ad85a0ffc559"
+recipe_id = "model-20260901-10613a8b7a79"
 boundary_jump = 0.10173285733933535
 
 [snapshot.fit]
