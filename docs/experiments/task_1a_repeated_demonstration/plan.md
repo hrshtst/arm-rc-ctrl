@@ -5,8 +5,13 @@
 
 - **Experiment label:** `task_1a_repetition_v1`
 - **Status:** APPROVED for implementation; D1–D8 approved by the owner on
-  2026-09-09. M3REP-001 (frozen panel manifest) is complete; no new
-  experimental results yet.
+  2026-09-09. M3REP-001 (frozen panel manifest), M3REP-009 (canonical
+  execution environment), M3REP-002 (exact-repetition recipes), and UP-007
+  (readout weight accessor, pin 61a29f0) are complete. The Section 6
+  numerical validation is recorded (2026-09-09) with 71 of 72 equivalence
+  comparisons within tolerance and one retained, diagnosed failure; its
+  treatment is an open owner decision (see `docs/TASKS.md`, M3REP-003). No
+  behavioral results yet.
 - **Approval date:** 2026-09-09.
 - **Approved scope:** A fixed, paired development pilot, its
   numerical controls, and a reproducible report. A larger search is a later
@@ -308,6 +313,18 @@ The tolerances above are approved under D6. If they fail, retain
 the failed fits and diagnose the discrepancy before interpreting a behavioral
 effect. Do not loosen a tolerance automatically or substitute S-effective
 for R and call it literal repetition.
+
+The recorded validation is [`numerical_validation_v1.json`](numerical_validation_v1.json)
+(rendered as [`numerical_validation_v1.md`](numerical_validation_v1.md)),
+produced by `arm_rc_ctrl.experiments.repetition_numerics` in the canonical
+execution environment. One of its 72 comparisons (feasible-middle, absolute
+output, $K = 65$, R against S-effective) exceeds the prediction tolerance by
+a largest difference of 2.93e-8 rad and is retained as failed; the diagnosis
+[`numerical_validation_v1_diagnosis.md`](numerical_validation_v1_diagnosis.md)
+attributes it to float64 solve roundoff on the panel's worst-conditioned
+normal matrix (cond2 1.07e9 at $\alpha_0/65$) with the stacked and single
+problems agreeing to 4e-16. How that configuration is treated is an open
+owner decision recorded in `docs/TASKS.md`; no tolerance was changed.
 
 After literal repetition is validated, harvesting one identical episode
 once and reusing its states can be considered as a later optimization. Such

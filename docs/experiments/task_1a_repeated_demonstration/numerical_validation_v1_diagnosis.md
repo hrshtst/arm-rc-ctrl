@@ -1,0 +1,13 @@
+# Task 1-a repetition numerical validation: diagnosis of failed comparisons (v1)
+
+Validation `docs/experiments/task_1a_repeated_demonstration/numerical_validation_v1.json` (sha256 `40720b539903`), execution identity `a7f034c7aef4`, project commit `03456c1e2cc9`: 1 failed comparison(s) diagnosed, each with its contrasts (the same pair in the other formulation and the other pair at the same count).
+
+For each comparison the float64 normal equations of both fits are rebuilt from their harvested loss rows and solved again in 80-bit extended precision (`W*`). The observed gap decomposes into the accumulation discrepancy between the candidate's stacked problem and `K` times the reference's (exact-arithmetic zero) and each solver's own roundoff; `cond2 * eps64` is the first-order sensitivity of the solution to float64 perturbations. Nothing here changes a tolerance or a decision of the validation.
+
+| entry | formulation | K | candidate | reference | failed | observed gap | coef rel | cond2 | cond2 eps | acc. A rel | acc. B rel | acc. bound | acc. coef rel | acc. gap | cand. solve rel | cand. solve gap | ref. solve rel | ref. solve gap | output scale |
+| --- | --- | ---: | --- | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| feasible-middle | absolute | 65 | R/K65 | S-effective/K65 | **yes** | 2.929e-08 | 3.906e-07 | 1.071e+09 | 2.378e-07 | 4.015e-16 | 4.022e-16 | 8.607e-07 | 4.945e-08 | 3.103e-09 | 3.908e-07 | 2.907e-08 | 6.595e-08 | 4.579e-09 | 1.147e-01 |
+| feasible-middle | absolute | 65 | R-scaled/K65 | S | no | 4.456e-10 | 6.256e-09 | 1.648e+07 | 3.659e-09 | 4.015e-16 | 4.022e-16 | 1.324e-08 | 7.820e-10 | 4.835e-11 | 6.238e-09 | 4.384e-10 | 1.104e-09 | 4.921e-11 | 1.147e-01 |
+| feasible-middle | residual | 65 | R/K65 | S-effective/K65 | no | 1.641e-11 | 3.579e-08 | 1.071e+09 | 2.378e-07 | 4.015e-16 | 3.885e-16 | 8.460e-07 | 1.774e-08 | 2.789e-11 | 3.273e-08 | 2.800e-11 | 2.875e-08 | 2.327e-11 | 1.460e-04 |
+
+Columns: *observed gap* is the validation's largest prediction (or increment) difference in rad; *coef rel* its Frobenius-relative coefficient difference; *acc.* the accumulation part (normal matrix, right-hand side, the first-order bound cond2 (A rel + B rel), extended-precision solutions, and their prediction gap); *solve rel* / *solve gap* each fit's float64 weights against its own extended-precision solution; *output scale* is `||B_r||_F / ||A_r||_F`.
