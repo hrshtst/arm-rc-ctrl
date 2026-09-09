@@ -133,8 +133,9 @@ The following apply to every arm:
   simulation, and the existing limits except for the approved simulation
   joint-velocity relaxation in Section 7.1.
 - Absolute next-joint-position and residual next-step-increment readouts as
-  assigned in Section 5.2, both using the original readout bias/Cholesky
-  solver convention.
+  assigned in Section 5.2, both using the original readout bias convention
+  and the recipe's `cholesky` solver option (an LDLT factorization of the
+  regularized Gram matrix in the pinned `rclib`).
 - The frozen input transform from the recovery training path; do not refit
   centering or scaling on repeated or augmented episodes.
 - Reset to the same all-zero reservoir state before every episode. Perform
@@ -540,7 +541,8 @@ These work packages are registered in `docs/TASKS.md`, the authoritative
 status ledger. Protocol registration is complete under DOC-006; implementation
 and execution tasks remain TODO. The mapping is: package 2 → M3REP-001;
 package 3 → M3REP-002/003; package 4 → M3REP-004/005; package 5 → M3REP-006;
-package 6 → M3REP-007/008; package 7 → M3REP-GATE.
+package 6 → M3REP-007/008; package 7 → M3REP-GATE. The upstream `rclib`
+weight accessor of Section 12 (C1) is `UP-007` and must land before M3REP-003.
 
 | Order | Work package | Acceptance evidence |
 | --- | --- | --- |
@@ -568,16 +570,22 @@ unread and unexecuted by this experiment.
 
 ## 10. Cost and possible follow-up
 
-The revised engineering estimate is approximately 2–4 working days for a
-developer familiar with this codebase, excluding study execution and owner
-review. The main work is recipe/protocol compatibility, evidence recording,
-and testing; episode repetition itself is small. The existing residual path
-can be reused, but needs paired recipe/evaluation coverage and separate
-increment/position reporting. Task-relative plotting also needs alignment
-tests. A minimal numerical pilot
-alone could take about half to one day, but would not fulfill the complete
-report/reproduction scope above. These are planning estimates, not measured
-implementation times.
+The approval-time engineering estimate was approximately 2–4 working days for
+a developer familiar with this codebase, excluding study execution and owner
+review. The implementation audit of 2026-09-09 (Section 12) found that the
+pilot also needs infrastructure the repository does not have: a deterministic
+fixed-panel runner, a persisted replay bank keyed by the evaluation limits,
+terminal checked-state retention, fit/evaluation timing and memory
+measurement, task-relative plotting separate from the frozen recovery
+figures, typed per-comparison reproduction tolerances, parameterized evidence
+pointers, a versioned recipe schema, and an upstream `rclib` weight accessor
+with a pin advance. The revised planning estimate is approximately 6–9 working
+days, to be updated with measured figures in the M3REP-005 report. Episode
+repetition itself is small; the existing residual path can be reused, but
+needs paired recipe/evaluation coverage and separate increment/position
+reporting. A minimal numerical pilot alone could take about half to one day,
+but would not fulfill the complete report/reproduction scope above. These are
+planning estimates, not measured implementation times.
 
 The maximum behavioral workload is 15,600 RC evaluations
 ($120\times65\times2$), plus up to 390 unique replay evaluations, which can
@@ -629,3 +637,30 @@ The global roadmap and task ledger now register this approved scope. The
 developer should start M3REP-001, update task status and evidence as work
 proceeds, and preserve all historical recovery records. This approval does
 not approve the separate task 1-b draft or authorize any broader search.
+
+## 12. Implementation clarifications
+
+The owner settled the following on 2026-09-09 after a read-only audit of the
+implementation against Sections 2–8. They refine, and do not alter, D1–D8.
+They are recorded in the affected `docs/TASKS.md` acceptance criteria before
+the work they govern starts.
+
+| ID | Topic | Clarification |
+| --- | --- | --- |
+| C1 | Readout weights | The pinned `rclib` Python binding exposes no readout weights. Add a read-only weight accessor with binding tests upstream in `rclib`, then advance the pin in a separate commit after verifying that fitting and predictions are unchanged. The Section 6 coefficient and normal-equation diagnostics use that accessor; reconstructing weights from `predict` on basis vectors is not the authoritative diagnostic. Documentation names the `cholesky` solver option as an LDLT factorization. M3REP-001 proceeds meanwhile and distinguishes historical source provenance from the pilot's implementation revision. |
+| C2 | Velocity override | The recovery dataset is digest-bound to `configs/tasks/task_1a.toml`, so the 12 rad/s abort is a separately versioned evaluation-config setting (`simulation.velocity_abort = [12.0, 12.0]`) applied to simulation and to every diagnostic and feasibility check that uses the resolved evaluation limit. Training, augmentation validation, and dataset binding keep the legacy 6 rad/s scenario. The new recipe schema binds the training-validation limits and the relevant scenario/config digest; legacy records keep their serialization and hashes. |
+| C3 | Reproduction scope | Full evidence verification with subset re-simulation: refit all 156 prescribed fits, verify every stored evidence payload, recompute metrics and report tables from stored arrays and terminal-state records, and re-simulate a deterministic subset whose selection rule is frozen before pilot execution and covers both formulations, both trackers, all warm-up values, repetition and scaling controls, perturbation classes, and available failure examples. Unavailable coverage is reported explicitly. This is not full simulation reproduction. |
+| C4 | HTML report | Follow the DOC-005 approach: a tracked hand-written narrative `overview.html`, evidence-binding regression tests, and generated figures, tables, and assets. Reproduction verifies the bindings and generated outputs, not the narrative bytes. Manual browser checks recorded in the ledger suffice. Interactive synchronized cursors are not required; paired animations must still represent matching task times. |
+| C5 | Animation clock | Export-side shifting behind a new explicit option (`time − T_w`), legacy export defaults unchanged, run-clock timestamps preserved in evidence. The player's `t = …` label is acceptable when the caption states task time in seconds with warm-up negative and activation at zero. No `skelarm` pin advance solely for that label. |
+| C6 | Persistence | One Git pointer per model-configuration evidence manifest and per replay bank; individual run arrays stay external. Each manifest binds every constituent artifact's identity, digest, size, resolved conditions, and completion or failure status. Resume works at individual-run granularity without overwriting completed immutable evidence. |
+| C7 | Replay censoring | Recovery-v1 behavior is preserved: a failed replay blocks the paired RC evaluation and stops that model's sweep. Such models are labelled replay-blocked, kept in the overall accounting with subsequent pairs marked unexecuted, and reported separately from models that failed an RC gate. |
+| C8 | Budget | No numerical budget is invented from "several hours". M3REP-005 reports measured runtime, memory, storage, the projected full-panel cost, and the revised engineering estimate; owner approval precedes M3REP-006. Peak RSS is reported as process-cumulative; fresh worker processes are used where per-fit comparisons are needed. |
+| C9 | Coverage | No new coverage exclusion is pre-approved. Reproduction logic is tested against small deterministic fixture stores, including corruption, missing artifacts, failures, and resume. Any thin orchestration layer that still needs an exclusion is proposed separately with its exact scope; the threshold stays unchanged. |
+
+Confirmed readings: the `failure-actual-dwell` panel category matches any
+`dwell:*` first-failure head, and prescribed ridge parameters are constructed
+directly without changing historical search bounds. Two cautions apply to the
+implementation gaps found by the audit: retain the terminal checked state
+separately without fabricating unavailable controller telemetry, and report
+the DOC-005 discrepancy through an actual original task 1-a reproduction
+rerun, not as a recovery-evidence problem.
