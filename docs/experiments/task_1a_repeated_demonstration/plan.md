@@ -8,10 +8,9 @@
   2026-09-09. M3REP-001 (frozen panel manifest), M3REP-009 (canonical
   execution environment), M3REP-002 (exact-repetition recipes), and UP-007
   (readout weight accessor, pin 61a29f0) are complete. The Section 6
-  numerical validation is recorded (2026-09-09) with 71 of 72 equivalence
-  comparisons within tolerance and one retained, diagnosed failure; its
-  treatment is an open owner decision (see `docs/TASKS.md`, M3REP-003). No
-  behavioral results yet.
+  numerical validation is complete (M3REP-003, closed 2026-09-10) with 71 of
+  72 equivalence comparisons within tolerance and one diagnosed numerical
+  exception accepted under C11. No behavioral results yet.
 - **Approval date:** 2026-09-09.
 - **Approved scope:** A fixed, paired development pilot, its
   numerical controls, and a reproducible report. A larger search is a later
@@ -321,10 +320,15 @@ execution environment. One of its 72 comparisons (feasible-middle, absolute
 output, $K = 65$, R against S-effective) exceeds the prediction tolerance by
 a largest difference of 2.93e-8 rad and is retained as failed; the diagnosis
 [`numerical_validation_v1_diagnosis.md`](numerical_validation_v1_diagnosis.md)
-attributes it to float64 solve roundoff on the panel's worst-conditioned
-normal matrix (cond2 1.07e9 at $\alpha_0/65$) with the stacked and single
-problems agreeing to 4e-16. How that configuration is treated is an open
-owner decision recorded in `docs/TASKS.md`; no tolerance was changed.
+supports floating-point sensitivity of the accumulation and solution path
+on the panel's worst-conditioned normal matrix (cond2 1.07e9 at
+$\alpha_0/65$) with the stacked and single problems agreeing to 4e-16; its
+reference solutions are extended-precision solutions of NumPy-reconstructed
+normal equations, so the reported solution-path part includes assembly
+differences from `rclib`'s Eigen path and is not an isolated measurement of
+the LDLT roundoff. The owner accepted this as an explicit numerical exception
+(C11): the configuration is retained unchanged, the comparison stays failed,
+no tolerance was changed, and the caveat is carried into later results.
 
 After literal repetition is validated, harvesting one identical episode
 once and reusing its states can be considered as a later optimization. Such
@@ -682,6 +686,7 @@ starts.
 | C8 | Budget | No numerical budget is invented from "several hours". M3REP-005 reports measured runtime, memory, storage, the projected full-panel cost, and the revised engineering estimate; owner approval precedes M3REP-006. Peak RSS is reported as process-cumulative; fresh worker processes are used where per-fit comparisons are needed. |
 | C9 | Coverage | No new coverage exclusion is pre-approved. Reproduction logic is tested against small deterministic fixture stores, including corruption, missing artifacts, failures, and resume. Any thin orchestration layer that still needs an exclusion is proposed separately with its exact scope; the threshold stays unchanged. |
 | C10 | Canonical execution environment | Results on the owner's machine depend on the core type a process starts on: the original task 1-a `--from-evidence` reproduction deviates by exactly 1.608e-10 when pinned to the E-cores and passes when pinned to the P-cores ([probe record](execution_environment_probe_v1.md)). P-core pinning is therefore the canonical execution environment of this machine for evidence generation, numerical comparisons, timing measurements, and canonical reproduction, under five conditions. (1) Apply the affinity before Python starts; child workers inherit and verify the restriction; the CPU numbers are never hard-coded as a portable definition of P-cores. (2) For new pilot runs set `OMP_NUM_THREADS=1`, `OPENBLAS_NUM_THREADS=1`, and `MKL_NUM_THREADS=1` before importing numerical libraries and verify effective thread counts where available; the historical reproduction's environment stays documented separately. (3) Add a versioned execution record holding the requested and effective CPU affinity including workers, the CPU model and logical-CPU/core-type mapping, numerical-library versions, the loaded BLAS implementation and selected architecture/kernel where exposed, effective thread counts, the relevant environment variables, and the launch command; bind its digest into new run evidence and execution-cache identities while legacy provenance serialization, recipe hashes, and frozen records stay unchanged. (4) The experiments establish core-affinity-dependent numerical reproducibility; OpenBLAS dispatch is the leading explanation until backend diagnostics support it; the P-core and E-core commands and outputs are retained, and the discrepancy is never described as universally fixed. (5) Tolerances and historical exact comparisons stay unchanged: affinity defines the canonical environment and does not establish bitwise reproducibility across machines, so mismatched execution environments are disclosed, never treated as equivalent. Implemented and tested as M3REP-009 before M3REP-003; the same policy governs M3REP-005's timing estimate and M3REP-006's execution, and the owner budget decision after the smoke check still applies. |
+| C11 | Accepted numerical exception | The Section 6 validation ([`numerical_validation_v1.md`](numerical_validation_v1.md)) passed 71 of 72 equivalence comparisons; the comparison of R against S-effective for feasible-middle, absolute output, $K = 65$ exceeds the approved prediction tolerance (largest difference 2.93e-8 rad) and is retained as failed. Owner decision (2026-09-10): (1) retain the original absolute R/K65 fit of feasible-middle for behavioral evaluation; do not exclude it, substitute S-effective, or change its solver or regularization. (2) The comparison remains failed: the 71/72 result, `all_passed = false`, and the tolerances stay as recorded; task closure is described as "validation completed; one diagnosed numerical exception accepted", never as "all numerical checks passed"; the exception is bound to this exact comparison and evidence identity (validation sha256 `40720b539903`, fits `6912bffcc9a5` and `cc62950ed9a0`, diagnosis sha256 `857a373409e6`) and permits no unrelated failure. (3) The equivalence claim is limited: the exact-arithmetic ridge identity remains valid, but this pair did not demonstrate numerical agreement within the approved tolerance; the caveat is carried into subsequent results, and the small prediction discrepancy does not establish that closed-loop behavior is unaffected. (4) The diagnosis is qualified: the evidence supports sensitivity to floating-point accumulation and solution in an ill-conditioned problem, but the diagnostic reconstructs the normal equations in NumPy while `rclib` assembles them with Eigen, so the reported solution-path part can include assembly differences and is not an isolated measurement of LDLT roundoff, and the extended-precision result is a reference solution, not an exact solution. The fixed panel is preserved and the failure is a reported finding; M3REP-004 may begin after this decision is recorded; M3REP-006 still requires the post-smoke-check budget approval. |
 
 Confirmed readings: the `failure-actual-dwell` panel category matches any
 `dwell:*` first-failure head, and prescribed ridge parameters are constructed

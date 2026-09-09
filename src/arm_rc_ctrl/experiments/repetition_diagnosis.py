@@ -7,19 +7,22 @@ A comparison of the numerical validation contrasts two fits whose ridge
 problems are equal in exact arithmetic but accumulated differently: the
 candidate stacks ``K`` literal copies of the episode, the reference the episode
 once at the scaled parameter. When their predictions differ beyond the
-approved tolerance, this module separates the two roundoff sources with an
-extended-precision reference:
+approved tolerance, this module separates two sources of the gap with an
+extended-precision reference solution:
 
 1. *accumulation*: the candidate's normal matrix ``A_c = X_c^T X_c + alpha_c I``
    and right-hand side ``B_c`` against ``K`` times the reference's
    (``||A_c - K A_r||_F / ||A_c||_F`` and the same for ``B``), zero in exact
    arithmetic;
-2. *solver*: each fit's weights against the extended-precision (80-bit
-   ``longdouble``) Cholesky solution of its own float64 normal equations,
-   in coefficients and in probe predictions;
-3. the observed prediction gap against the gap between the two
-   extended-precision solutions (accumulation alone) and the first-order
-   sensitivity ``cond2(A_r) * eps64``.
+2. *solution path*: each fit's weights against the extended-precision (80-bit
+   ``longdouble``) Cholesky reference solution of its own normal equations as
+   this module reconstructs them in NumPy, in coefficients and in probe
+   predictions. ``rclib`` assembles its normal equations with Eigen, so this
+   part holds the assembly differences between the two paths as well as the
+   LDLT solve's roundoff; it is not an isolated measurement of the solve;
+3. the observed prediction gap against the gap between the two reference
+   solutions (accumulation alone) and the first-order sensitivity
+   ``cond2(A_r) * eps64``.
 
 The diagnosis is reported, never used to relax a tolerance; the failed
 comparison stays in the validation evidence as it is. The diagnosed
@@ -123,8 +126,9 @@ def ridge_problem(cached: CachedFit) -> RidgeProblem:
 def extended_solve(a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np.longdouble]:
     """Solve the symmetric positive definite system ``A W = B`` by Cholesky factorization in ``longdouble``.
 
-    The float64 inputs are taken as exact; the extended-precision solution
-    therefore isolates the solver's roundoff from the accumulation's.
+    The float64 inputs are taken as given, so the result is a reference
+    solution of the reconstructed problem (accurate to roughly ``cond2``
+    times the 80-bit epsilon), not the exact solution of the fit's problem.
     """
     n = a.shape[0]
     if a.shape != (n, n) or b.shape[0] != n:
@@ -152,14 +156,20 @@ def extended_solve(a: NDArray[np.float64], b: NDArray[np.float64]) -> NDArray[np
 
 @dataclass(frozen=True)
 class SolveError:
-    """One fit's float64 weights against the extended-precision solution of its own normal equations."""
+    """One fit's float64 weights against the reference solution of its NumPy-reconstructed normal equations.
+
+    The difference holds every step that separates the two paths: ``rclib``'s
+    Eigen assembly of the normal equations, its LDLT solve, and the
+    reconstruction's own float64 assembly. It is not an isolated measurement
+    of the solve's roundoff (C11).
+    """
 
     coefficient_fro_rel: float
     """``||W - W*||_F / ||W*||_F``."""
     prediction_max_abs: float
     """Largest ``|P W - P W*|`` over the probe matrix (rad)."""
     normal_residual_extended: float
-    """``||A W* - B||_F / (||A||_F ||W*||_F + ||B||_F)`` of the extended solution (its own accuracy)."""
+    """``||A W* - B||_F / (||A||_F ||W*||_F + ||B||_F)`` of the reference solution (its own accuracy)."""
 
 
 @dataclass(frozen=True)
@@ -402,12 +412,14 @@ def render_diagnosis_markdown(diagnosis: Diagnosis) -> str:
         ),
         "",
         (
-            "For each comparison the float64 normal equations of both fits are rebuilt from their harvested loss "
-            "rows and solved again in 80-bit extended precision (`W*`). The observed gap decomposes into the "
-            "accumulation discrepancy between the candidate's stacked problem and `K` times the reference's "
-            "(exact-arithmetic zero) and each solver's own roundoff; `cond2 * eps64` is the first-order "
-            "sensitivity of the solution to float64 perturbations. Nothing here changes a tolerance or a "
-            "decision of the validation."
+            "For each comparison the float64 normal equations of both fits are reconstructed in NumPy from "
+            "their harvested loss rows and solved in 80-bit extended precision, giving a reference solution "
+            "`W*` (not an exact solution). The observed gap decomposes into the accumulation discrepancy "
+            "between the candidate's stacked problem and `K` times the reference's (exact-arithmetic zero) and "
+            "each fit's difference from its reference solution; that difference holds rclib's Eigen assembly of "
+            "the normal equations as well as its LDLT solve, so it is not an isolated measurement of the solve's "
+            "roundoff. `cond2 * eps64` is the first-order sensitivity of the solution to float64 perturbations. "
+            "Nothing here changes a tolerance or a decision of the validation."
         ),
         "",
         (
@@ -438,8 +450,8 @@ def render_diagnosis_markdown(diagnosis: Diagnosis) -> str:
             "*coef rel* its Frobenius-relative coefficient difference; *acc.* the accumulation part (normal "
             "matrix, right-hand side, the first-order bound cond2 (A rel + B rel), extended-precision solutions, "
             "and their prediction gap); *solve rel* / "
-            "*solve gap* each fit's float64 weights against its own extended-precision solution; *output scale* "
-            "is `||B_r||_F / ||A_r||_F`."
+            "*solve gap* each fit's float64 weights against the reference solution of its reconstructed normal "
+            "equations (assembly differences included); *output scale* is `||B_r||_F / ||A_r||_F`."
         ),
         "",
     ]

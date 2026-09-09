@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Hiroshi Atsuta
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""M3REP-003: the committed diagnosis explains the validation's one retained failure as float64 roundoff."""
+"""M3REP-003: the committed diagnosis supports floating-point sensitivity behind the one retained failure (C11)."""
 
 from __future__ import annotations
 
@@ -49,7 +49,7 @@ def test_committed_diagnosis_binds_the_validation_and_covers_its_failure() -> No
 
 
 def test_failure_is_roundoff_under_the_panel_s_worst_conditioning() -> None:
-    """Both solves are accurate to their own float64 problems; the gap is accumulation plus solver roundoff."""
+    """The gap is accumulation plus each fit's distance from its reference solution under cond2 above 1e9."""
     diagnosis = load_diagnosis(EVIDENCE)
     failure = next(d for d in diagnosis.diagnoses if d.failed)
     assert failure.cond2_reference > 1e9
@@ -57,12 +57,13 @@ def test_failure_is_roundoff_under_the_panel_s_worst_conditioning() -> None:
     # The stacked problem is K times the single one up to float64 accumulation roundoff.
     assert failure.accumulation_a_rel < 1e-14
     assert failure.accumulation_b_rel < 1e-14
-    # Each fit's weights are within the first-order sensitivity of its own extended-precision solution.
+    # Each fit's weights are within a small multiple of the first-order sensitivity from its reference solution
+    # (assembly differences between rclib's Eigen path and the NumPy reconstruction included).
     assert failure.candidate_solve.normal_residual_extended < 1e-16
     assert failure.reference_solve.normal_residual_extended < 1e-16
     assert failure.candidate_solve.coefficient_fro_rel < 100.0 * failure.sensitivity
     assert failure.reference_solve.coefficient_fro_rel < 100.0 * failure.sensitivity
-    # The observed gap is accounted for by the accumulation gap plus both solver gaps.
+    # The observed gap is accounted for by the accumulation gap plus both reference-solution gaps.
     parts = (
         failure.accumulation_prediction_max_abs
         + failure.candidate_solve.prediction_max_abs
