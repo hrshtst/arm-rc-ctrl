@@ -68,6 +68,7 @@ __all__ = [
     "evaluate_candidates",
     "load_ablation",
     "main",
+    "reason_head",
     "render_ablation_markdown",
     "replay_jump_table",
     "summarize_arm",
@@ -219,7 +220,13 @@ class AblationReport:
                 raise ValueError(msg)
 
 
-def _reason_head(reason: str) -> str:
+def reason_head(reason: str) -> str:
+    """The gate of a first-failure reason: the head before its detail, keeping the limit name of a violation.
+
+    ``scenario 3 [pd_v2]: dwell:dwell_stationary`` gives ``dwell``;
+    ``... limit_violation:joint_velocity`` gives ``limit_violation:joint_velocity``;
+    an empty reason gives ``(none)``.
+    """
     tail = reason.partition("]: ")[2] if reason.startswith("scenario ") else reason
     if not tail:
         return "(none)"
@@ -248,7 +255,7 @@ def summarize_arm(file: str, report: RecoveryStudyReport) -> ArmSummary:
             key = f"{trial.params.get('warmup_s', float('nan')):g}"
             feasible_by_warmup[key] = feasible_by_warmup.get(key, 0) + 1
             continue
-        head = _reason_head(trial.labels.get("reason", ""))
+        head = reason_head(trial.labels.get("reason", ""))
         reasons[head] = reasons.get(head, 0) + 1
     return ArmSummary(
         study=report.protocol,
