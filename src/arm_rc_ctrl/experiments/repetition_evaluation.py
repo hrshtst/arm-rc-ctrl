@@ -120,8 +120,10 @@ __all__ = [
     "POINTER_SCHEMA",
     "REPORTS_PREFIX",
     "AugmentationBankRecord",
+    "BudgetExceededError",
     "EvaluationConditions",
     "EvidencePointer",
+    "ExecutionBudget",
     "ModelEvidence",
     "ModelSweepTiming",
     "NumericalExceptionBinding",
@@ -703,6 +705,49 @@ class ModelSweepTiming:
     sweep_seconds: float
 
 
+class BudgetExceededError(RuntimeError):
+    """The approved execution or storage allowance would be exceeded; progress is checkpointed (C12)."""
+
+
+@dataclass(frozen=True)
+class ExecutionBudget:
+    """The owner-approved allowances of one invocation (C12): wall time and total run/manifest storage."""
+
+    time_seconds: float | None
+    """Wall-time allowance of this invocation (``None``: unlimited)."""
+    storage_bytes: int | None
+    """Total run and manifest storage allowance (``None``: unlimited)."""
+    storage_baseline_bytes: int = 0
+    """Storage already used by earlier invocations that counts against the same allowance."""
+
+    def __post_init__(self) -> None:
+        """Allowances are non-negative."""
+        negative = [
+            value
+            for value in (self.time_seconds, self.storage_bytes, self.storage_baseline_bytes)
+            if value is not None and value < 0
+        ]
+        if negative:
+            msg = "budget allowances must be non-negative"
+            raise ValueError(msg)
+
+    def check(self, *, elapsed_seconds: float, used_bytes: int) -> None:
+        """Fail before the next run when the elapsed time or the used storage has reached an allowance."""
+        if self.time_seconds is not None and elapsed_seconds >= self.time_seconds:
+            msg = (
+                f"the execution allowance of {self.time_seconds:.0f} s is reached after {elapsed_seconds:.0f} s; "
+                "progress is checkpointed, request an extension (C12)"
+            )
+            raise BudgetExceededError(msg)
+        total = self.storage_baseline_bytes + used_bytes
+        if self.storage_bytes is not None and total >= self.storage_bytes:
+            msg = (
+                f"the storage allowance of {self.storage_bytes} bytes is reached at {total} bytes; progress is "
+                "checkpointed, request an extension (C12)"
+            )
+            raise BudgetExceededError(msg)
+
+
 # --- persistence --------------------------------------------------------------------------
 
 
@@ -834,6 +879,7 @@ class PilotRunner:
         access: str = "private",
         simulate_fn: SimulateFn | None = None,
         log: Callable[[str], None] = print,
+        budget: ExecutionBudget | None = None,
     ) -> None:
         """Bind the store, the panel inputs, the resolved conditions, and the persistence settings."""
         if inputs.execution_identity != execution.identity:
@@ -876,6 +922,10 @@ class PilotRunner:
         self.manifest_bytes = 0
         """Bytes of the manifests this runner installed."""
         self._last_run_bytes = 0
+        self.budget = budget
+        self.started = time.perf_counter()
+        self.used_bytes = 0
+        """Run and manifest bytes this runner wrote."""
 
     # -- conditions -------------------------------------------------------------------------
 
@@ -970,6 +1020,7 @@ class PilotRunner:
             ),
         )
         self._last_run_bytes = sum(p.stat().st_size for p in _directory.iterdir() if p.is_file())
+        self.used_bytes += self._last_run_bytes
         return RunArtifact(
             artifact_id=pointer.artifact.artifact_id,
             uri=pointer.artifact.payload.uri,
@@ -977,6 +1028,11 @@ class PilotRunner:
             size=pointer.artifact.payload.size,
             arrays_sha256=summary.arrays_sha256,
         )
+
+    def _check_budget(self) -> None:
+        """Refuse to start another run once an allowance is reached (every completed run is already persisted)."""
+        if self.budget is not None:
+            self.budget.check(elapsed_seconds=time.perf_counter() - self.started, used_bytes=self.used_bytes)
 
     def _time_run(
         self,
@@ -1030,6 +1086,7 @@ class PilotRunner:
             hold=np.asarray(start, dtype=np.float64),
         )
         controller = LimitedTracker(cast("Any", held), self.trackers[tracker], self.scenario.limits.torque)
+        self._check_budget()
         states: list[CheckedState] = []
         started = time.perf_counter()
         arrays, termination = self.simulate(
@@ -1127,6 +1184,7 @@ class PilotRunner:
         )
         payload = _install_manifest(self.store, self._bank_uri(conditions), canonical_json(to_mapping(bank)) + "\n")
         self.manifest_bytes += payload.size
+        self.used_bytes += payload.size
         self._register_bank(entry, bank, payload)
         return bank
 
@@ -1201,6 +1259,7 @@ class PilotRunner:
                 status="replay_blocked",
                 rc=component,
             )
+        self._check_budget()
         states: list[CheckedState] = []
         channels = RESIDUAL_CHANNELS if cached.recipe.output == "increment" else GENERATOR_CHANNELS
         started = time.perf_counter()
@@ -1445,6 +1504,7 @@ class PilotRunner:
         )
         payload = _install_manifest(self.store, self._model_uri(identity), canonical_json(to_mapping(evidence)) + "\n")
         self.manifest_bytes += payload.size
+        self.used_bytes += payload.size
         self._register_model(entry, arm, evidence, payload)
         return evidence
 
@@ -1523,7 +1583,9 @@ class PreparedRun:
     arms: tuple[ArmSpec, ...]
 
 
-def prepare_runner(args: argparse.Namespace, *, module: str = _MODULE, argv: Sequence[str] = ()) -> PreparedRun:
+def prepare_runner(
+    args: argparse.Namespace, *, module: str = _MODULE, argv: Sequence[str] = (), budget: ExecutionBudget | None = None
+) -> PreparedRun:
     """Verify the pinned environment, bind the panel, config, trackers, and validation, and build the runner.
 
     Shared by the ``run`` command and the M3REP-005 smoke check; the caller's
@@ -1591,25 +1653,48 @@ def prepare_runner(args: argparse.Namespace, *, module: str = _MODULE, argv: Seq
         tracker_digests=digests,
         development_sha256=development_sha256,
         command=command,
+        budget=budget,
     )
     return PreparedRun(runner, context, evaluation_file, entries, arms)
 
 
+def _budget(args: argparse.Namespace) -> ExecutionBudget | None:
+    time_s = cast("float | None", args.time_budget_s)
+    storage = cast("int | None", args.storage_budget_bytes)
+    if time_s is None and storage is None:
+        return None
+    return ExecutionBudget(
+        time_seconds=time_s, storage_bytes=storage, storage_baseline_bytes=int(cast("int", args.storage_baseline_bytes))
+    )
+
+
 def _run(args: argparse.Namespace) -> int:
-    prepared = prepare_runner(args, argv=cast("list[str]", args.argv))
-    evidences = prepared.runner.run(prepared.entries, prepared.arms)
-    written = prepared.runner.write_pointers(Path(cast("str", args.evidence_dir)))
+    prepared = prepare_runner(args, argv=cast("list[str]", args.argv), budget=_budget(args))
+    runner = prepared.runner
+    evidences: list[ModelEvidence] = []
+    stopped: str | None = None
+    try:
+        for entry in prepared.entries:
+            for arm in prepared.arms:
+                evidences.append(runner.evaluate(entry, arm))  # noqa: PERF401 - partial results survive a budget stop
+    except BudgetExceededError as exc:
+        stopped = str(exc)
+    written = runner.write_pointers(Path(cast("str", args.evidence_dir)))
     print(
         json.dumps(
             {
                 "models": len(evidences),
                 "statuses": {s: sum(1 for e in evidences if e.status == s) for s in MODEL_STATUSES},
                 "pointers_written": len(written),
+                "runs_simulated": len(runner.run_timings),
+                "used_bytes": runner.used_bytes,
+                "elapsed_seconds": round(time.perf_counter() - runner.started, 1),
+                "budget_stop": stopped,
             },
             indent=2,
         )
     )
-    return 0
+    return 3 if stopped is not None else 0
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -1625,6 +1710,15 @@ def main(argv: Sequence[str] | None = None) -> int:
     run.add_argument("--entries", type=str, nargs="*", default=None, help="panel labels (default: all six)")
     run.add_argument("--arms", type=str, nargs="*", default=None, help="behavioral arm labels (default: all)")
     run.add_argument("--exploratory", action="store_true", help="allow a dirty worktree")
+    run.add_argument(
+        "--time-budget-s", type=float, default=None, help="wall-time allowance of this invocation in seconds (C12)"
+    )
+    run.add_argument(
+        "--storage-budget-bytes", type=int, default=None, help="total run/manifest storage allowance in bytes (C12)"
+    )
+    run.add_argument(
+        "--storage-baseline-bytes", type=int, default=0, help="storage earlier invocations already used against it"
+    )
     args = parser.parse_args(argv)
     args.argv = argv
     return _run(args)

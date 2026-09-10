@@ -20,6 +20,8 @@ from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
 from arm_rc_ctrl.experiments.repetition_evaluation import (
     C11_CAVEAT,
     PAIR_STATUSES,
+    BudgetExceededError,
+    ExecutionBudget,
     ModelEvidence,
     PairRecord,
     RepetitionEvaluationConfig,
@@ -564,3 +566,33 @@ def test_run_command_evaluates_selected_arms_and_writes_pointers(
     )
     with pytest.raises(ValueError, match="unknown behavioral arms"):
         main([*argv[:-1], "--arms", "absolute/S-effective/K17", "--exploratory"])
+    # A reached storage allowance checkpoints: the command exits 3 after writing the pointers it completed.
+    budgeted = [*argv, "--storage-budget-bytes", "1", "--arms", "absolute/R/K17"]
+    assert main(budgeted) == 3
+    assert not (tmp_path / "evidence" / pointer_name("model", "feasible-best/absolute/R/K17")).exists()
+
+
+def test_budget_guard_checkpoints_and_refuses_the_next_run(fixture: PlanarFixture) -> None:
+    """A reached allowance stops before the next run; completed runs stay persisted and the resume continues."""
+    f = fixture
+    fake = CraftedSimulator(f.samples)
+    runner = build_pilot_runner(f, velocity_abort=(46.0, 46.0), simulate_fn=fake)
+    runner.budget = ExecutionBudget(time_seconds=None, storage_bytes=1, storage_baseline_bytes=0)
+    with pytest.raises(BudgetExceededError, match="storage allowance"):
+        runner.evaluate(f.entry, ArmSpec("absolute", "S"))
+    assert fake.replay_calls == 1  # the first replay run was persisted, the second refused
+    assert runner.used_bytes > 0
+    resumed = build_pilot_runner(f, velocity_abort=(46.0, 46.0), simulate_fn=CraftedSimulator(f.samples))
+    evidence = resumed.evaluate(f.entry, ArmSpec("absolute", "S"))
+    assert evidence.status == "feasible"
+    with pytest.raises(ValueError, match="non-negative"):
+        ExecutionBudget(time_seconds=-1.0, storage_bytes=None)
+    with pytest.raises(BudgetExceededError, match="execution allowance"):
+        ExecutionBudget(time_seconds=10.0, storage_bytes=None).check(elapsed_seconds=10.0, used_bytes=0)
+    ExecutionBudget(time_seconds=10.0, storage_bytes=100, storage_baseline_bytes=50).check(
+        elapsed_seconds=1.0, used_bytes=49
+    )
+    with pytest.raises(BudgetExceededError, match="storage allowance"):
+        ExecutionBudget(time_seconds=None, storage_bytes=100, storage_baseline_bytes=50).check(
+            elapsed_seconds=1.0, used_bytes=50
+        )

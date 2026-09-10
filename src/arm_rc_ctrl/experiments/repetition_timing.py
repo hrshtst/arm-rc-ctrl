@@ -10,11 +10,12 @@ guessed: wall time of every replay and RC run (simulation and persistence
 apart), fit time of every model (from the fit cache record, whether the fit was
 produced now or served), the process-cumulative peak resident set size, and
 the bytes the runs and manifests occupy. The full-panel projection scales the
-measured per-run and per-fit figures to the six entries, three warm-ups, and
-every pair, as an upper bound that assumes no early stop, and the report states
-the revised engineering estimate the owner's budget decision needs (C8). The
-records this check produces belong to the fixed panel and are reused when the
-full run resumes.
+measured per-run and per-fit means of the one entry to the six entries, three
+warm-ups, and every pair, assuming no early stop. It is a projection, not a
+guaranteed bound: other reservoir sizes, warm-ups, and storage overhead can
+change the costs. The report states the revised engineering estimate the
+owner's budget decision needs (C8). The records this check produces belong to
+the fixed panel and are reused when the full run resumes.
 
 Command line (launch pinned through ``python -m arm_rc_ctrl.execution run --policy p-cores -- ...``)::
 
@@ -122,7 +123,7 @@ class RunSummaryStats:
 
 @dataclass(frozen=True)
 class PanelProjection:
-    """The full-panel cost scaled from the measured rates (an upper bound: no early stop assumed)."""
+    """The full-panel cost projected from the measured means of one entry (no early stop assumed; not a bound)."""
 
     entries: int
     models_per_entry: int
@@ -214,7 +215,7 @@ def project_panel(
     replay_banks: int = PANEL_WARMUPS,
     completed_models: int,
 ) -> PanelProjection:
-    """Scale the measured per-run and per-fit costs to the full panel (no early stop assumed)."""
+    """Project the full panel from the measured per-run and per-fit means (no early stop assumed; not a bound)."""
     rc = [r for r in runs if r.arm == "rc"]
     replay = [r for r in runs if r.arm == "replay"]
     rc_seconds = mean(r.simulate_seconds + r.persist_seconds for r in rc) if rc else 0.0
@@ -312,14 +313,14 @@ def render_timing_markdown(report: TimingReport) -> str:
     )
     lines += [
         "",
-        "## Full-panel projection (upper bound, no early stop)",
+        "## Full-panel projection (measured means scaled to every pair; not a guaranteed bound)",
         "",
         (
             f"- {p.entries} entries x {p.models_per_entry} models x {p.pairs_per_model} pairs = {p.rc_runs} RC runs at "
             f"{p.rc_run_seconds:.2f} s each; {p.replay_banks} replay banks x {p.pairs_per_model} = {p.replay_runs} "
             f"replay runs at {p.replay_run_seconds:.2f} s each; fits {_hours(p.fit_seconds)}."
         ),
-        f"- Total: {_hours(p.total_seconds)}; storage about {_mib(p.storage_bytes)}.",
+        f"- Projected total: {_hours(p.total_seconds)}; storage about {_mib(p.storage_bytes)}.",
         (
             f"- Already complete after this check: {p.completed_models} models and this replay bank; remaining "
             f"about {_hours(p.remaining_seconds)}."
@@ -332,8 +333,9 @@ def render_timing_markdown(report: TimingReport) -> str:
         "## Limitations",
         "",
         (
-            "- The projection assumes every pair of every model executes; real sweeps stop at their first "
-            "infeasible pair, so the bound is loose on the failure side of the panel."
+            "- The projection multiplies maximum run counts by mean costs measured on one entry; it is not a "
+            "guaranteed bound: other reservoir sizes, warm-ups, and storage overhead can change the costs, while "
+            "first-failure stopping lowers them."
         ),
         (
             "- Timings are wall-clock in the canonical single-threaded execution environment of this machine "
@@ -405,11 +407,12 @@ def _smoke(args: argparse.Namespace) -> int:
     )
     wall = time.perf_counter() - started
     estimate = (
-        f"Measured on {entry.label}: {len(evidences)} models and one replay bank in {_hours(wall)}; scaled to the "
-        f"six entries and three warm-ups the full panel is at most {_hours(projection.total_seconds)} of wall time "
-        f"and about {_mib(projection.storage_bytes)} of run storage in the canonical execution environment, with "
-        f"about {_hours(projection.remaining_seconds)} remaining after this check; the earlier engineering estimate "
-        "(plan section 10) stands or is revised accordingly, and M3REP-006 waits for the owner's budget approval (C8)."
+        f"Measured on {entry.label}: {len(evidences)} models and one replay bank in {_hours(wall)}; scaling those "
+        f"means to the six entries and three warm-ups projects the full panel at {_hours(projection.total_seconds)} "
+        f"of wall time and about {_mib(projection.storage_bytes)} of run storage in the canonical execution "
+        f"environment (a projection, not a guaranteed bound), with about {_hours(projection.remaining_seconds)} "
+        "remaining after this check; the earlier engineering estimate (plan section 10) stands or is revised "
+        "accordingly, and M3REP-006 waits for the owner's budget approval (C8)."
     )
     report = TimingReport(
         experiment=EXPERIMENT_LABEL,

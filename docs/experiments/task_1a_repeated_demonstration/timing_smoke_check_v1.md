@@ -39,10 +39,10 @@ Experiment `task_1a_repetition_v1`, panel entry `feasible-best` (manifest sha256
 | feasible-best/residual/R/K65 | rc_gate_failure | cache hit | 0.40 | 0.6 | 1 | 129 | 6927 |
 | feasible-best/residual/R-scaled/K65 | rc_gate_failure | cache hit | 0.39 | 0.6 | 1 | 129 | 6875 |
 
-## Full-panel projection (upper bound, no early stop)
+## Full-panel projection (measured means scaled to every pair; not a guaranteed bound)
 
 - 6 entries x 20 models x 130 pairs = 15600 RC runs at 0.22 s each; 3 replay banks x 130 = 390 replay runs at 0.19 s each; fits 0.03 h.
-- Total: 1.02 h; storage about 1913.5 MiB.
+- Projected total: 1.02 h; storage about 1913.5 MiB.
 - Already complete after this check: 20 models and this replay bank; remaining about 0.84 h.
 
 ## Revised engineering estimate
@@ -51,5 +51,5 @@ Measured on feasible-best: 20 models and one replay bank in 0.07 h; scaled to th
 
 ## Limitations
 
-- The projection assumes every pair of every model executes; real sweeps stop at their first infeasible pair, so the bound is loose on the failure side of the panel.
+- The projection multiplies maximum run counts by mean costs measured on one entry; it is not a guaranteed bound: other reservoir sizes, warm-ups, and storage overhead can change the costs, while first-failure stopping lowers them.
 - Timings are wall-clock in the canonical single-threaded execution environment of this machine (C10); another core type, thread setting, or machine measures differently.
