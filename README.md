@@ -111,7 +111,9 @@ worktree; `--doc005` reruns the historical task 1-a reproduction apart;
 dependency-build parity across a submodule pin advance with
 `arm_rc_ctrl.experiments.build_parity probe` / `compare`. `scripts/play_run.py`
 and `scripts/export_run_sklog.py` take `--task-clock` to shift a run's log onto
-the task clock (warm-up negative, activation at 0 s) without changing the run record.
+the task clock (warm-up negative, activation at 0 s) without changing the run record,
+and look a run up in the configured store when it has no pointer record under
+`data/records/runs` (pilot runs are referenced by their evidence manifests only).
 
 ## Requirements
 

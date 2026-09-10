@@ -39,12 +39,12 @@ from typing import TYPE_CHECKING, Final, cast
 import numpy as np
 
 from arm_rc_ctrl.config import from_mapping, to_mapping
-from arm_rc_ctrl.data.records import is_artifact_id, load_record, verify_payload
-from arm_rc_ctrl.experiments.run_record import RunPointerRecord, load_run
+from arm_rc_ctrl.data.records import is_artifact_id, load_record, verify_payload, write_record
+from arm_rc_ctrl.experiments.run_record import RunPointerRecord, load_run, pointer_from_summary
 from arm_rc_ctrl.provenance import canonical_json, portable_config, sha256_file
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import ScenarioConfig, build_skeleton, load_scenario
-from arm_rc_ctrl.storage import open_storage
+from arm_rc_ctrl.storage import StorageError, StorageRoot, open_storage
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -64,16 +64,38 @@ _SKIPPED: Final = ("t",)
 """Arrays that are not exported as channels (time drives the log)."""
 
 
-def resolve_pointer(run_id: str, records_root: Path) -> Path:
-    """The Git-tracked pointer record of ``run_id`` (full ID grammar enforced)."""
+def resolve_pointer(
+    run_id: str, records_root: Path, *, store: StorageRoot | None = None, scratch: Path | None = None
+) -> Path:
+    """The Git-tracked pointer record of ``run_id`` (full ID grammar enforced), or an evidence-backed one.
+
+    Runs of the repetition pilot are referenced by their evidence manifests
+    rather than by individual pointer records; when no record is tracked and
+    ``store`` and ``scratch`` are given, the pointer is reconstructed from the
+    run's stored summary (the report's own animation export does the same) and
+    written under ``scratch`` for the caller's lifetime.
+    """
     if not is_artifact_id(run_id) or not run_id.startswith("run-"):
         msg = f"{run_id!r} is not a run ID (expected run-<yyyymmdd>-<12 hex digits>)"
         raise ValueError(msg)
     pointer_file = records_root / "data" / "records" / "runs" / f"{run_id}.toml"
-    if not pointer_file.is_file():
+    if pointer_file.is_file():
+        return pointer_file
+    if store is None or scratch is None:
         msg = f"no pointer record for {run_id} under data/records/runs"
         raise FileNotFoundError(msg)
-    return pointer_file
+    try:
+        pointer = pointer_from_summary(store, run_id)
+    except (StorageError, FileNotFoundError, ValueError) as exc:
+        msg = (
+            f"no pointer record for {run_id} under data/records/runs and no stored run summary in the configured "
+            "store to reconstruct one from"
+        )
+        raise FileNotFoundError(msg) from exc
+    scratch.mkdir(parents=True, exist_ok=True)
+    reconstructed = scratch / f"{run_id}.toml"
+    write_record(reconstructed, pointer)
+    return reconstructed
 
 
 def sklog_channels(run: LoadedRun) -> dict[str, NDArray[np.float64]]:
@@ -281,9 +303,11 @@ def _export_parser(description: str) -> argparse.ArgumentParser:
     return parser
 
 
-def _pointer_from_args(args: argparse.Namespace) -> Path:
+def _pointer_from_args(args: argparse.Namespace, store: StorageRoot, scratch: Path) -> Path:
     records_root = repository_root() if args.records_root is None else Path(args.records_root)
-    return Path(args.pointer) if args.pointer is not None else resolve_pointer(str(args.run), records_root)
+    if args.pointer is not None:
+        return Path(args.pointer)
+    return resolve_pointer(str(args.run), records_root, store=store, scratch=scratch)
 
 
 def main_export(argv: Sequence[str] | None = None) -> int:
@@ -292,13 +316,15 @@ def main_export(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, required=True, help=f"output {_SUFFIX} (must not exist)")
     args = parser.parse_args(argv)
     scenario_file = None if args.scenario is None else Path(args.scenario)
-    out = export_run_sklog(
-        open_storage(),
-        _pointer_from_args(args),
-        Path(args.out),
-        scenario_file=scenario_file,
-        task_clock=bool(args.task_clock),
-    )
+    store = open_storage()
+    with tempfile.TemporaryDirectory(prefix="arm-rc-ctrl-pointer-") as scratch:
+        out = export_run_sklog(
+            store,
+            _pointer_from_args(args, store, Path(scratch)),
+            Path(args.out),
+            scenario_file=scenario_file,
+            task_clock=bool(args.task_clock),
+        )
     print(json.dumps({"out": out.name, "player": "python third_party/skelarm/tools/player.py"}))
     return 0
 
@@ -321,10 +347,10 @@ def main_play(argv: Sequence[str] | None = None) -> int:
             parser.error("--fps only applies to --export")
         if not (math.isfinite(args.fps) and args.fps > 0):
             parser.error(f"--fps must be a finite positive number, got {args.fps!r}")
-    pointer_file = _pointer_from_args(args)
     store = open_storage()
     target = None if args.export is None else _video_target(Path(args.export))
     with tempfile.TemporaryDirectory(prefix="arm-rc-ctrl-play-") as scratch:
+        pointer_file = _pointer_from_args(args, store, Path(scratch))
         scenario_file = None if args.scenario is None else Path(args.scenario)
         log = export_run_sklog(
             store,

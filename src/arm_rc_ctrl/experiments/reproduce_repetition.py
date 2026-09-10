@@ -1560,7 +1560,8 @@ def _git(*args: str) -> str:
 def run_from_checkout(scratch: Path, commit: str, forwarded: Sequence[str]) -> int:
     """Reproduce inside a fresh detached worktree at ``commit``: sync, stamp the build manifest, run pinned, keep it."""
     resolved = _git("rev-parse", "--verify", f"{commit}^{{commit}}").strip()
-    checkout = prepare_scratch(scratch) / "checkout"
+    scratch = prepare_scratch(scratch)  # resolved and absolute: the inner command runs in the checkout
+    checkout = scratch / "checkout"
     _git("worktree", "add", "--detach", str(checkout), resolved)
     _git("-C", str(checkout), "submodule", "update", "--init", "third_party/skelarm", "third_party/rtctrl")
     _git("-C", str(checkout), "submodule", "update", "--init", "--recursive", "third_party/rclib")

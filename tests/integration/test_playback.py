@@ -22,7 +22,7 @@ from arm_rc_ctrl.experiments import playback
 from arm_rc_ctrl.experiments.disturbances import ForcePulse
 from arm_rc_ctrl.experiments.playback import export_run_sklog, main_export, main_play, resolve_pointer
 from arm_rc_ctrl.experiments.replay import ReplayResult, run_replay
-from arm_rc_ctrl.experiments.run_record import record_run_pointer
+from arm_rc_ctrl.experiments.run_record import RunPointerRecord, record_run_pointer
 from arm_rc_ctrl.provenance import ArtifactMismatchError
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import load_scenario
@@ -378,3 +378,29 @@ def test_play_installs_the_finished_video_atomically(
         main_play([*base, "--export", str(raced)])
     assert raced.read_bytes() == b"raced"  # the concurrent file survived
     assert sorted(tmp_path.glob("raced*.gif")) == [raced]
+
+
+def test_run_lookup_falls_back_to_the_stored_summary_without_a_pointer_record(
+    replayed: tuple[StorageRoot, Path, ReplayResult], monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """A run without a tracked pointer (a pilot run) exports from its stored summary; an unknown run fails clearly."""
+    store, _records, result = replayed
+    monkeypatch.setenv("ARM_RC_CTRL_STORAGE_ROOT", str(store.root))
+    empty = tmp_path / "no-records"
+    (empty / "data" / "records" / "runs").mkdir(parents=True)
+    run_id = result.pointer.artifact.artifact_id
+    with pytest.raises(FileNotFoundError, match="no pointer record"):
+        resolve_pointer(run_id, empty)
+    reconstructed = resolve_pointer(run_id, empty, store=store, scratch=tmp_path / "scratch")
+    assert reconstructed.parent == tmp_path / "scratch"
+    rebuilt = load_record(reconstructed, RunPointerRecord)
+    assert rebuilt.artifact.artifact_id == result.pointer.artifact.artifact_id
+    assert rebuilt.artifact.payload == result.pointer.artifact.payload
+    assert rebuilt.arrays_sha256 == result.pointer.arrays_sha256
+    out = tmp_path / "fallback.sklog.npz"
+    argv = ["--run", run_id, "--scenario", str(SCENARIO), "--records-root", str(empty), "--out", str(out)]
+    assert main_export(argv) == 0
+    assert out.is_file()
+    missing = "run-20260910-0123456789ab"
+    with pytest.raises(FileNotFoundError, match="no stored run summary"):
+        resolve_pointer(missing, empty, store=store, scratch=tmp_path / "scratch")

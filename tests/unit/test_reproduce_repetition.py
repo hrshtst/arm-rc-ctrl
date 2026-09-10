@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import replace
+from pathlib import Path
 from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any, cast
 
@@ -66,8 +67,6 @@ from arm_rc_ctrl.provenance import ArtifactMismatchError, sha256_file
 from arm_rc_ctrl.storage import StorageRoot
 
 if TYPE_CHECKING:
-    from pathlib import Path
-
     from arm_rc_ctrl.experiments.repetition_evaluation import SimulateFn
     from arm_rc_ctrl.experiments.run_record import LoadedRun
     from arm_rc_ctrl.experiments.termination import Termination
@@ -722,3 +721,32 @@ def test_checkout_reproduction_refuses_an_unknown_commit(tmp_path: Path) -> None
     assert not (tmp_path / "scratch").exists()
     with pytest.raises(ReproductionError, match="rev-parse"):
         main(["--from-checkout", "no-such-commit-0123", "--scratch", str(tmp_path / "main-scratch")])
+
+
+def test_checkout_reproduction_resolves_a_relative_scratch_for_the_inner_command(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A relative scratch is resolved once; the checkout, the sync, and the inner command all use that directory."""
+    monkeypatch.chdir(tmp_path)
+    calls: list[tuple[list[str], object]] = []
+
+    def fake_git(*args: str) -> str:
+        if args[0] == "rev-parse":
+            return "0123456789abcdef0123456789abcdef01234567\n"
+        if args[0] == "worktree":
+            Path(args[3]).mkdir(parents=True)
+        return ""
+
+    def fake_run(command: list[str], **kwargs: object) -> SimpleNamespace:
+        calls.append((list(command), kwargs.get("cwd")))
+        return SimpleNamespace(returncode=0)
+
+    monkeypatch.setattr("arm_rc_ctrl.experiments.reproduce_repetition._git", fake_git)
+    monkeypatch.setattr("arm_rc_ctrl.experiments.reproduce_repetition.subprocess.run", fake_run)
+    assert run_from_checkout(Path("relative-scratch"), "HEAD", ["--skip-fits"]) == 0
+    resolved = (tmp_path / "relative-scratch").resolve()
+    assert (resolved / "checkout").is_dir()
+    assert [cwd for _, cwd in calls] == [resolved / "checkout"] * 3
+    inner = calls[-1][0]
+    assert inner[inner.index("--scratch") + 1] == str(resolved / "inner")
+    assert inner[-1] == "--skip-fits"
