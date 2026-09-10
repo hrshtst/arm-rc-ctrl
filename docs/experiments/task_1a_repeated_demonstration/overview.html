@@ -129,15 +129,20 @@
       This pilot adds the missing control. Every synthetic episode is replaced by an exact copy of the
       original, at six historical configurations, and the ridge parameter is made explicit.</p>
     <div class="verdict">
-      <p><strong>Findings, not yet a verdict.</strong> Of the 120 behavioral configurations, 25 were
+      <p><strong>Closed by the owner's review on 10 September 2026.</strong> Of the 120 behavioral configurations, 25 were
         feasible under the pilot's 12 rad/s evaluation abort, and all 25 train on the original demonstration
         alone, once or in exact copies, with absolute output. No augmented arm and no residual-output arm was feasible. Two of the
         25 complete models, feasible-best's repeated fits at K = 33 and 65, satisfy the historical eligibility
         structure applied as a descriptive diagnostic; its single-demonstration baseline does not. Repeating the demonstration at a fixed ridge parameter changed one entry's verdict and
         shifted early-command medians elsewhere; repeating it with a compensated ridge parameter reproduced
         the single-demonstration result everywhere, with median differences of order 10<sup>−12</sup> or
-        smaller. One numerical equivalence check failed and is carried as an accepted exception. The owner's
-        review (M3REP-GATE) decides what follows; this page reports what was measured.</p>
+        smaller. One numerical equivalence check failed and is carried as an accepted exception. The review's
+        assessment: repetition's benefits are consistent with reduced effective regularization, not additional
+        information from duplicate demonstrations; the two descriptively eligible configurations did not need the
+        relaxed speed allowance; the residual and augmented failures are findings for this fixed panel, not a
+        universal rejection of either method; the reproduction is accepted within the canonical environment with
+        the C11 and C13 qualifications preserved. The pilot is concluded: no model is selected, and any further
+        search or confirmatory study requires a separate approved plan.</p>
     </div>
     <div class="stats" aria-label="Pilot at a glance">
       <div class="stat"><strong data-evidence="configurations">120</strong><span>behavioral configurations: six entries × (<span data-evidence="absolute_per_entry">13</span> absolute + <span data-evidence="residual_per_entry">7</span> residual), plus six numerical references per entry</span></div>

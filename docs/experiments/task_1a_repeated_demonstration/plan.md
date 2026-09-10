@@ -711,3 +711,27 @@ implementation gaps found by the audit: retain the terminal checked state
 separately without fabricating unavailable controller telemetry, and report
 the DOC-005 discrepancy through an actual original task 1-a reproduction
 rerun, not as a recovery-evidence problem.
+
+## 13. Gate decision
+
+The owner closed M3REP-GATE on 2026-09-10 after reviewing the report, the
+overview, and the reproduction audit (verified at `deb50ff`: 27 focused
+tests, and the documented playback command regenerates the committed
+animation byte for byte). The recorded assessment:
+
+- Repetition's benefits are consistent with reduced effective
+  regularization, not additional information from duplicate
+  demonstrations. R-scaled reproduces S's behavioral results.
+- Two configurations, feasible-best absolute R at $K = 33$ and $K = 65$,
+  passed the descriptive eligibility rule without crossing 6 rad/s. Their
+  success did not require the relaxed speed allowance.
+- No residual or augmented configuration was feasible in this fixed panel;
+  this is not a universal rejection of either method.
+- Reproduction is accepted within the canonical environment, with C11's
+  numerical exception and C13's retrospective-subset qualification
+  preserved.
+
+Follow-up decision: conclude this pilot. Any further search or confirmatory
+study requires a separate approved plan; no model is selected for
+deployment. The historical recovery evidence and the locked confirmatory
+suite remain unchanged and unexecuted by this experiment.

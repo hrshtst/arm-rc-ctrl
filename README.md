@@ -53,8 +53,12 @@ paired outcomes, the ridge controls, the residual formulation, the changed
 12 rad/s speed threshold, the historical eligibility structure applied as a
 descriptive diagnostic, limitations, and measured costs, with every
 time-series figure and animation on the task clock (warm-up negative,
-activation at 0 s). It reports findings, including one accepted numerical
-exception, ahead of the owner's review.
+activation at 0 s). The owner's review closed the pilot on 2026-09-10:
+repetition's benefits are consistent with reduced effective regularization,
+not new information from duplicate demonstrations; two configurations passed
+the descriptive eligibility rule without exceeding 6 rad/s; no residual or
+augmented configuration was feasible in this panel; no model is selected and
+any further study requires a separate approved plan.
 
 The reservoir-computing commands (`python -m arm_rc_ctrl.rc.train`,
 `arm_rc_ctrl.experiments.closed_loop`, `arm_rc_ctrl.experiments.paired`,
