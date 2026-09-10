@@ -1,0 +1,15 @@
+schema = "task-1a-repetition-evidence"
+experiment = "task_1a_repetition_v1"
+kind = "model"
+identity = "ffbf86863f0f9371303318ab3c4a99d18efacc3229567c966d4ef0f15449d54c"
+label = "failure-generated-dwell/absolute/R/K33"
+status = "rc_gate_failure"
+n_pairs = 130
+n_completed = 83
+n_unexecuted = 46
+first_failure = "scenario 41 [computed_torque]: dwell:dwell_in_tolerance,dwell_stationary"
+
+[payload]
+uri = "armrc://reports/task_1a_repetition_v1/models/ffbf86863f0f9371303318ab3c4a99d18efacc3229567c966d4ef0f15449d54c/manifest-f7e79b3d7f36.json"
+sha256 = "f7e79b3d7f36d49fa102808ccade92172c2e00d365537d24bd1cf577dc99c821"
+size = 199908

@@ -1,0 +1,15 @@
+schema = "task-1a-repetition-evidence"
+experiment = "task_1a_repetition_v1"
+kind = "model"
+identity = "a8b45f961ee9b3787ed30007efd4f636ce387f0ed850f117a96bc7a2b7cdc5ae"
+label = "failure-generated-dwell/absolute/R-scaled/K17"
+status = "rc_gate_failure"
+n_pairs = 130
+n_completed = 0
+n_unexecuted = 129
+first_failure = "scenario 0 [pd_v2]: generated_dwell:generated_dwell_stationary"
+
+[payload]
+uri = "armrc://reports/task_1a_repetition_v1/models/a8b45f961ee9b3787ed30007efd4f636ce387f0ed850f117a96bc7a2b7cdc5ae/manifest-7c45901dcaaf.json"
+sha256 = "7c45901dcaaffb636c5cc61b33571e9e3d159634de23ae4d99dae4ae262d68f0"
+size = 41189

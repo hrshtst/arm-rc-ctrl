@@ -87,8 +87,10 @@ replay with `arm_rc_ctrl.experiments.repetition_evaluation run --manifest …
 --evaluation configs/evaluations/task_1a_repetition_dev_v1.toml --validation …
 --evidence-dir …` (resumable at run granularity; one Git pointer per model
 configuration and per replay bank), measures one entry's cost with
-`arm_rc_ctrl.experiments.repetition_timing smoke … --output … --markdown …`, and
-records dependency-build parity across a submodule pin advance with
+`arm_rc_ctrl.experiments.repetition_timing smoke … --output … --markdown …`,
+accounts for the executed panel with
+`arm_rc_ctrl.experiments.repetition_accounting account … --output … --markdown …`,
+and records dependency-build parity across a submodule pin advance with
 `arm_rc_ctrl.experiments.build_parity probe` / `compare`.
 
 ## Requirements

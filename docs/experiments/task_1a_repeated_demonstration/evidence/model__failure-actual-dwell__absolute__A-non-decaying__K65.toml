@@ -1,0 +1,15 @@
+schema = "task-1a-repetition-evidence"
+experiment = "task_1a_repetition_v1"
+kind = "model"
+identity = "a17ac3d88882ec74e3334efb632f07de03821b6eca86917d8a1d591757bfae54"
+label = "failure-actual-dwell/absolute/A-non-decaying/K65"
+status = "rc_gate_failure"
+n_pairs = 130
+n_completed = 0
+n_unexecuted = 129
+first_failure = "scenario 0 [pd_v2]: dwell:dwell_stationary"
+
+[payload]
+uri = "armrc://reports/task_1a_repetition_v1/models/a17ac3d88882ec74e3334efb632f07de03821b6eca86917d8a1d591757bfae54/manifest-8679681196e5.json"
+sha256 = "8679681196e57cb976214a1234b6d459ebff815cb1d0439a7bb9ff03233cda17"
+size = 45714

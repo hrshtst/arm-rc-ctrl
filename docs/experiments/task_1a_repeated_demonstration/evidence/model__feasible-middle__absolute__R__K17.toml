@@ -1,0 +1,14 @@
+schema = "task-1a-repetition-evidence"
+experiment = "task_1a_repetition_v1"
+kind = "model"
+identity = "10af93e67fed78b06736be513ec0e31a8a44d70f790051ff31f51b84d5302452"
+label = "feasible-middle/absolute/R/K17"
+status = "feasible"
+n_pairs = 130
+n_completed = 130
+n_unexecuted = 0
+
+[payload]
+uri = "armrc://reports/task_1a_repetition_v1/models/10af93e67fed78b06736be513ec0e31a8a44d70f790051ff31f51b84d5302452/manifest-494ab373462a.json"
+sha256 = "494ab373462a531e4fde0b6d92ae69dc12b45076b4a43fecce2ad427a02e7d71"
+size = 286997

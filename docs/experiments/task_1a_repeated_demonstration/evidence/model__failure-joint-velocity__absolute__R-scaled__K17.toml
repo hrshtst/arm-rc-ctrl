@@ -1,0 +1,14 @@
+schema = "task-1a-repetition-evidence"
+experiment = "task_1a_repetition_v1"
+kind = "model"
+identity = "de0f9d83029350794a08f9e94a8b24146c6680c33ce690b0f09f1426f5228224"
+label = "failure-joint-velocity/absolute/R-scaled/K17"
+status = "feasible"
+n_pairs = 130
+n_completed = 130
+n_unexecuted = 0
+
+[payload]
+uri = "armrc://reports/task_1a_repetition_v1/models/de0f9d83029350794a08f9e94a8b24146c6680c33ce690b0f09f1426f5228224/manifest-0b8897dfdf51.json"
+sha256 = "0b8897dfdf51f7bbf059aa5ebeb0f68f0944e66450f4c3196f7135330378a7ee"
+size = 293955

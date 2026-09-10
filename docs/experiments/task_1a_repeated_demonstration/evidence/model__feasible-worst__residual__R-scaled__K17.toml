@@ -1,0 +1,15 @@
+schema = "task-1a-repetition-evidence"
+experiment = "task_1a_repetition_v1"
+kind = "model"
+identity = "933bbc217df29746d34577c08c4eefe26c8b4e585fd992e0a883192347c5550e"
+label = "feasible-worst/residual/R-scaled/K17"
+status = "rc_gate_failure"
+n_pairs = 130
+n_completed = 0
+n_unexecuted = 129
+first_failure = "scenario 0 [pd_v2]: limit_violation:joint_velocity"
+
+[payload]
+uri = "armrc://reports/task_1a_repetition_v1/models/933bbc217df29746d34577c08c4eefe26c8b4e585fd992e0a883192347c5550e/manifest-5a7547883a60.json"
+sha256 = "5a7547883a603f779e33049cf2cbabacc985a5cfab868a1ee386d846016e84da"
+size = 41881
