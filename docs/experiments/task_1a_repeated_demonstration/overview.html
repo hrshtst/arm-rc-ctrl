@@ -602,12 +602,15 @@
         <tr><th scope="row"><a href="execution_environment_v1.md">Execution record</a> (<a href="execution_environment_v1.json">JSON</a>)</th><td>The canonical single-threaded, performance-core environment bound to every fit and run</td></tr>
         <tr><th scope="row"><a href="rclib_build_parity_v1.md">Build parity</a></th><td>Bitwise parity of the readout solver across the dependency pin advance made for this pilot</td></tr>
         <tr><th scope="row"><a href="retention_incident_2026-09-10.md">Retention incident</a></th><td>The cleared first smoke-check attempt and what survives of it</td></tr>
+        <tr><th scope="row"><a href="reproduction_audit_v1.md">Reproduction audit</a> (<a href="reproduction_audit_v1.json">JSON</a>)</th><td>Ten verification steps from a clean checkout, the declared comparisons, the re-simulation coverage, the DOC-005 status apart, and the gates</td></tr>
       </tbody>
     </table></div>
     <p class="small">Machine-readable records retain code and submodule revisions, resolved configurations,
       hashes, seeds, the execution environment, and worktree state. Every evidence manifest binds the
-      canonical execution identity and carries the C11 caveat. The clean-checkout reproduction (task
-      M3REP-008) had not run when this page was written; its audit will be linked from the ledger.</p>
+      canonical execution identity and carries the C11 caveat. The <a href="reproduction_audit_v1.md">clean-checkout
+      reproduction audit</a> (task M3REP-008) re-verified every record, payload, fit, metric, table, and asset on this
+      page with zero deviation, re-simulated a declared subset of 391 runs bitwise, and reports the historical task 1-a
+      reproduction apart: it passes in the canonical environment and deviates on this machine's efficiency cores.</p>
     <details><summary>Regenerate the tables, figures, and animations</summary>
       <p>Run from the repository root after the <a href="../../../README.md">documented environment and
         external-store setup</a>, launched through the canonical execution environment on this machine.
