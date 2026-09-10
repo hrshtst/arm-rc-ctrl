@@ -1,0 +1,15 @@
+schema = "task-1a-repetition-evidence"
+experiment = "task_1a_repetition_v1"
+kind = "model"
+identity = "d8b974a4b42b0a518369ceb04a83a94bcd28ae68383b7710c412613f0f4f4516"
+label = "feasible-best/residual/R/K33"
+status = "rc_gate_failure"
+n_pairs = 130
+n_completed = 0
+n_unexecuted = 129
+first_failure = "scenario 0 [pd_v2]: early_termination:invalid_output:bounds"
+
+[payload]
+uri = "armrc://reports/task_1a_repetition_v1/models/d8b974a4b42b0a518369ceb04a83a94bcd28ae68383b7710c412613f0f4f4516/manifest-877412289f96.json"
+sha256 = "877412289f9642a19f0bf6fe78805cc701b3738b54f03735131de3fec2440fd3"
+size = 41190

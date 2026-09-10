@@ -634,6 +634,17 @@ are not a benchmark of the new repeated training path. Allow several hours
 for the pilot provisionally, then use the timing smoke check for a concrete
 estimate; do not multiply the entire old runtime by 65.
 
+Measured (M3REP-005, 2026-09-10, canonical execution environment): the
+`feasible-best` configuration across all 20 behavioral arms took 268 s of
+wall time for 1,053 runs (130 replay, 923 RC; every fit served from the
+cache), 264.5 MiB peak resident set size, and 125.5 MiB of run storage; RC
+runs average 0.22 s and replay runs 0.19 s including persistence. Scaled to
+the six entries and three warm-ups with no early stop, the full panel is at
+most 1.02 h of wall time and about 1.9 GiB of run storage, with about 0.84 h
+remaining after the smoke check
+([`timing_smoke_check_v1.md`](timing_smoke_check_v1.md)). M3REP-006 still
+requires the owner's budget approval on that figure (C8).
+
 At the final review, decide whether a larger matched search is scientifically
 useful. Since exact repetition at fixed parameter is equivalent to changing
 $\alpha_0/K$, searching count and ridge parameter independently can introduce

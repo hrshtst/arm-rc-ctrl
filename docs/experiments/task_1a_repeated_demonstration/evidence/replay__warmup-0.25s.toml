@@ -1,0 +1,14 @@
+schema = "task-1a-repetition-evidence"
+experiment = "task_1a_repetition_v1"
+kind = "replay"
+identity = "e60fecac20a7e2b9e21f2148b5f929ad780a0d185d88efafac827dd44ef085d6"
+label = "warmup-0.25s"
+status = "complete"
+n_pairs = 130
+n_completed = 130
+n_unexecuted = 0
+
+[payload]
+uri = "armrc://reports/task_1a_repetition_v1/replay/e60fecac20a7e2b9e21f2148b5f929ad780a0d185d88efafac827dd44ef085d6/manifest-a6e90fd9f7ea.json"
+sha256 = "a6e90fd9f7ea1bee5826d22f2039d00dfeaefff42183855c5d4089501aba49c3"
+size = 248441
