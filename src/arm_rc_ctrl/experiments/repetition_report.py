@@ -54,6 +54,9 @@ from matplotlib.patches import Rectangle
 from arm_rc_ctrl.config import from_mapping, to_mapping
 from arm_rc_ctrl.data.records import write_record
 from arm_rc_ctrl.execution import ExecutionRecord, load_execution
+from arm_rc_ctrl.experiments.recovery_ablation import CELL_SCENARIOS, MIN_IMPROVING
+from arm_rc_ctrl.experiments.recovery_objective import RATIO_CLASSES
+from arm_rc_ctrl.experiments.recovery_search import RECOVERY_TRACKERS
 from arm_rc_ctrl.experiments.repetition_accounting import PilotAccounting, load_accounting
 from arm_rc_ctrl.experiments.repetition_evaluation import (
     C11_CAVEAT,
@@ -94,11 +97,15 @@ if TYPE_CHECKING:
 __all__ = [
     "ANIMATION_DIR",
     "ANIMATION_RULE",
+    "ELIGIBILITY_CELLS",
+    "ELIGIBILITY_RULE",
     "PLOT_DIR",
     "REPORT_SCHEMA_VERSION",
     "REPRESENTATIVE_ARMS",
     "REPRESENTATIVE_RULE",
     "CostRow",
+    "EligibilityCell",
+    "EligibilityRow",
     "EquivalenceRow",
     "OutcomeRow",
     "PairedRow",
@@ -109,6 +116,8 @@ __all__ = [
     "build_report",
     "build_report_inputs",
     "cost_rows",
+    "eligibility_cell",
+    "eligibility_rows",
     "equivalence_rows",
     "load_report",
     "main",
@@ -125,7 +134,7 @@ __all__ = [
     "write_plots",
 ]
 
-REPORT_SCHEMA_VERSION: Final = 1
+REPORT_SCHEMA_VERSION: Final = 2
 PLOT_DIR: Final = "plots/repetition_report_v1"
 ANIMATION_DIR: Final = "animations/repetition_v1"
 REPRESENTATIVE_ARMS: Final = (
@@ -514,6 +523,165 @@ def cost_rows(inputs: ReportInputs) -> tuple[CostRow, ...]:
 
 
 # --- representatives -----------------------------------------------------------------------
+
+
+# --- eligibility diagnostic ------------------------------------------------------------------
+
+
+ELIGIBILITY_RULE: Final = (
+    "Historical recovery-v1 eligibility applied as a descriptive diagnostic (plan section 7.2): every feasibility "
+    "gate under the pilot's 12 rad/s evaluation abort instead of the historical 6 rad/s limit, both median ratios "
+    "against matched replay below 1, and improvement of both early metrics (command-gap ratio below 1 and a smaller "
+    "activation jump than replay) in at least 15 of the 20 scenarios of each of the four posture-class-by-tracker "
+    "cells. Only models that completed every pair are evaluated; incomplete sweeps carry no cell figures. A passing "
+    "configuration is a development candidate only; this pilot selects or freezes no model."
+)
+"""The rule the diagnostic applies, verbatim in the report."""
+
+ELIGIBILITY_CELLS: Final = tuple(f"{kind}:{tracker}" for kind in RATIO_CLASSES for tracker in RECOVERY_TRACKERS)
+"""The four posture-class-by-tracker cells in report order."""
+
+
+@dataclass(frozen=True)
+class EligibilityCell:
+    """One posture-class-by-tracker cell of the historical eligibility structure."""
+
+    gap_median: float
+    """Median early command-gap ratio against matched replay over the cell's scenarios."""
+    jump_median: float
+    """Median ratio of the RC activation jump to the replay activation jump."""
+    improving_both: int
+    """Scenarios with a gap ratio below 1 and a smaller activation jump than replay."""
+    n: int
+    passes: bool | None
+    """The cell verdict; ``None`` when the cell does not hold exactly the protocol's 20 scenarios."""
+
+    def __post_init__(self) -> None:
+        """A verdict exists only for a full cell and must follow from the figures."""
+        if not 0 <= self.improving_both <= self.n:
+            msg = f"cell counts are inconsistent: improving {self.improving_both} of {self.n}"
+            raise ValueError(msg)
+        expected = (
+            None
+            if self.n != CELL_SCENARIOS
+            else (self.gap_median < 1.0 and self.jump_median < 1.0 and self.improving_both >= MIN_IMPROVING)
+        )
+        if self.passes != expected:
+            msg = f"cell verdict {self.passes!r} contradicts its figures {self}"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
+class EligibilityRow:
+    """The diagnostic for one behavioral configuration."""
+
+    panel_label: str
+    formulation: str
+    arm: str
+    count: int
+    status: str
+    n_completed: int
+    n_pairs: int
+    complete: bool
+    """Feasible and every pair completed: the only case in which cells are evaluated."""
+    cells: dict[str, EligibilityCell]
+    eligible: bool | None
+    """All four cells pass; ``None`` for an incomplete sweep or a cell without its 20 scenarios."""
+
+    def __post_init__(self) -> None:
+        """Cells exist exactly for complete sweeps and the verdict follows from them."""
+        if self.complete != (self.status == "feasible" and self.n_completed == self.n_pairs):
+            msg = f"complete={self.complete} contradicts status {self.status!r} with {self.n_completed}/{self.n_pairs}"
+            raise ValueError(msg)
+        if bool(self.cells) != self.complete or (self.complete and set(self.cells) != set(ELIGIBILITY_CELLS)):
+            msg = f"cells {sorted(self.cells)} must be exactly {sorted(ELIGIBILITY_CELLS)} for a complete sweep"
+            raise ValueError(msg)
+        verdicts = [cell.passes for cell in self.cells.values()]
+        expected = None if not self.complete or any(v is None for v in verdicts) else all(verdicts)
+        if self.eligible != expected:
+            msg = f"eligible={self.eligible!r} contradicts the cell verdicts of {self.panel_label}/{self.arm}"
+            raise ValueError(msg)
+
+
+def eligibility_cell(gaps: Sequence[float], jump_ratios: Sequence[float], improving_both: int) -> EligibilityCell:
+    """The cell record of one posture class and tracker from its per-scenario figures."""
+    if len(gaps) != len(jump_ratios) or not gaps:
+        msg = "a cell needs one gap ratio and one jump ratio per scenario"
+        raise ValueError(msg)
+    n = len(gaps)
+    gap_median, jump_median = float(median(gaps)), float(median(jump_ratios))
+    passes = (
+        None if n != CELL_SCENARIOS else (gap_median < 1.0 and jump_median < 1.0 and improving_both >= MIN_IMPROVING)
+    )
+    return EligibilityCell(
+        gap_median=gap_median, jump_median=jump_median, improving_both=improving_both, n=n, passes=passes
+    )
+
+
+def _replay_jumps(bank: ReplayBank) -> dict[tuple[str, str], float]:
+    return {
+        (pair.scenario_id, pair.tracker): pair.replay.activation_jump_rad
+        for pair in bank.pairs
+        if pair.arm == "replay" and pair.replay is not None and pair.replay.activation_jump_rad is not None
+    }
+
+
+def _eligibility_cells(evidence: ModelEvidence, bank: ReplayBank, label: str) -> dict[str, EligibilityCell]:
+    jumps = _replay_jumps(bank)
+    gaps: dict[str, list[float]] = {}
+    ratios: dict[str, list[float]] = {}
+    improving: dict[str, int] = {}
+    for pair in evidence.pairs:
+        if pair.kind not in RATIO_CLASSES:
+            continue
+        component = pair.rc
+        replay_jump = jumps.get((pair.scenario_id, pair.tracker))
+        if (
+            component is None
+            or component.gap_ratio is None
+            or component.activation_jump_rad is None
+            or replay_jump is None
+            or replay_jump <= 0
+        ):
+            msg = f"{label}: pair ({pair.scenario_id}, {pair.tracker}) of a complete sweep lacks its paired figures"
+            raise ValueError(msg)
+        cell = f"{pair.kind}:{pair.tracker}"
+        gaps.setdefault(cell, []).append(component.gap_ratio)
+        ratios.setdefault(cell, []).append(component.activation_jump_rad / replay_jump)
+        if component.gap_ratio < 1.0 and component.activation_jump_rad < replay_jump:
+            improving[cell] = improving.get(cell, 0) + 1
+    if set(gaps) != set(ELIGIBILITY_CELLS):
+        msg = f"{label}: a complete sweep must cover the cells {ELIGIBILITY_CELLS}, got {sorted(gaps)}"
+        raise ValueError(msg)
+    return {cell: eligibility_cell(gaps[cell], ratios[cell], improving.get(cell, 0)) for cell in ELIGIBILITY_CELLS}
+
+
+def eligibility_rows(inputs: ReportInputs) -> tuple[EligibilityRow, ...]:
+    """The descriptive eligibility diagnostic for every configuration, in report order."""
+    rows: list[EligibilityRow] = []
+    for label, evidence in inputs.models.items():
+        entry, arm_label = label.split("/", 1)
+        arm = _arm_of(arm_label)
+        complete = evidence.status == "feasible" and evidence.n_completed == evidence.n_pairs
+        cells: dict[str, EligibilityCell] = {}
+        if complete:
+            cells = _eligibility_cells(evidence, inputs.banks[evidence.conditions.replay.warmup_s], label)
+        verdicts = [cell.passes for cell in cells.values()]
+        rows.append(
+            EligibilityRow(
+                panel_label=entry,
+                formulation=arm.formulation,
+                arm=arm_label,
+                count=arm.count,
+                status=evidence.status,
+                n_completed=evidence.n_completed,
+                n_pairs=evidence.n_pairs,
+                complete=complete,
+                cells=cells,
+                eligible=None if not complete or any(v is None for v in verdicts) else all(verdicts),
+            )
+        )
+    return tuple(rows)
 
 
 @dataclass(frozen=True)
@@ -943,6 +1111,8 @@ class RepetitionReport:
     equivalence: tuple[EquivalenceRow, ...]
     speeds: tuple[SpeedRow, ...]
     costs: tuple[CostRow, ...]
+    eligibility_rule: str
+    eligibility: tuple[EligibilityRow, ...]
     representatives: tuple[Representative, ...]
     peak_rss_bytes: int
     """Process-cumulative peak RSS of the timing smoke check (the panel run recorded none per model)."""
@@ -953,6 +1123,8 @@ class RepetitionReport:
     n_feasible: int
     n_rc_gate_failure: int
     n_crossed_historical: int
+    n_complete: int
+    n_eligible: int
     provenance: ProvenanceRecord
     schema_version: int = field(default=REPORT_SCHEMA_VERSION)
 
@@ -975,6 +1147,19 @@ class RepetitionReport:
         if self.c11_caveat != C11_CAVEAT:
             msg = "the report carries the C11 caveat verbatim"
             raise ValueError(msg)
+        if self.eligibility_rule != ELIGIBILITY_RULE:
+            msg = "the report carries the eligibility rule verbatim"
+            raise ValueError(msg)
+        if [(e.panel_label, e.arm) for e in self.eligibility] != [(o.panel_label, o.arm) for o in self.outcomes]:
+            msg = "the eligibility rows must follow the outcome rows one to one"
+            raise ValueError(msg)
+        eligibility_counts = (
+            sum(1 for e in self.eligibility if e.complete),
+            sum(1 for e in self.eligibility if e.eligible is True),
+        )
+        if (self.n_complete, self.n_eligible) != eligibility_counts:
+            msg = "the recorded eligibility counts contradict the eligibility rows"
+            raise ValueError(msg)
 
 
 def build_report(
@@ -987,6 +1172,7 @@ def build_report(
 ) -> RepetitionReport:
     """Assemble the report from the inputs and the assets written for it."""
     outcomes = outcome_rows(inputs)
+    eligibility = eligibility_rows(inputs)
     conditions = next(iter(inputs.banks.values())).conditions
     return RepetitionReport(
         experiment=EXPERIMENT_LABEL,
@@ -1000,6 +1186,8 @@ def build_report(
         equivalence=equivalence_rows(inputs),
         speeds=speed_rows(inputs),
         costs=cost_rows(inputs),
+        eligibility_rule=ELIGIBILITY_RULE,
+        eligibility=eligibility,
         representatives=tuple(reps),
         peak_rss_bytes=inputs.timing.peak_rss_bytes,
         velocity_abort=conditions.velocity_abort,
@@ -1009,6 +1197,8 @@ def build_report(
         n_feasible=sum(1 for r in outcomes if r.status == "feasible"),
         n_rc_gate_failure=sum(1 for r in outcomes if r.status == "rc_gate_failure"),
         n_crossed_historical=sum(1 for r in outcomes if r.crossed_historical),
+        n_complete=sum(1 for e in eligibility if e.complete),
+        n_eligible=sum(1 for e in eligibility if e.eligible is True),
         provenance=provenance,
     )
 
@@ -1025,6 +1215,27 @@ def load_report(path: Path) -> RepetitionReport:
 
 def _f(value: float | None, digits: int = 4) -> str:
     return "n/a" if value is None else f"{value:.{digits}g}"
+
+
+def _cell_text(cell: EligibilityCell | None) -> str:
+    if cell is None:
+        return "n/a"
+    verdict = "n/a" if cell.passes is None else ("pass" if cell.passes else "fail")
+    return f"gap {_f(cell.gap_median)} / jump {_f(cell.jump_median)} / {cell.improving_both} of {cell.n} / {verdict}"
+
+
+def _eligibility_line(e: EligibilityRow) -> str:
+    if not e.complete:
+        verdict = f"not evaluated ({e.n_completed} of {e.n_pairs} pairs completed)"
+    elif e.eligible is None:
+        verdict = "not evaluated (cells without 20 scenarios)"
+    else:
+        verdict = "**eligible**" if e.eligible else "not eligible"
+    cells = " | ".join(_cell_text(e.cells.get(cell)) for cell in ELIGIBILITY_CELLS)
+    return (
+        f"| {e.panel_label} | {e.formulation} | {e.arm.split('/', 1)[1]} | {e.count} | {e.status} "
+        f"| {e.n_completed} | {cells} | {verdict} |"
+    )
 
 
 def _outcome_line(o: OutcomeRow) -> str:
@@ -1117,6 +1328,19 @@ def render_report_markdown(report: RepetitionReport) -> str:
         ),
         "| --- | --- | ---: | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
         *(_paired_line(p) for p in r.paired),
+        "",
+        "## Eligibility diagnostic (historical recovery-v1 structure under the 12 rad/s evaluation abort)",
+        "",
+        r.eligibility_rule,
+        "",
+        (
+            f"- Complete sweeps: {r.n_complete} of {len(r.eligibility)}; satisfying every cell: {r.n_eligible}; "
+            "the remaining configurations are listed with their completed pairs and carry no cell figures."
+        ),
+        "",
+        ("| entry | formulation | arm | K | status | completed | " + " | ".join(ELIGIBILITY_CELLS) + " | verdict |"),
+        "| --- | --- | --- | ---: | --- | ---: | --- | --- | --- | --- | --- |",
+        *(_eligibility_line(e) for e in r.eligibility),
         "",
         "## Numerical equivalence (M3REP-003)",
         "",

@@ -27,12 +27,18 @@ from arm_rc_ctrl.experiments.repetition_numerics import load_validation
 from arm_rc_ctrl.experiments.repetition_panel import load_panel
 from arm_rc_ctrl.experiments.repetition_recipes import panel_arms
 from arm_rc_ctrl.experiments.repetition_report import (
+    ELIGIBILITY_CELLS,
+    ELIGIBILITY_RULE,
     REPRESENTATIVE_ARMS,
+    EligibilityCell,
+    EligibilityRow,
     OutcomeRow,
     RepetitionReport,
     ReportInputs,
     build_report,
     cost_rows,
+    eligibility_cell,
+    eligibility_rows,
     equivalence_rows,
     load_report,
     outcome_rows,
@@ -229,6 +235,76 @@ def test_report_assembles_roundtrips_and_renders(inputs: ReportInputs, tmp_path:
     with pytest.raises(ValueError, match="C11 caveat"):
         replace(report, c11_caveat="other")
     with pytest.raises(ValueError, match="unsupported"):
-        replace(report, schema_version=2)
+        replace(report, schema_version=report.schema_version + 1)
+    assert report.n_complete == 20
+    assert report.n_eligible == 0  # the crafted cells hold fewer than 20 scenarios, so no verdict exists
+    assert report.eligibility_rule == ELIGIBILITY_RULE
+    assert "## Eligibility diagnostic" in markdown
+    assert markdown.count("not evaluated (cells without 20 scenarios)") == 20
+    with pytest.raises(ValueError, match="eligibility counts"):
+        replace(report, n_eligible=1)
+    with pytest.raises(ValueError, match="eligibility rule"):
+        replace(report, eligibility_rule="other")
+    with pytest.raises(ValueError, match="one to one"):
+        replace(report, eligibility=report.eligibility[1:])
     row = OutcomeRow(**{**to_mapping(report.outcomes[0]), "status": "rc_gate_failure"})  # type: ignore[arg-type]
     assert row.status == "rc_gate_failure"
+
+
+def test_eligibility_cells_follow_the_historical_rule() -> None:
+    """A full 20-scenario cell passes only with both medians below 1 and at least 15 improving scenarios."""
+    below = [0.8] * 20
+    above = [1.2] * 20
+    assert eligibility_cell(below, below, 15).passes is True
+    assert eligibility_cell(below, below, 14).passes is False
+    assert eligibility_cell(above, below, 20).passes is False
+    assert eligibility_cell(below, above, 20).passes is False
+    partial = eligibility_cell(below[:19], below[:19], 19)
+    assert partial.passes is None
+    assert partial.n == 19
+    with pytest.raises(ValueError, match="one gap ratio and one jump ratio"):
+        eligibility_cell(below, below[:19], 10)
+    with pytest.raises(ValueError, match="contradicts"):
+        EligibilityCell(gap_median=0.8, jump_median=0.8, improving_both=20, n=20, passes=False)
+    with pytest.raises(ValueError, match="contradicts"):
+        EligibilityCell(gap_median=0.8, jump_median=0.8, improving_both=19, n=19, passes=True)
+    with pytest.raises(ValueError, match="inconsistent"):
+        EligibilityCell(gap_median=0.8, jump_median=0.8, improving_both=21, n=20, passes=True)
+
+
+def test_eligibility_rows_evaluate_only_complete_sweeps(inputs: ReportInputs) -> None:
+    """Complete crafted sweeps get their four cells; the crafted cells are too small for a verdict."""
+    rows = eligibility_rows(inputs)
+    assert [(r.panel_label, r.arm) for r in rows] == [(o.panel_label, o.arm) for o in outcome_rows(inputs)]
+    assert all(r.complete and r.status == "feasible" and r.n_completed == r.n_pairs == 10 for r in rows)
+    assert all(tuple(r.cells) == ELIGIBILITY_CELLS for r in rows)
+    assert all(r.eligible is None for r in rows)
+    cell = rows[0].cells["posture_small:pd_v2"]
+    assert cell.n == 2
+    assert cell.passes is None
+    assert cell.gap_median == pytest.approx(0.25, rel=1e-6)
+    assert 0 <= cell.improving_both <= cell.n
+    row = rows[0]
+    with pytest.raises(ValueError, match="must be exactly"):
+        replace(row, cells={})
+    with pytest.raises(ValueError, match="contradicts status"):
+        replace(row, complete=False)
+    with pytest.raises(ValueError, match="contradicts the cell verdicts"):
+        replace(row, eligible=True)
+    incomplete = EligibilityRow(
+        panel_label="feasible-best",
+        formulation="absolute",
+        arm="absolute/S",
+        count=1,
+        status="rc_gate_failure",
+        n_completed=3,
+        n_pairs=10,
+        complete=False,
+        cells={},
+        eligible=None,
+    )
+    assert incomplete.eligible is None
+    warmup, bank = next(iter(inputs.banks.items()))
+    reduced = replace(bank, pairs=tuple(p for p in bank.pairs if p.kind != "posture_small"), complete=False)
+    with pytest.raises(ValueError, match="lacks its paired figures"):
+        eligibility_rows(replace(inputs, banks={warmup: reduced}))
