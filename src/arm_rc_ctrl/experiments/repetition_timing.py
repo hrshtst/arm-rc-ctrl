@@ -151,7 +151,10 @@ class TimingReport:
     execution: ExecutionRecord
     models: tuple[ModelTiming, ...]
     runs: tuple[RunTiming, ...]
+    """Every measured run of the replay bank and the models (a resumed run keeps its original measurement)."""
     run_stats: tuple[RunSummaryStats, ...]
+    runs_this_invocation: int
+    """Runs simulated by this invocation (the others were served from the store)."""
     replay_bank_seconds: float
     replay_bank_runs: int
     wall_seconds: float
@@ -272,7 +275,10 @@ def render_timing_markdown(report: TimingReport) -> str:
         "",
         "## Measured cost",
         "",
-        f"- Wall time of this invocation: {_hours(report.wall_seconds)} ({report.wall_seconds:.0f} s).",
+        (
+            f"- Wall time of this invocation: {_hours(report.wall_seconds)} ({report.wall_seconds:.0f} s); "
+            f"{report.runs_this_invocation} of {len(report.runs)} measured runs were simulated by it."
+        ),
         (
             f"- Replay bank: {report.replay_bank_runs} runs in {report.replay_bank_seconds:.0f} s; models: "
             f"{len(report.models)} ({sum(m.runs for m in report.models)} RC runs, "
@@ -282,7 +288,7 @@ def render_timing_markdown(report: TimingReport) -> str:
             f"- Peak resident set size (process-cumulative): {_mib(report.peak_rss_bytes)}; waited-for children: "
             f"{_mib(report.peak_rss_children_bytes)}."
         ),
-        f"- Storage written by this invocation (runs and manifests): {_mib(report.storage_bytes)}.",
+        f"- Storage of the measured runs and this invocation's manifests: {_mib(report.storage_bytes)}.",
         "",
         "| arm | runs | mean simulate s | median simulate s | max simulate s | mean persist s | mean bytes |",
         "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
@@ -386,7 +392,7 @@ def _smoke(args: argparse.Namespace) -> int:
     bank_seconds = time.perf_counter() - bank_started
     evidences = runner.run([entry], arms)
     written = runner.write_pointers(Path(cast("str", args.evidence_dir)))
-    runs = tuple(runner.run_timings)
+    runs = tuple(p.timing for evidence in (bank, *evidences) for p in evidence.pairs if p.timing is not None)
     rss, rss_children = peak_rss_bytes()
     models = _model_timings(runner, evidences)
     behavioral = [arm for arm in panel_arms() if arm.behavioral]
@@ -414,6 +420,7 @@ def _smoke(args: argparse.Namespace) -> int:
         models=models,
         runs=runs,
         run_stats=summarize_timings(runs),
+        runs_this_invocation=len(runner.run_timings),
         replay_bank_seconds=bank_seconds,
         replay_bank_runs=sum(1 for r in runs if r.arm == "replay"),
         wall_seconds=wall,

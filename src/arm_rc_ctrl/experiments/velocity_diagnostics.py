@@ -125,16 +125,23 @@ class VelocityDiagnostics:
     joints: tuple[JointVelocityDiagnostic, ...]
     crossed_historical: bool
     """Whether any joint exceeded the historical limit at any checked state."""
+    termination_kind: str
+    termination_detail: str
     abort: AbortDetail | None
+    """The velocity abort's details (a ``limit_violation`` of the joint speed only)."""
     terminal_state: TerminalCheckedState | None
+    """The last checked state of any run that did not complete (retained apart from the telemetry)."""
 
     def __post_init__(self) -> None:
-        """The summary flag re-derives from the joints and an abort carries its terminal state."""
+        """The summary flag re-derives from the joints; an abort always carries its terminal state."""
         if self.crossed_historical != any(j.first_historical_crossing is not None for j in self.joints):
             msg = "crossed_historical contradicts the joint records"
             raise ValueError(msg)
-        if (self.abort is None) != (self.terminal_state is None):
-            msg = "an abort and its terminal checked state are recorded together"
+        if self.abort is not None and self.terminal_state is None:
+            msg = "an abort carries its terminal checked state"
+            raise ValueError(msg)
+        if (self.termination_kind == "completed") != (self.terminal_state is None):
+            msg = "a terminal checked state is recorded exactly for a run that did not complete"
             raise ValueError(msg)
         if len(self.historical_limit) != len(self.joints) or len(self.abort_limit) != len(self.joints):
             msg = "one limit per joint is required"
@@ -172,8 +179,9 @@ def velocity_diagnostics(
     ``historical`` is the scenario's own per-joint limit (6 rad/s for task 1-a),
     ``abort_limit`` the bound the simulator applied. A ``limit_violation`` of
     the joint speed is recorded with its detail and the last checked state is
-    retained as the terminal state; any other non-completed termination keeps
-    its terminal state too (the abort detail is then ``None``).
+    retained as the terminal state; any other non-completed termination
+    (another limit, an invalid state, a controller failure) keeps its terminal
+    state too, with the abort detail ``None`` and the termination named.
     """
     if not states:
         msg = "velocity diagnostics need at least one checked state"
@@ -223,7 +231,7 @@ def velocity_diagnostics(
             q=tuple(float(v) for v in last.q),
             dq=tuple(float(v) for v in last.dq),
         )
-        if termination.kind == "limit_violation" and termination.limit is not None:
+        if termination.kind == "limit_violation" and termination.limit == "joint_velocity":
             abort = AbortDetail(
                 limit=termination.limit,
                 joint=termination.joint,
@@ -242,6 +250,8 @@ def velocity_diagnostics(
         samples=len(states),
         joints=tuple(joints),
         crossed_historical=any(j.first_historical_crossing is not None for j in joints),
+        termination_kind=termination.kind,
+        termination_detail=termination.detail,
         abort=abort,
         terminal_state=terminal,
     )

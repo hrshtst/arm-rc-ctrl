@@ -318,6 +318,27 @@ class RunArtifact:
 
 
 @dataclass(frozen=True)
+class RunTiming:
+    """Wall time and size of one run this runner simulated and persisted (M3REP-005 measurements)."""
+
+    arm: str
+    label: str
+    """The model label (``<entry>/<arm>``) or ``replay:<bank identity prefix>``."""
+    scenario_id: str
+    tracker: str
+    rows: int
+    simulate_seconds: float
+    persist_seconds: float
+    run_bytes: int
+
+    def __post_init__(self) -> None:
+        """Figures are non-negative."""
+        if min(self.rows, self.simulate_seconds, self.persist_seconds, self.run_bytes) < 0:
+            msg = "run timings are non-negative"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
 class PairRecord:
     """One scenario/tracker pair of one arm with its status, run, outcome, metrics, and speed diagnostics."""
 
@@ -333,6 +354,8 @@ class PairRecord:
     replay: ReplayComponent | None = None
     velocity: VelocityDiagnostics | None = None
     crossed_historical: bool | None = None
+    timing: RunTiming | None = None
+    """The measured cost of the run when this pair was simulated (M3REP-005); resumed pairs keep theirs."""
 
     def __post_init__(self) -> None:
         """The status and arm agree with the attached records."""
@@ -342,8 +365,12 @@ class PairRecord:
             )
             raise ValueError(msg)
         simulated = self.status in ("completed", "infeasible")
-        if simulated != (self.run is not None) or simulated != (self.velocity is not None):
-            msg = f"{self.scenario_id} [{self.tracker}] {self.arm}: a simulated pair carries its run and diagnostics"
+        attached = (self.run is not None, self.velocity is not None, self.timing is not None)
+        if any(flag != simulated for flag in attached):
+            msg = (
+                f"{self.scenario_id} [{self.tracker}] {self.arm}: a simulated pair carries its run, diagnostics, "
+                "and timing"
+            )
             raise ValueError(msg)
         if (self.arm == "rc" and self.replay is not None) or (self.arm == "replay" and self.rc is not None):
             msg = "an rc pair carries an rc component only and a replay pair a replay component only"
@@ -668,27 +695,6 @@ def load_replay_bank(path: Path) -> ReplayBank:
 
 
 @dataclass(frozen=True)
-class RunTiming:
-    """Wall time and size of one run this runner simulated and persisted (M3REP-005 measurements)."""
-
-    arm: str
-    label: str
-    """The model label (``<entry>/<arm>``) or ``replay:<bank identity prefix>``."""
-    scenario_id: str
-    tracker: str
-    rows: int
-    simulate_seconds: float
-    persist_seconds: float
-    run_bytes: int
-
-    def __post_init__(self) -> None:
-        """Figures are non-negative."""
-        if min(self.rows, self.simulate_seconds, self.persist_seconds, self.run_bytes) < 0:
-            msg = "run timings are non-negative"
-            raise ValueError(msg)
-
-
-@dataclass(frozen=True)
 class ModelSweepTiming:
     """Wall time of one model's sweep and how its fit was obtained."""
 
@@ -982,19 +988,19 @@ class PilotRunner:
         rows: int,
         simulate_s: float,
         persist_s: float,
-    ) -> None:
-        self.run_timings.append(
-            RunTiming(
-                arm=arm,
-                label=label,
-                scenario_id=case.scenario_id,
-                tracker=tracker,
-                rows=rows,
-                simulate_seconds=simulate_s,
-                persist_seconds=persist_s,
-                run_bytes=self._last_run_bytes,
-            )
+    ) -> RunTiming:
+        timing = RunTiming(
+            arm=arm,
+            label=label,
+            scenario_id=case.scenario_id,
+            tracker=tracker,
+            rows=rows,
+            simulate_seconds=simulate_s,
+            persist_seconds=persist_s,
+            run_bytes=self._last_run_bytes,
         )
+        self.run_timings.append(timing)
+        return timing
 
     def _diagnostics(
         self, states: Sequence[CheckedState], termination: Termination, prepared: _Prepared
@@ -1058,7 +1064,7 @@ class PilotRunner:
             seeds={},
             run_force=run_force,
         )
-        self._time_run(
+        timing = self._time_run(
             arm="replay",
             label=f"replay:{prepared.conditions.replay.identity[:12]}",
             case=case,
@@ -1079,6 +1085,7 @@ class PilotRunner:
             replay=component,
             velocity=diagnostics,
             crossed_historical=diagnostics.crossed_historical,
+            timing=timing,
         )
 
     def replay_bank(self, entry: PanelEntry) -> ReplayBank:
@@ -1232,7 +1239,7 @@ class PilotRunner:
             seeds={"reservoir": cached.recipe.esn.reservoir.seed},
             run_force=run_force,
         )
-        self._time_run(
+        timing = self._time_run(
             arm="rc",
             label=f"{prepared.entry.label}/{cached.record.arm.label}",
             case=case,
@@ -1253,6 +1260,7 @@ class PilotRunner:
             rc=component,
             velocity=diagnostics,
             crossed_historical=diagnostics.crossed_historical,
+            timing=timing,
         )
 
     def _unexecuted(self, index: int, case: RobustnessScenario, tracker: str) -> PairRecord:

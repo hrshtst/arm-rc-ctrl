@@ -13,7 +13,7 @@ import pytest
 
 from arm_rc_ctrl.controllers.tracking import LimitedTracker, TrackerConfig
 from arm_rc_ctrl.experiments.simulation import CheckedState, simulate
-from arm_rc_ctrl.experiments.termination import completed, limit_violation
+from arm_rc_ctrl.experiments.termination import completed, invalid_output, limit_violation
 from arm_rc_ctrl.experiments.velocity_diagnostics import (
     PHASES,
     VelocityDiagnostics,
@@ -158,7 +158,27 @@ def test_velocity_diagnostics_report_crossings_peaks_and_time_above_by_phase() -
         )
     with pytest.raises(ValueError, match="contradicts"):
         replace(diagnostics, crossed_historical=False)
-    with pytest.raises(ValueError, match="recorded together"):
+    with pytest.raises(ValueError, match="carries its terminal"):
         replace(diagnostics, terminal_state=None)
+    with pytest.raises(ValueError, match="did not complete"):
+        replace(calm, terminal_state=diagnostics.terminal_state)
+    # Any other early termination keeps its terminal state and names the termination; no abort detail exists.
+    failed = velocity_diagnostics(
+        states[:30],
+        invalid_output(states[29].t, 29, "GeneratorError: target leaves the joint bounds", "bounds"),
+        historical=(6.0, 6.0),
+        abort_limit=(12.0, 12.0),
+        activation_s=activation,
+        dwell_start_s=dwell_start,
+        dt=dt,
+    )
+    assert failed.abort is None
+    assert failed.terminal_state is not None
+    assert failed.terminal_state.step == 29
+    assert failed.termination_kind == "invalid_output"
+    assert "joint bounds" in failed.termination_detail
+    assert failed.crossed_historical  # the 7 rad/s samples precede the failure
+    assert diagnostics.termination_kind == "limit_violation"
+    assert calm.termination_kind == "completed"
     with pytest.raises(ValueError, match="phases"):
         replace(joint0, time_above_historical_s={"warmup": 0.0})
