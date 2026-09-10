@@ -1625,6 +1625,7 @@ def prepare_runner(
     arms = _select_arms(cast("list[str] | None", args.arms))
     resolved = {
         "manifest": context.manifest_sha256,
+        "scenario": to_mapping(context.inputs.scenario),
         "evaluation": {evaluation_file.name: sha256_file(evaluation_file)},
         "development_sha256": development_sha256,
         "velocity_abort": list(evaluation.simulation.velocity_abort),

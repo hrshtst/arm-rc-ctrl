@@ -41,7 +41,7 @@ import numpy as np
 from arm_rc_ctrl.config import from_mapping, to_mapping
 from arm_rc_ctrl.data.records import is_artifact_id, load_record, verify_payload
 from arm_rc_ctrl.experiments.run_record import RunPointerRecord, load_run
-from arm_rc_ctrl.provenance import canonical_json, portable_config
+from arm_rc_ctrl.provenance import canonical_json, portable_config, sha256_file
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import ScenarioConfig, build_skeleton, load_scenario
 from arm_rc_ctrl.storage import open_storage
@@ -92,10 +92,28 @@ def sklog_channels(run: LoadedRun) -> dict[str, NDArray[np.float64]]:
     return channels
 
 
-def _playback_extra(run: LoadedRun, scenario: ScenarioConfig, tau_source: str) -> dict[str, object]:
+def _playback_extra(
+    run: LoadedRun,
+    scenario: ScenarioConfig,
+    tau_source: str,
+    *,
+    task_clock: bool = False,
+    scenario_source: str = "provenance",
+) -> dict[str, object]:
     summary = run.summary
     provenance = summary.provenance
+    clock: dict[str, object] = (
+        {
+            "kind": "task",
+            "activation_s": float(summary.activation_s or 0.0),
+            "note": "log times are task-relative (run time minus the activation): warm-up negative, activation at 0",
+        }
+        if task_clock
+        else {"kind": "run", **({} if summary.activation_s is None else {"activation_s": float(summary.activation_s)})}
+    )
     return {
+        "clock": clock,
+        "scenario_source": scenario_source,
         "playback": {
             "task": {
                 "type": "reaching",
@@ -127,18 +145,35 @@ def _playback_extra(run: LoadedRun, scenario: ScenarioConfig, tau_source: str) -
     }
 
 
-def _recorded_scenario(run: LoadedRun, scenario_file: Path | None) -> ScenarioConfig:
-    """The scenario the run was actually recorded under, rebuilt from its provenance.
+def _recorded_scenario(run: LoadedRun, scenario_file: Path | None) -> tuple[ScenarioConfig, str]:
+    """The scenario the run was recorded under, and where it came from.
 
-    The geometry, timing, limits, and task always come from the run's own
-    ``provenance.config``; a supplied ``scenario_file`` is only verified — it
-    must match the recorded scenario completely, so a same-name file with
-    altered links, timing, tolerance, or target is refused.
+    The geometry, timing, limits, and task come from the run's own
+    ``provenance.config`` whenever it holds the scenario; a supplied
+    ``scenario_file`` is then only verified — it must match the recorded
+    scenario completely, so a same-name file with altered links, timing,
+    tolerance, or target is refused. Runs whose provenance binds the scenario
+    only through a study manifest (the repeated-demonstration pilot's runs)
+    carry no scenario mapping; for those the file is required, its name must
+    be the run's recorded scenario name, and the source is reported as
+    ``file:<sha256>`` in the log so the substitution is never silent.
     """
     stored = run.summary.provenance.config.get("scenario")
     if stored is None:
-        msg = f"run {run.pointer.artifact.artifact_id} records no scenario in its provenance"
-        raise ValueError(msg)
+        if scenario_file is None:
+            msg = (
+                f"run {run.pointer.artifact.artifact_id} records no scenario in its provenance; pass the scenario "
+                "file it was recorded under (verified by name, reported as the log's scenario source)"
+            )
+            raise ValueError(msg)
+        given = load_scenario(scenario_file)
+        if given.name != run.summary.scenario:
+            msg = (
+                f"{scenario_file.name} is the scenario {given.name!r}, but the run was recorded under "
+                f"{run.summary.scenario!r}"
+            )
+            raise ValueError(msg)
+        return given, f"file:{sha256_file(scenario_file)}"
     scenario = from_mapping(cast("dict[str, object]", stored), ScenarioConfig)
     if scenario_file is not None:
         given = load_scenario(scenario_file)
@@ -148,11 +183,25 @@ def _recorded_scenario(run: LoadedRun, scenario_file: Path | None) -> ScenarioCo
                 f"(name {scenario.name!r}): links, timing, limits, or task differ"
             )
             raise ValueError(msg)
-    return scenario
+    return scenario, "provenance"
 
 
-def export_run_sklog(store: StorageRoot, pointer_file: Path, out: Path, *, scenario_file: Path | None = None) -> Path:
-    """Convert one verified run into a playable ``*.sklog.npz`` (atomic; never overwrites)."""
+def export_run_sklog(
+    store: StorageRoot,
+    pointer_file: Path,
+    out: Path,
+    *,
+    scenario_file: Path | None = None,
+    task_clock: bool = False,
+) -> Path:
+    """Convert one verified run into a playable ``*.sklog.npz`` (atomic; never overwrites).
+
+    With ``task_clock`` the log's times are the run times minus the recorded
+    activation (repetition plan clarification C5): the warm-up is negative and
+    activation is at 0 s, so the player's ``t = ...`` label reads task time.
+    The run record keeps its run-clock timestamps; the transform is recorded in
+    the log's ``clock`` extra. The default export is unchanged.
+    """
     from skelarm import StateLog  # deferred: pulls in the full skelarm package
 
     if not out.name.endswith(_SUFFIX):
@@ -167,7 +216,10 @@ def export_run_sklog(store: StorageRoot, pointer_file: Path, out: Path, *, scena
         raise ValueError(msg)
     verify_payload(store, pointer.artifact)
     run = load_run(store, pointer)
-    scenario = _recorded_scenario(run, scenario_file)
+    if task_clock and run.summary.activation_s is None:
+        msg = f"{pointer.artifact.artifact_id} records no activation; a task-clock export needs one"
+        raise ValueError(msg)
+    scenario, scenario_source = _recorded_scenario(run, scenario_file)
     arrays = run.arrays.arrays
     tau_source = "tau_applied" if "tau_applied" in arrays else "tau_requested"
     channels = sklog_channels(run)
@@ -186,11 +238,12 @@ def export_run_sklog(store: StorageRoot, pointer_file: Path, out: Path, *, scena
         build_skeleton(scenario),
         producer=f"arm-rc-ctrl playback export of {pointer.artifact.artifact_id}",
         channel_meta={name: meta for name, meta in channel_meta.items() if name in channels},
-        extra=_playback_extra(run, scenario, tau_source),
+        extra=_playback_extra(run, scenario, tau_source, task_clock=task_clock, scenario_source=scenario_source),
     )
     t = np.asarray(arrays["t"], dtype=np.float64)
+    shift = float(run.summary.activation_s or 0.0) if task_clock else 0.0
     for k in range(run.arrays.n_samples):
-        log.record(float(t[k]), **{name: values[k] for name, values in channels.items()})
+        log.record(float(t[k]) - shift, **{name: values[k] for name, values in channels.items()})
     out.parent.mkdir(parents=True, exist_ok=True)
     # numpy's savez appends ".npz" to other suffixes, so the staging name must already end with it.
     handle, staged_name = tempfile.mkstemp(prefix=out.stem, suffix=".tmp.npz", dir=out.parent)
@@ -220,6 +273,11 @@ def _export_parser(description: str) -> argparse.ArgumentParser:
         help="optional scenario TOML to verify: it must match the run's recorded scenario completely",
     )
     parser.add_argument("--records-root", type=Path, default=None)
+    parser.add_argument(
+        "--task-clock",
+        action="store_true",
+        help="shift the log's times by the recorded activation so warm-up is negative and activation is 0 s (C5)",
+    )
     return parser
 
 
@@ -234,7 +292,13 @@ def main_export(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--out", type=Path, required=True, help=f"output {_SUFFIX} (must not exist)")
     args = parser.parse_args(argv)
     scenario_file = None if args.scenario is None else Path(args.scenario)
-    out = export_run_sklog(open_storage(), _pointer_from_args(args), Path(args.out), scenario_file=scenario_file)
+    out = export_run_sklog(
+        open_storage(),
+        _pointer_from_args(args),
+        Path(args.out),
+        scenario_file=scenario_file,
+        task_clock=bool(args.task_clock),
+    )
     print(json.dumps({"out": out.name, "player": "python third_party/skelarm/tools/player.py"}))
     return 0
 
@@ -262,7 +326,13 @@ def main_play(argv: Sequence[str] | None = None) -> int:
     target = None if args.export is None else _video_target(Path(args.export))
     with tempfile.TemporaryDirectory(prefix="arm-rc-ctrl-play-") as scratch:
         scenario_file = None if args.scenario is None else Path(args.scenario)
-        log = export_run_sklog(store, pointer_file, Path(scratch) / f"run{_SUFFIX}", scenario_file=scenario_file)
+        log = export_run_sklog(
+            store,
+            pointer_file,
+            Path(scratch) / f"run{_SUFFIX}",
+            scenario_file=scenario_file,
+            task_clock=bool(args.task_clock),
+        )
         staged_video = None if target is None else _stage_video(target)
         try:
             completed = _run_player(_player_command(args, log, staged_video))

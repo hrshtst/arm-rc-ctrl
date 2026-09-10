@@ -112,6 +112,19 @@ def test_exported_log_carries_state_task_and_identity(
     assert str(tmp_path).encode() not in text
 
 
+def test_task_clock_export_needs_a_recorded_activation(
+    replayed: tuple[StorageRoot, Path, ReplayResult], tmp_path: Path
+) -> None:
+    """A run without an activation boundary cannot be exported on the task clock (C5); the default still can."""
+    store, records, result = replayed
+    pointer = resolve_pointer(result.pointer.artifact.artifact_id, records)
+    with pytest.raises(ValueError, match="records no activation"):
+        export_run_sklog(store, pointer, tmp_path / "task.sklog.npz", scenario_file=SCENARIO, task_clock=True)
+    out = export_run_sklog(store, pointer, tmp_path / "run.sklog.npz", scenario_file=SCENARIO)
+    log = StateLog.load(out)
+    assert log.extra["clock"] == {"kind": "run"}
+
+
 def test_repeated_exports_are_semantically_equal(
     replayed: tuple[StorageRoot, Path, ReplayResult], tmp_path: Path
 ) -> None:

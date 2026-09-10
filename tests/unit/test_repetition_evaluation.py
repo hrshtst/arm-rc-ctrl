@@ -10,11 +10,11 @@ from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
+import numpy as np
 import pytest
 
 from arm_rc_ctrl.config import to_mapping
 from arm_rc_ctrl.controllers.tracking import TrackerConfig
-from arm_rc_ctrl.data.records import ArtifactRecord, Origin, Payload
 from arm_rc_ctrl.experiments import repetition_evaluation
 from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
 from arm_rc_ctrl.experiments.repetition_evaluation import (
@@ -51,7 +51,7 @@ from arm_rc_ctrl.experiments.repetition_fixture import (
 )
 from arm_rc_ctrl.experiments.repetition_numerics import PanelContext
 from arm_rc_ctrl.experiments.repetition_recipes import ArmSpec
-from arm_rc_ctrl.experiments.run_record import RunPointerRecord, RunSummary, load_run
+from arm_rc_ctrl.experiments.run_record import RunPointerRecord, load_run, pointer_from_summary
 from arm_rc_ctrl.provenance import sha256_file
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.storage import StorageRoot
@@ -64,39 +64,8 @@ EVALUATION_FILE = REPO_ROOT / "configs" / "evaluations" / "task_1a_repetition_de
 
 
 def _pointer(store: StorageRoot, artifact_id: str) -> RunPointerRecord:
-    """Rebuild the run pointer from the stored run summary (the pilot keeps no per-run Git pointers)."""
-    directory = store.path(f"armrc://runs/{artifact_id}/run.json", mode="read").parent
-    summary_file = directory / "run.json"
-    summary = RunSummary.from_json(summary_file.read_text(encoding="utf-8"))
-    payload = Payload(
-        f"armrc://runs/{artifact_id}/run.json", sha256_file(summary_file), summary_file.stat().st_size, "run.json", 1
-    )
-    provenance = summary.provenance
-    return RunPointerRecord(
-        artifact=ArtifactRecord(
-            artifact_id=artifact_id,
-            kind="run",
-            created_at=provenance.created_at,
-            license="LicenseRef-Private",
-            access="private",
-            payload=payload,
-            origin=Origin(
-                command="x",
-                config_sha256=provenance.config_sha256,
-                project_commit=provenance.project_commit,
-                project_dirty=provenance.project_dirty,
-                dependency_commits={},
-                sources=(),
-            ),
-        ),
-        method=summary.method,
-        scenario=summary.scenario,
-        termination_kind=summary.termination.kind,
-        success=summary.outcome.success,
-        duration_s=summary.duration_s,
-        n_samples=int(summary.arrays["t"].shape[0]),
-        arrays_sha256=summary.arrays_sha256,
-    )
+    """The pointer of a stored pilot run, rebuilt from its summary (the pilot keeps no per-run Git pointers)."""
+    return pointer_from_summary(store, artifact_id)
 
 
 # --- configuration and identities -------------------------------------------------------
@@ -596,3 +565,54 @@ def test_budget_guard_checkpoints_and_refuses_the_next_run(fixture: PlanarFixtur
         ExecutionBudget(time_seconds=None, storage_bytes=100, storage_baseline_bytes=50).check(
             elapsed_seconds=1.0, used_bytes=50
         )
+
+
+def test_task_clock_export_shifts_a_pilot_run_by_its_activation(
+    fixture: PlanarFixture, evaluated: tuple[CraftedSimulator, ModelEvidence], tmp_path: Path
+) -> None:
+    """A pilot run exported on the task clock starts at minus the warm-up; the run record keeps its run clock (C5)."""
+    from skelarm import StateLog
+
+    from arm_rc_ctrl.data.records import write_record
+    from arm_rc_ctrl.experiments.playback import export_run_sklog, main_export
+
+    f = fixture
+    _fake, evidence = evaluated
+    pair = evidence.pairs[0]
+    assert pair.run is not None
+    pointer = _pointer(f.store, pair.run.artifact_id)
+    pointer_file = tmp_path / f"{pair.run.artifact_id}.toml"
+    write_record(pointer_file, pointer)
+    with pytest.raises(ValueError, match="records no scenario"):
+        export_run_sklog(f.store, pointer_file, tmp_path / "none.sklog.npz")
+    run_clock = export_run_sklog(f.store, pointer_file, tmp_path / "run.sklog.npz", scenario_file=f.scenario_file)
+    task_clock = export_run_sklog(
+        f.store, pointer_file, tmp_path / "task.sklog.npz", scenario_file=f.scenario_file, task_clock=True
+    )
+    run_log, task_log = StateLog.load(run_clock), StateLog.load(task_clock)
+    assert run_log.times[0] == 0.0
+    assert task_log.times[0] == pytest.approx(-f.entry.warmup_s)
+    assert np.allclose(task_log.times, run_log.times - f.entry.warmup_s)
+    assert np.array_equal(task_log.channel("q"), run_log.channel("q"))
+    assert task_log.extra["clock"]["kind"] == "task"
+    assert task_log.extra["clock"]["activation_s"] == f.entry.warmup_s
+    assert run_log.extra["clock"] == {"kind": "run", "activation_s": f.entry.warmup_s}
+    assert task_log.extra["scenario_source"] == f"file:{sha256_file(f.scenario_file)}"
+    loaded = load_run(f.store, pointer)
+    assert float(loaded.arrays.arrays["t"][0]) == 0.0  # the stored evidence keeps its run-clock timestamps
+    argv = [
+        "--pointer",
+        str(pointer_file),
+        "--scenario",
+        str(f.scenario_file),
+        "--out",
+        str(tmp_path / "cli.sklog.npz"),
+        "--task-clock",
+    ]
+    monkeypatch_store = __import__("pytest").MonkeyPatch()
+    monkeypatch_store.setattr("arm_rc_ctrl.experiments.playback.open_storage", lambda: f.store)
+    try:
+        assert main_export(argv) == 0
+    finally:
+        monkeypatch_store.undo()
+    assert StateLog.load(tmp_path / "cli.sklog.npz").times[0] == pytest.approx(-f.entry.warmup_s)

@@ -57,6 +57,7 @@ __all__ = [
     "RunPointerRecord",
     "RunSummary",
     "load_run",
+    "pointer_from_summary",
     "record_run_pointer",
     "write_run",
 ]
@@ -478,6 +479,57 @@ def _identical_existing(final_dir: Path, summary_file: Path, arrays_file: Path) 
             msg = f"{final_dir.name} exists with other content than the staged run; runs are immutable"
             raise FileExistsError(msg)
     return True
+
+
+def pointer_from_summary(
+    store: StorageRoot,
+    artifact_id: str,
+    *,
+    license_label: str = "LicenseRef-Private",
+    access: Literal["private", "internal", "public"] = "private",
+) -> RunPointerRecord:
+    """Rebuild the pointer of a stored run from its summary (for runs that keep no Git pointer of their own).
+
+    The repeated-demonstration pilot binds its runs through evidence manifests
+    rather than per-run pointers (clarification C6); playback and reproduction
+    still need a pointer to verify the payload, so this rebuilds one from the
+    summary the store holds. The licence and access class are not stored with
+    the run and must be given (the pilot writes every run as private).
+    """
+    summary_file = store.path(f"armrc://runs/{artifact_id}/{RUN_SUMMARY_FILE}", mode="read")
+    summary = RunSummary.from_json(summary_file.read_text(encoding="utf-8"))
+    provenance = summary.provenance
+    recorded = provenance.config.get("command")
+    command = (
+        recorded
+        if isinstance(recorded, str) and recorded.strip()
+        else f"reconstructed from the summary of {artifact_id}"
+    )
+    return RunPointerRecord(
+        artifact=ArtifactRecord(
+            artifact_id=artifact_id,
+            kind="run",
+            created_at=provenance.created_at,
+            license=license_label,
+            access=access,
+            payload=Payload(
+                uri=f"armrc://runs/{artifact_id}/{RUN_SUMMARY_FILE}",
+                sha256=sha256_file(summary_file),
+                size=summary_file.stat().st_size,
+                format=RUN_PAYLOAD_FORMAT,
+                schema_version=RUN_SCHEMA_VERSION,
+            ),
+            origin=Origin.from_provenance(provenance, command=command, sources=(), run_id=artifact_id),
+            notes=summary.notes,
+        ),
+        method=summary.method,
+        scenario=summary.scenario,
+        termination_kind=summary.termination.kind,
+        success=summary.outcome.success,
+        duration_s=summary.duration_s,
+        n_samples=int(summary.arrays["t"].shape[0]),
+        arrays_sha256=summary.arrays_sha256,
+    )
 
 
 def load_run(store: StorageRoot, pointer: RunPointerRecord) -> LoadedRun:
