@@ -583,7 +583,7 @@ def _save(fig: Any, out: Path) -> Path:  # noqa: ANN401 - a matplotlib figure
     with tempfile.NamedTemporaryFile(prefix=out.stem, suffix=".tmp.png", dir=out.parent, delete=False) as handle:
         staged = Path(handle.name)
     try:
-        fig.savefig(staged, dpi=110, format="png", metadata={"Software": None})
+        fig.savefig(staged, dpi=100, format="png", metadata={"Software": None}, pil_kwargs={"optimize": True})
         staged.replace(out)
     finally:
         plt.close(fig)
