@@ -1,6 +1,6 @@
 # Task 1-a repetition pilot report tables (v1)
 
-Experiment `task_1a_repetition_v1`; canonical execution identity `a7f034c7aef4`; project commit `78f358a63297`; evaluation abort [12.0, 12.0] rad/s with the historical limit [6.0, 6.0] rad/s reported as a diagnostic.
+Experiment `task_1a_repetition_v1`; canonical execution identity `a7f034c7aef4`; project commit `b1bfa26b9a3e`; evaluation abort [12.0, 12.0] rad/s with the historical limit [6.0, 6.0] rad/s reported as a diagnostic.
 
 - Feasible configurations: 25 of 120; RC-gate failures: 95; configurations that crossed the historical limit in an executed run: 61.
 - Representative rule: For every panel entry, the first pair of the fixed evaluation order (the nominal scenario under pd_v2) of the absolute S, R/K65, R-scaled/K65, and A-contractive/K65 arms and of the residual S arm, whatever its outcome. Declared at the start of M3REP-007, after the execution accounting was visible; the rule selects by position in the panel, never by result, so failures are shown as often as successes.
@@ -286,6 +286,135 @@ Experiment `task_1a_repetition_v1`; canonical execution identity `a7f034c7aef4`;
 | failure-generated-dwell | residual/R-scaled/K17 vs absolute/R-scaled/K17 | 17 | rc_gate_failure | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 | failure-generated-dwell | residual/R-scaled/K33 vs absolute/R-scaled/K33 | 33 | rc_gate_failure | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
 | failure-generated-dwell | residual/R-scaled/K65 vs absolute/R-scaled/K65 | 65 | rc_gate_failure | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | n/a | n/a | n/a | n/a |
+
+## Eligibility diagnostic (historical recovery-v1 structure under the 12 rad/s evaluation abort)
+
+Historical recovery-v1 eligibility applied as a descriptive diagnostic (plan section 7.2): every feasibility gate under the pilot's 12 rad/s evaluation abort instead of the historical 6 rad/s limit, both median ratios against matched replay below 1, and improvement of both early metrics (command-gap ratio below 1 and a smaller activation jump than replay) in at least 15 of the 20 scenarios of each of the four posture-class-by-tracker cells. Only models that completed every pair are evaluated; incomplete sweeps carry no cell figures. A passing configuration is a development candidate only; this pilot selects or freezes no model.
+
+- Complete sweeps: 25 of 120; satisfying every cell: 2; the remaining configurations are listed with their completed pairs and carry no cell figures.
+
+| entry | formulation | arm | K | status | completed | posture_small:pd_v2 | posture_small:computed_torque | posture_large:pd_v2 | posture_large:computed_torque | verdict |
+| --- | --- | --- | ---: | --- | ---: | --- | --- | --- | --- | --- |
+| feasible-best | absolute | S | 1 | feasible | 130 | gap 0.6704 / jump 0.9059 / 11 of 20 / fail | gap 0.3123 / jump 0.9059 / 11 of 20 / fail | gap 0.5288 / jump 0.733 / 15 of 20 / pass | gap 0.2335 / jump 0.733 / 15 of 20 / pass | not eligible |
+| feasible-best | absolute | R/K17 | 17 | feasible | 130 | gap 0.7467 / jump 0.7425 / 12 of 20 / fail | gap 0.2541 / jump 0.7425 / 12 of 20 / fail | gap 0.4331 / jump 0.6053 / 17 of 20 / pass | gap 0.1786 / jump 0.6053 / 18 of 20 / pass | not eligible |
+| feasible-best | absolute | R-scaled/K17 | 17 | feasible | 130 | gap 0.6704 / jump 0.9059 / 11 of 20 / fail | gap 0.3123 / jump 0.9059 / 11 of 20 / fail | gap 0.5288 / jump 0.733 / 15 of 20 / pass | gap 0.2335 / jump 0.733 / 15 of 20 / pass | not eligible |
+| feasible-best | absolute | A-non-decaying/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-best | absolute | A-contractive/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-best | absolute | R/K33 | 33 | feasible | 130 | gap 0.7632 / jump 0.7602 / 16 of 20 / pass | gap 0.2423 / jump 0.7602 / 16 of 20 / pass | gap 0.4154 / jump 0.5691 / 18 of 20 / pass | gap 0.1657 / jump 0.5691 / 18 of 20 / pass | **eligible** |
+| feasible-best | absolute | R-scaled/K33 | 33 | feasible | 130 | gap 0.6704 / jump 0.9059 / 11 of 20 / fail | gap 0.3123 / jump 0.9059 / 11 of 20 / fail | gap 0.5288 / jump 0.733 / 15 of 20 / pass | gap 0.2335 / jump 0.733 / 15 of 20 / pass | not eligible |
+| feasible-best | absolute | A-non-decaying/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-best | absolute | A-contractive/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-best | absolute | R/K65 | 65 | feasible | 130 | gap 0.8012 / jump 0.7652 / 16 of 20 / pass | gap 0.248 / jump 0.7652 / 19 of 20 / pass | gap 0.3827 / jump 0.5241 / 18 of 20 / pass | gap 0.163 / jump 0.5241 / 20 of 20 / pass | **eligible** |
+| feasible-best | absolute | R-scaled/K65 | 65 | feasible | 130 | gap 0.6704 / jump 0.9059 / 11 of 20 / fail | gap 0.3123 / jump 0.9059 / 11 of 20 / fail | gap 0.5288 / jump 0.733 / 15 of 20 / pass | gap 0.2335 / jump 0.733 / 15 of 20 / pass | not eligible |
+| feasible-best | absolute | A-non-decaying/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-best | absolute | A-contractive/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-best | residual | S | 1 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-best | residual | R/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-best | residual | R-scaled/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-best | residual | R/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-best | residual | R-scaled/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-best | residual | R/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-best | residual | R-scaled/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-middle | absolute | S | 1 | feasible | 130 | gap 0.9436 / jump 0.9943 / 11 of 20 / fail | gap 0.9585 / jump 0.9943 / 11 of 20 / fail | gap 0.9167 / jump 0.9906 / 15 of 20 / pass | gap 0.9602 / jump 0.9906 / 15 of 20 / pass | not eligible |
+| feasible-middle | absolute | R/K17 | 17 | feasible | 130 | gap 0.9337 / jump 0.9929 / 11 of 20 / fail | gap 0.9838 / jump 0.9929 / 13 of 20 / fail | gap 0.9305 / jump 0.9784 / 14 of 20 / fail | gap 0.9642 / jump 0.9784 / 18 of 20 / pass | not eligible |
+| feasible-middle | absolute | R-scaled/K17 | 17 | feasible | 130 | gap 0.9436 / jump 0.9943 / 11 of 20 / fail | gap 0.9585 / jump 0.9943 / 11 of 20 / fail | gap 0.9167 / jump 0.9906 / 15 of 20 / pass | gap 0.9602 / jump 0.9906 / 15 of 20 / pass | not eligible |
+| feasible-middle | absolute | A-non-decaying/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-middle | absolute | A-contractive/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-middle | absolute | R/K33 | 33 | feasible | 130 | gap 0.9316 / jump 0.9909 / 12 of 20 / fail | gap 0.991 / jump 0.9909 / 13 of 20 / fail | gap 0.9393 / jump 0.9762 / 14 of 20 / fail | gap 0.9766 / jump 0.9762 / 17 of 20 / pass | not eligible |
+| feasible-middle | absolute | R-scaled/K33 | 33 | feasible | 130 | gap 0.9436 / jump 0.9943 / 11 of 20 / fail | gap 0.9585 / jump 0.9943 / 11 of 20 / fail | gap 0.9167 / jump 0.9906 / 15 of 20 / pass | gap 0.9602 / jump 0.9906 / 15 of 20 / pass | not eligible |
+| feasible-middle | absolute | A-non-decaying/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-middle | absolute | A-contractive/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-middle | absolute | R/K65 | 65 | feasible | 130 | gap 0.9201 / jump 0.989 / 12 of 20 / fail | gap 1.004 / jump 0.989 / 9 of 20 / fail | gap 0.9437 / jump 0.9729 / 14 of 20 / fail | gap 0.9892 / jump 0.9729 / 14 of 20 / fail | not eligible |
+| feasible-middle | absolute | R-scaled/K65 | 65 | feasible | 130 | gap 0.9436 / jump 0.9943 / 11 of 20 / fail | gap 0.9585 / jump 0.9943 / 11 of 20 / fail | gap 0.9167 / jump 0.9906 / 15 of 20 / pass | gap 0.9602 / jump 0.9906 / 15 of 20 / pass | not eligible |
+| feasible-middle | absolute | A-non-decaying/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-middle | absolute | A-contractive/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-middle | residual | S | 1 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-middle | residual | R/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-middle | residual | R-scaled/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-middle | residual | R/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-middle | residual | R-scaled/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-middle | residual | R/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-middle | residual | R-scaled/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-worst | absolute | S | 1 | feasible | 130 | gap 1.286 / jump 1.094 / 0 of 20 / fail | gap 0.6426 / jump 1.094 / 2 of 20 / fail | gap 1.175 / jump 1.024 / 1 of 20 / fail | gap 1.034 / jump 1.024 / 2 of 20 / fail | not eligible |
+| feasible-worst | absolute | R/K17 | 17 | rc_gate_failure | 83 | n/a | n/a | n/a | n/a | not evaluated (83 of 130 pairs completed) |
+| feasible-worst | absolute | R-scaled/K17 | 17 | feasible | 130 | gap 1.286 / jump 1.094 / 0 of 20 / fail | gap 0.6426 / jump 1.094 / 2 of 20 / fail | gap 1.175 / jump 1.024 / 1 of 20 / fail | gap 1.034 / jump 1.024 / 2 of 20 / fail | not eligible |
+| feasible-worst | absolute | A-non-decaying/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-worst | absolute | A-contractive/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-worst | absolute | R/K33 | 33 | rc_gate_failure | 83 | n/a | n/a | n/a | n/a | not evaluated (83 of 130 pairs completed) |
+| feasible-worst | absolute | R-scaled/K33 | 33 | feasible | 130 | gap 1.286 / jump 1.094 / 0 of 20 / fail | gap 0.6426 / jump 1.094 / 2 of 20 / fail | gap 1.175 / jump 1.024 / 1 of 20 / fail | gap 1.034 / jump 1.024 / 2 of 20 / fail | not eligible |
+| feasible-worst | absolute | A-non-decaying/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-worst | absolute | A-contractive/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-worst | absolute | R/K65 | 65 | rc_gate_failure | 8 | n/a | n/a | n/a | n/a | not evaluated (8 of 130 pairs completed) |
+| feasible-worst | absolute | R-scaled/K65 | 65 | feasible | 130 | gap 1.286 / jump 1.094 / 0 of 20 / fail | gap 0.6426 / jump 1.094 / 2 of 20 / fail | gap 1.175 / jump 1.024 / 1 of 20 / fail | gap 1.034 / jump 1.024 / 2 of 20 / fail | not eligible |
+| feasible-worst | absolute | A-non-decaying/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-worst | absolute | A-contractive/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-worst | residual | S | 1 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-worst | residual | R/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-worst | residual | R-scaled/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-worst | residual | R/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-worst | residual | R-scaled/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-worst | residual | R/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| feasible-worst | residual | R-scaled/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-actual-dwell | absolute | S | 1 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-actual-dwell | absolute | R/K17 | 17 | rc_gate_failure | 83 | n/a | n/a | n/a | n/a | not evaluated (83 of 130 pairs completed) |
+| failure-actual-dwell | absolute | R-scaled/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-actual-dwell | absolute | A-non-decaying/K17 | 17 | rc_gate_failure | 44 | n/a | n/a | n/a | n/a | not evaluated (44 of 130 pairs completed) |
+| failure-actual-dwell | absolute | A-contractive/K17 | 17 | rc_gate_failure | 83 | n/a | n/a | n/a | n/a | not evaluated (83 of 130 pairs completed) |
+| failure-actual-dwell | absolute | R/K33 | 33 | rc_gate_failure | 83 | n/a | n/a | n/a | n/a | not evaluated (83 of 130 pairs completed) |
+| failure-actual-dwell | absolute | R-scaled/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-actual-dwell | absolute | A-non-decaying/K33 | 33 | rc_gate_failure | 2 | n/a | n/a | n/a | n/a | not evaluated (2 of 130 pairs completed) |
+| failure-actual-dwell | absolute | A-contractive/K33 | 33 | rc_gate_failure | 83 | n/a | n/a | n/a | n/a | not evaluated (83 of 130 pairs completed) |
+| failure-actual-dwell | absolute | R/K65 | 65 | rc_gate_failure | 83 | n/a | n/a | n/a | n/a | not evaluated (83 of 130 pairs completed) |
+| failure-actual-dwell | absolute | R-scaled/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-actual-dwell | absolute | A-non-decaying/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-actual-dwell | absolute | A-contractive/K65 | 65 | rc_gate_failure | 83 | n/a | n/a | n/a | n/a | not evaluated (83 of 130 pairs completed) |
+| failure-actual-dwell | residual | S | 1 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-actual-dwell | residual | R/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-actual-dwell | residual | R-scaled/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-actual-dwell | residual | R/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-actual-dwell | residual | R-scaled/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-actual-dwell | residual | R/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-actual-dwell | residual | R-scaled/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-joint-velocity | absolute | S | 1 | feasible | 130 | gap 1.125 / jump 0.9745 / 3 of 20 / fail | gap 0.7822 / jump 0.9745 / 5 of 20 / fail | gap 0.9937 / jump 0.9116 / 14 of 20 / fail | gap 1.344 / jump 0.9116 / 5 of 20 / fail | not eligible |
+| failure-joint-velocity | absolute | R/K17 | 17 | feasible | 130 | gap 1.034 / jump 0.9344 / 8 of 20 / fail | gap 0.6586 / jump 0.9344 / 10 of 20 / fail | gap 0.8405 / jump 0.7916 / 18 of 20 / pass | gap 0.9536 / jump 0.7916 / 9 of 20 / fail | not eligible |
+| failure-joint-velocity | absolute | R-scaled/K17 | 17 | feasible | 130 | gap 1.125 / jump 0.9745 / 3 of 20 / fail | gap 0.7822 / jump 0.9745 / 5 of 20 / fail | gap 0.9937 / jump 0.9116 / 14 of 20 / fail | gap 1.344 / jump 0.9116 / 5 of 20 / fail | not eligible |
+| failure-joint-velocity | absolute | A-non-decaying/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-joint-velocity | absolute | A-contractive/K17 | 17 | rc_gate_failure | 82 | n/a | n/a | n/a | n/a | not evaluated (82 of 130 pairs completed) |
+| failure-joint-velocity | absolute | R/K33 | 33 | feasible | 130 | gap 1.045 / jump 0.9374 / 7 of 20 / fail | gap 0.6893 / jump 0.9374 / 10 of 20 / fail | gap 0.8552 / jump 0.8014 / 18 of 20 / pass | gap 0.9872 / jump 0.8014 / 8 of 20 / fail | not eligible |
+| failure-joint-velocity | absolute | R-scaled/K33 | 33 | feasible | 130 | gap 1.125 / jump 0.9745 / 3 of 20 / fail | gap 0.7822 / jump 0.9745 / 5 of 20 / fail | gap 0.9937 / jump 0.9116 / 14 of 20 / fail | gap 1.344 / jump 0.9116 / 5 of 20 / fail | not eligible |
+| failure-joint-velocity | absolute | A-non-decaying/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-joint-velocity | absolute | A-contractive/K33 | 33 | rc_gate_failure | 6 | n/a | n/a | n/a | n/a | not evaluated (6 of 130 pairs completed) |
+| failure-joint-velocity | absolute | R/K65 | 65 | feasible | 130 | gap 1.057 / jump 0.948 / 5 of 20 / fail | gap 0.7074 / jump 0.948 / 10 of 20 / fail | gap 0.9113 / jump 0.8365 / 18 of 20 / pass | gap 1.123 / jump 0.8365 / 7 of 20 / fail | not eligible |
+| failure-joint-velocity | absolute | R-scaled/K65 | 65 | feasible | 130 | gap 1.125 / jump 0.9745 / 3 of 20 / fail | gap 0.7822 / jump 0.9745 / 5 of 20 / fail | gap 0.9937 / jump 0.9116 / 14 of 20 / fail | gap 1.344 / jump 0.9116 / 5 of 20 / fail | not eligible |
+| failure-joint-velocity | absolute | A-non-decaying/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-joint-velocity | absolute | A-contractive/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-joint-velocity | residual | S | 1 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-joint-velocity | residual | R/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-joint-velocity | residual | R-scaled/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-joint-velocity | residual | R/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-joint-velocity | residual | R-scaled/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-joint-velocity | residual | R/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-joint-velocity | residual | R-scaled/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-generated-dwell | absolute | S | 1 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-generated-dwell | absolute | R/K17 | 17 | rc_gate_failure | 83 | n/a | n/a | n/a | n/a | not evaluated (83 of 130 pairs completed) |
+| failure-generated-dwell | absolute | R-scaled/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-generated-dwell | absolute | A-non-decaying/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-generated-dwell | absolute | A-contractive/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-generated-dwell | absolute | R/K33 | 33 | rc_gate_failure | 83 | n/a | n/a | n/a | n/a | not evaluated (83 of 130 pairs completed) |
+| failure-generated-dwell | absolute | R-scaled/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-generated-dwell | absolute | A-non-decaying/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-generated-dwell | absolute | A-contractive/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-generated-dwell | absolute | R/K65 | 65 | rc_gate_failure | 83 | n/a | n/a | n/a | n/a | not evaluated (83 of 130 pairs completed) |
+| failure-generated-dwell | absolute | R-scaled/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-generated-dwell | absolute | A-non-decaying/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-generated-dwell | absolute | A-contractive/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-generated-dwell | residual | S | 1 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-generated-dwell | residual | R/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-generated-dwell | residual | R-scaled/K17 | 17 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-generated-dwell | residual | R/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-generated-dwell | residual | R-scaled/K33 | 33 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-generated-dwell | residual | R/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
+| failure-generated-dwell | residual | R-scaled/K65 | 65 | rc_gate_failure | 0 | n/a | n/a | n/a | n/a | not evaluated (0 of 130 pairs completed) |
 
 ## Numerical equivalence (M3REP-003)
 

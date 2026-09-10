@@ -10,8 +10,16 @@ from urllib.parse import unquote, urlsplit
 
 import pytest
 
+from arm_rc_ctrl.experiments.recovery_ablation import load_ablation
 from arm_rc_ctrl.experiments.repetition_accounting import load_accounting
-from arm_rc_ctrl.experiments.repetition_report import ANIMATION_DIR, PLOT_DIR, load_report, render_report_markdown
+from arm_rc_ctrl.experiments.repetition_report import (
+    ANIMATION_DIR,
+    ELIGIBILITY_CELLS,
+    PLOT_DIR,
+    EligibilityCell,
+    load_report,
+    render_report_markdown,
+)
 from arm_rc_ctrl.experiments.repetition_timing import load_timing
 from arm_rc_ctrl.provenance import sha256_file
 from arm_rc_ctrl.repo import repository_root
@@ -19,6 +27,8 @@ from arm_rc_ctrl.repo import repository_root
 pytestmark = pytest.mark.regression
 
 DOCS = repository_root() / "docs" / "experiments" / "task_1a_repeated_demonstration"
+RECOVERY_DOCS = repository_root() / "docs" / "experiments" / "task_1a_state_conditioned_recovery"
+SOURCE_STUDY = "recovery-search-1a-no-augmentation-v1"
 OVERVIEW = DOCS / "overview.html"
 REPORT = DOCS / "repetition_report_v1.json"
 
@@ -70,6 +80,12 @@ class Overview(HTMLParser):
 def _g(value: float | None) -> str:
     """The report tables' number format (four significant digits, ``n/a`` for an absent value)."""
     return "n/a" if value is None else f"{value:.4g}"
+
+
+def _cell_text(cell: EligibilityCell) -> str:
+    """The page's cell rendering: gap median / jump median / improving of n / verdict."""
+    verdict = "n/a" if cell.passes is None else ("pass" if cell.passes else "fail")
+    return f"{_g(cell.gap_median)} / {_g(cell.jump_median)} / {cell.improving_both} of {cell.n} / {verdict}"
 
 
 def test_overview_binds_the_report_counts_and_caveat() -> None:
@@ -165,6 +181,18 @@ def test_overview_binds_the_derived_counts_comparisons_and_costs() -> None:
         )
         assert not scaled.verdict_changed
         assert page.fields[f"paired:{entry}:R-scaled:gap_diff"] == _g(scaled.signed_difference_median[gap])
+    per_entry = [o for o in report.outcomes if o.panel_label == "feasible-best"]
+    assert page.fields["absolute_per_entry"] == str(sum(1 for o in per_entry if o.formulation == "absolute"))
+    assert page.fields["residual_per_entry"] == str(sum(1 for o in per_entry if o.formulation == "residual"))
+    for formulation in ("absolute", "residual"):
+        scaled_rows = [
+            p
+            for p in report.paired
+            if p.comparison.startswith(f"{formulation}/R-scaled/") and p.comparison.endswith(f" vs {formulation}/S")
+        ]
+        assert len(scaled_rows) == 18  # six entries at three counts within the formulation
+        assert all(not p.verdict_changed for p in scaled_rows)
+        assert page.fields[f"rscaled_{formulation}_comparisons"] == str(len(scaled_rows))
     shown = [c for c in report.costs if c.count in (1, 65)]
     assert len(shown) == 10
     for cost in shown:
@@ -182,3 +210,36 @@ def test_overview_binds_the_derived_counts_comparisons_and_costs() -> None:
     replay = {r.replay_run for r in report.representatives if r.replay_animation is not None}
     assert len(replay) == 1
     assert page.fields["animation:replay:run"] == replay.pop()
+
+
+def test_overview_binds_the_eligibility_diagnostic() -> None:
+    """The descriptive eligibility figures on the page are the report's, and feasible-best S matches trial 17."""
+    page = Overview()
+    report = load_report(REPORT)
+    assert page.fields["eligibility_rule"] == report.eligibility_rule
+    complete = [e for e in report.eligibility if e.complete]
+    assert len(complete) == report.n_complete
+    assert page.fields["complete_models"] == str(report.n_complete)
+    assert page.fields["eligible_models"] == str(report.n_eligible)
+    outcomes = {(o.panel_label, o.arm): o for o in report.outcomes}
+    eligible = [e for e in complete if e.eligible]
+    assert len(eligible) == report.n_eligible
+    crossed = sum(1 for e in eligible if outcomes[(e.panel_label, e.arm)].crossed_historical)
+    assert page.fields["eligible_crossed"] == str(crossed)
+    for row in complete:
+        assert row.eligible is not None  # every complete pilot sweep holds 20 scenarios per cell
+        for cell in ELIGIBILITY_CELLS:
+            assert page.fields[f"elig:{row.panel_label}:{row.arm}:{cell}"] == _cell_text(row.cells[cell])
+        expected = "eligible" if row.eligible else "not eligible"
+        assert page.fields[f"elig:{row.panel_label}:{row.arm}:verdict"] == expected
+    incomplete = [e for e in report.eligibility if not e.complete]
+    assert all(not e.cells and e.eligible is None for e in incomplete)
+    assert all(f"elig:{e.panel_label}:{e.arm}:verdict" not in page.fields for e in incomplete)
+    ablation = load_ablation(RECOVERY_DOCS / "development_ablation_v2.json")
+    trial = next(c for c in ablation.candidates if c.study == SOURCE_STUDY and c.number == 17)
+    baseline = next(e for e in complete if e.panel_label == "feasible-best" and e.arm == "absolute/S")
+    for cell, historical in trial.cells.items():
+        assert baseline.cells[cell].gap_median == pytest.approx(historical.gap_median, rel=1e-6)
+        assert baseline.cells[cell].jump_median == pytest.approx(historical.jump_median, rel=1e-6)
+        assert baseline.cells[cell].improving_both == historical.improving_both
+        assert baseline.cells[cell].passes == historical.passes

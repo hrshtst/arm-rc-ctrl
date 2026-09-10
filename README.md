@@ -50,7 +50,8 @@ The repeated-demonstration pilot that followed is explained in the
 [browser-readable repetition overview](docs/experiments/task_1a_repeated_demonstration/overview.html):
 why the ridge parameter must be explicit, the six-configuration panel, the
 paired outcomes, the ridge controls, the residual formulation, the changed
-12 rad/s speed threshold, limitations, and measured costs, with every
+12 rad/s speed threshold, the historical eligibility structure applied as a
+descriptive diagnostic, limitations, and measured costs, with every
 time-series figure and animation on the task clock (warm-up negative,
 activation at 0 s). It reports findings, including one accepted numerical
 exception, ahead of the owner's review.
