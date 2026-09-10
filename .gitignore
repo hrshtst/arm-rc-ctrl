@@ -89,6 +89,7 @@ storage.toml
 # illustrative documentation; the verified run payloads remain external.
 !/docs/experiments/task_1a/animations/*.gif
 !/docs/experiments/task_1a_state_conditioned_recovery/animations/*.gif
+!/docs/experiments/task_1a_repeated_demonstration/animations/repetition_v1/*.gif
 
 # --- Editors / OS -----------------------------------------------------------
 .vscode/

@@ -46,6 +46,15 @@ and recorded-motion comparisons. It reports the accepted negative result:
 134 feasible models, none eligible for freeze or confirmatory evaluation.
 The page uses the adjacent committed visual assets and includes reproduction commands.
 
+The repeated-demonstration pilot that followed is explained in the
+[browser-readable repetition overview](docs/experiments/task_1a_repeated_demonstration/overview.html):
+why the ridge parameter must be explicit, the six-configuration panel, the
+paired outcomes, the ridge controls, the residual formulation, the changed
+12 rad/s speed threshold, limitations, and measured costs, with every
+time-series figure and animation on the task clock (warm-up negative,
+activation at 0 s). It reports findings, including one accepted numerical
+exception, ahead of the owner's review.
+
 The reservoir-computing commands (`python -m arm_rc_ctrl.rc.train`,
 `arm_rc_ctrl.experiments.closed_loop`, `arm_rc_ctrl.experiments.paired`,
 `arm_rc_ctrl.experiments.scale_pilot`, `arm_rc_ctrl.experiments.esn_study`)
@@ -91,8 +100,9 @@ configuration and per replay bank), measures one entry's cost with
 accounts for the executed panel with
 `arm_rc_ctrl.experiments.repetition_accounting account … --output … --markdown …`,
 renders the report tables, task-clock figures, and task-clock animations with
-`arm_rc_ctrl.experiments.repetition_report render --docs …` (the narrative
-`overview.html` is hand-written against that report), and records
+`arm_rc_ctrl.experiments.repetition_report render --docs …` (thin
+`scripts/render_repetition_report.py`; the narrative `overview.html` is
+hand-written against that report), and records
 dependency-build parity across a submodule pin advance with
 `arm_rc_ctrl.experiments.build_parity probe` / `compare`. `scripts/play_run.py`
 and `scripts/export_run_sklog.py` take `--task-clock` to shift a run's log onto

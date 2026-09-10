@@ -1,0 +1,620 @@
+<!doctype html>
+<!-- Copyright (c) 2026 Hiroshi Atsuta | SPDX-License-Identifier: GPL-3.0-only -->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A human-readable account of the task 1-a repeated-demonstration pilot: why the ridge parameter must be explicit, the six-configuration panel, paired outcomes, ridge controls, the residual formulation, the changed speed threshold, limitations, and costs.">
+  <title>Does repeating one demonstration change recovery? · Task 1-a</title>
+  <style>
+    :root { color-scheme: light; --paper: #f7f5ef; --ink: #203535; --muted: #526462;
+      --teal: #17665e; --line: #d5ddd5; --wash: #e8efea; --amber: #875016; --rose: #934136; }
+    * { box-sizing: border-box; }
+    html { scroll-padding-top: 5rem; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 17px/1.7 system-ui, sans-serif; }
+    a { color: var(--teal); text-underline-offset: .2em; }
+    a:hover { text-decoration-thickness: 2px; }
+    :focus-visible { outline: 3px solid var(--amber); outline-offset: 5px; }
+    .skip { position: absolute; left: 1rem; top: -5rem; background: white; padding: .5rem; z-index: 3; }
+    .skip:focus { top: 1rem; }
+    nav { position: sticky; top: 0; z-index: 2; background: #f7f5eff5; border-bottom: 1px solid var(--line); }
+    nav .inner { max-width: 1160px; margin: auto; display: flex; gap: 1.5rem; padding: .8rem 2rem;
+      align-items: center; overflow-x: auto; font-size: .85rem; white-space: nowrap; }
+    nav a { text-decoration: none; }
+    nav .brand { font-weight: 750; margin-right: auto; }
+    main, footer { max-width: 1100px; margin: auto; padding: 0 2rem; }
+    header { padding: 4.5rem 0 2.5rem; }
+    .eyebrow { color: var(--teal); text-transform: uppercase; letter-spacing: .13em; font-size: .75rem; font-weight: 750; }
+    h1, h2, h3 { line-height: 1.18; letter-spacing: -.025em; }
+    h1 { font-family: Georgia, serif; font-weight: 500; font-size: clamp(2.5rem, 5.4vw, 4.6rem); max-width: 870px; margin: 1rem 0 1.4rem; }
+    h2 { font-size: clamp(1.65rem, 3vw, 2.2rem); margin: .5rem 0 1.3rem; }
+    h3 { font-size: 1.2rem; margin-top: 2rem; }
+    p { max-width: 83ch; margin: 1rem 0; }
+    ul, ol { max-width: 83ch; }
+    li { margin: .35rem 0; }
+    .lead { font-size: 1.2rem; max-width: 74ch; }
+    .small, figcaption, caption { font-size: .86rem; color: var(--muted); }
+    blockquote { margin: 1.5rem 0; padding: .2rem 1.4rem; border-left: 4px solid var(--teal); font-size: 1.08rem; }
+    .verdict { border-left: 4px solid var(--amber); background: #f1e9dc; padding: 1rem 1.4rem; margin: 1.8rem 0; }
+    .verdict p, .note p { margin: .3rem 0; }
+    .stats { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+    .stat { padding: 1.25rem; background: #fffdf8; }
+    .stat + .stat { border-left: 1px solid var(--line); }
+    .stat strong { display: block; font-size: 2.4rem; font-weight: 650; line-height: 1.3; }
+    .stat span { font-size: .8rem; color: var(--muted); display: block; }
+    section { padding: 2.8rem 0; border-top: 1px solid var(--line); }
+    .two { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }
+    .two > *, .motion-grid > * { min-width: 0; }
+    .note { background: var(--wash); padding: 1.1rem 1.4rem; border-radius: 8px; margin: 1.5rem 0; }
+    .formula { font-family: Georgia, serif; font-size: 1.05rem; text-align: center; margin: 1rem 0; }
+    .flow { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: .3rem; margin: 1.5rem 0 .5rem; }
+    .flow div { padding: 1rem; border-top: 5px solid var(--teal); background: var(--wash); }
+    .flow div:first-child { border-color: #7c8684; background: #eae9e3; }
+    .flow div:last-child { border-color: #527c41; }
+    .flow strong, .flow span { display: block; }
+    .flow span { font-size: .82rem; }
+    figure { margin: 1.5rem 0; padding: 1rem; background: white; border: 1px solid var(--line); border-radius: 10px; }
+    figure img { display: block; width: 100%; height: auto; }
+    figcaption { line-height: 1.55; margin-top: .9rem; }
+    figcaption strong { color: var(--ink); }
+    .table-wrap { overflow-x: auto; margin: 1.5rem 0; border: 1px solid var(--line); border-radius: 8px; background: #fffdf8; }
+    table { width: 100%; border-collapse: collapse; font-size: .9rem; font-variant-numeric: tabular-nums; }
+    th, td { padding: .85rem 1rem; border-bottom: 1px solid var(--line); text-align: left; vertical-align: top; }
+    thead { background: var(--wash); }
+    tbody tr:last-child > * { border-bottom: 0; }
+    tbody th { font-weight: 600; }
+    caption { text-align: left; padding: .9rem 1rem; caption-side: bottom; }
+    .fail { color: var(--rose); font-weight: 700; }
+    .pass { color: var(--teal); font-weight: 700; }
+    .numeric { white-space: nowrap; text-align: right; }
+    details { margin: 1.3rem 0; border: 1px solid var(--line); border-radius: 8px; padding: 1rem 1.2rem; }
+    summary { cursor: pointer; font-weight: 650; line-height: 1.5; }
+    details[open] > summary { margin-bottom: 1rem; }
+    details figure { padding: .7rem; }
+    .motion-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1rem; }
+    .motion-grid figure { margin: .8rem 0; }
+    .motion-grid img { aspect-ratio: 1; object-fit: contain; }
+    button { font: inherit; font-size: .9rem; color: white; background: var(--teal); border: 0;
+      border-radius: 6px; padding: .65rem 1rem; cursor: pointer; }
+    button:hover { background: #114b45; }
+    [hidden] { display: none !important; }
+    code, pre { font: .83em/1.6 ui-monospace, monospace; }
+    code { overflow-wrap: anywhere; }
+    pre { padding: 1.1rem; background: #edf0eb; border-radius: 8px; overflow-x: auto; }
+    pre code { font-size: inherit; white-space: pre; }
+    footer { padding-top: 2rem; padding-bottom: 3rem; border-top: 1px solid var(--line); font-size: .8rem; color: var(--muted); }
+    @media (max-width: 700px) {
+      body { font-size: 16px; }
+      main, footer { padding-left: 1.1rem; padding-right: 1.1rem; }
+      nav .inner { padding: .8rem 1.1rem; gap: 1rem; }
+      header { padding-top: 2.5rem; }
+      .stats { grid-template-columns: 1fr 1fr; }
+      .stat:nth-child(3) { border-left: 0; }
+      .stat:nth-child(n+3) { border-top: 1px solid var(--line); }
+      .two, .motion-grid, .flow { grid-template-columns: 1fr; }
+      figure { padding: .5rem; }
+      th, td { padding: .65rem .7rem; }
+    }
+    @media print {
+      body { background: white; font-size: 10pt; }
+      nav, .skip, button, .motion-grid { display: none !important; }
+      main, footer { max-width: none; padding: 0; }
+      header, section { padding: 1rem 0; }
+      h1 { font-size: 32pt; }
+      h2, h3, summary { break-after: avoid; }
+      figure, .stats, tr { break-inside: avoid; }
+      .table-wrap { overflow: visible; }
+      a { color: inherit; }
+    }
+  </style>
+</head>
+<body>
+<a class="skip" href="#main">Skip to report</a>
+<nav aria-label="Report sections"><div class="inner">
+  <a class="brand" href="#main">TASK 1-a / REPETITION</a>
+  <a href="#background">Why</a><a href="#method">Method</a><a href="#results">Results</a>
+  <a href="#ridge">Ridge controls</a><a href="#residual">Residual</a><a href="#speed">Speed limit</a>
+  <a href="#motion">Motion</a><a href="#limitations">Limits &amp; costs</a><a href="#sources">Sources</a>
+</div></nav>
+<main id="main">
+  <header>
+    <div class="eyebrow">Research overview · Simulation · Repetition pilot evidence v1</div>
+    <h1>Does repeating one demonstration<br>change how a robot recovers?</h1>
+    <p class="lead">The <a href="../task_1a_state_conditioned_recovery/overview.html">recovery experiment</a>
+      compared one demonstration with the same demonstration plus 16, 32, or 64 varied synthetic episodes.
+      That comparison changed two things at once: the trajectories and the number of training rows.
+      This pilot adds the missing control. Every synthetic episode is replaced by an exact copy of the
+      original, at six historical configurations, and the ridge parameter is made explicit.</p>
+    <div class="verdict">
+      <p><strong>Findings, not yet a verdict.</strong> Of the 120 behavioral configurations, 25 were
+        feasible under the pilot's 12 rad/s evaluation abort, and all 25 train on the original demonstration
+        alone, once or in exact copies, with absolute output. No augmented arm and no residual-output arm was
+        feasible. Repeating the demonstration at a fixed ridge parameter changed one entry's verdict and
+        shifted early-command medians elsewhere; repeating it with a compensated ridge parameter reproduced
+        the single-demonstration result everywhere, with median differences of order 10<sup>−12</sup> or
+        smaller. One numerical equivalence check failed and is carried as an accepted exception. The owner's
+        review (M3REP-GATE) decides what follows; this page reports what was measured.</p>
+    </div>
+    <div class="stats" aria-label="Pilot at a glance">
+      <div class="stat"><strong data-evidence="configurations">120</strong><span>behavioral configurations: six entries, ten arms, three counts</span></div>
+      <div class="stat"><strong data-evidence="feasible">25</strong><span>feasible models, all single or repeated original demonstration with absolute output</span></div>
+      <div class="stat"><strong data-evidence="rc_gate_failure">95</strong><span>configurations stopped at their first infeasible pair</span></div>
+      <div class="stat"><strong data-evidence="crossed_historical">61</strong><span>configurations that crossed the historical 6 rad/s limit in an executed run</span></div>
+    </div>
+    <p class="small">Experiment <code>task_1a_repetition_v1</code> · Overview written 10 September 2026 ·
+      <a href="repetition_report_v1.md">Report tables</a> · <a href="plan.md">Approved plan</a> ·
+      <a href="pilot_execution_v1.md">Execution accounting</a></p>
+  </header>
+
+  <section id="background">
+    <div class="eyebrow">01 / Why</div>
+    <h2>One demonstration, used many times</h2>
+    <p>The recovery experiment's timing-only arm produced 134 feasible models out of 500 sampled
+      trials, none of which met the recovery eligibility rule, and neither absolute-output augmentation
+      arm produced a feasible model at all. Augmentation, however, changed both the trajectory
+      distribution and the number of loss rows in the readout fit. Whether the extra rows or the varied
+      trajectories mattered could not be told apart.</p>
+    <blockquote>At the same ESN configuration, episode count, and ridge parameter, how does closed-loop
+      recovery differ when the additional episodes are exact repeats versus varied trajectories?</blockquote>
+    <p>The control is cheap to state and subtle to evaluate. The trainer resets the reservoir for every
+      episode and stacks all loss rows into one ridge fit, so <em>K</em> identical episodes produce
+      <em>K</em> identical blocks of rows. The pinned ridge solver adds its parameter directly to the
+      Gram-matrix diagonal without dividing by the row count. Two exact-arithmetic identities follow:</p>
+    <div class="flow">
+      <div><strong>S: the original once, parameter α₀</strong><span>The single-episode baseline of the historical search.</span></div>
+      <div><strong>R: K copies, parameter α₀</strong><span>Identical to S with parameter α₀ / K. The "S-effective" reference fit checks this numerically.</span></div>
+      <div><strong>R-scaled: K copies, parameter K α₀</strong><span>Identical to S itself. Any closed-loop difference from S must be numerical.</span></div>
+    </div>
+    <p class="formula">argmin<sub>W</sub> [ K ‖XW − Y‖² + α₀ ‖W‖² ] = argmin<sub>W</sub> [ ‖XW − Y‖² + (α₀ / K) ‖W‖² ]</p>
+    <p>An improvement from exact repetition alone would therefore point to regularization strength or to
+      floating-point computation, not to additional state coverage. Floating-point accumulation orders can
+      differ between the repeated and the single fit, and small prediction differences can grow in closed
+      loop, so the plan separates a numerical validation from the behavioral comparison
+      (<a href="plan.md">plan sections 2 and 6</a>).</p>
+  </section>
+
+  <section id="method">
+    <div class="eyebrow">02 / Method</div>
+    <h2>Six fixed configurations, ten arms, three counts</h2>
+    <p>The panel was frozen before any pilot arm was trained
+      (<a href="panel_manifest_v1.md">panel manifest</a>). It takes the best, median, and worst feasible
+      trial of the timing-only recovery search by early-gap objective and the lowest-numbered trial of each
+      of three failure categories. Each entry keeps its reservoir seed, size, leak, input scaling, warm-up,
+      and ridge parameter α₀; nothing was retuned.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">Entry</th><th scope="col">Source trial</th><th scope="col">Role in the historical search</th><th scope="col" class="numeric">Warm-up (s)</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">feasible-best</th><td>17</td><td>Rank 1 of 134 feasible trials</td><td class="numeric">0.25</td></tr>
+        <tr><th scope="row">feasible-middle</th><td>136</td><td>Rank 67 of 134</td><td class="numeric">0</td></tr>
+        <tr><th scope="row">feasible-worst</th><td>53</td><td>Rank 134 of 134</td><td class="numeric">1</td></tr>
+        <tr><th scope="row">failure-actual-dwell</th><td>1</td><td>First failure: actual-motion dwell gate</td><td class="numeric">0.25</td></tr>
+        <tr><th scope="row">failure-joint-velocity</th><td>0</td><td>First failure: joint-speed limit (also the historical anchor)</td><td class="numeric">1</td></tr>
+        <tr><th scope="row">failure-generated-dwell</th><td>28</td><td>First failure: generated-reference dwell gate</td><td class="numeric">0</td></tr>
+      </tbody>
+    </table></div>
+    <h3>Arms at every entry</h3>
+    <p>With <em>K</em> ∈ {17, 33, 65} total episodes, every entry trains the arms below. The absolute
+      formulation predicts the next joint position; the residual formulation predicts the next-step
+      increment and reconstructs the command from the measured posture. The equivalences hold within a
+      formulation, never across formulations.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">Arm</th><th scope="col">Training episodes</th><th scope="col">Solver parameter</th><th scope="col">Formulations</th><th scope="col">Role</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">S</th><td>Original once</td><td>α₀</td><td>absolute, residual</td><td>Baseline, evaluated once per entry</td></tr>
+        <tr><th scope="row">R</th><td>K exact copies</td><td>α₀</td><td>absolute, residual</td><td>The requested repetition control</td></tr>
+        <tr><th scope="row">R-scaled</th><td>K exact copies</td><td>K α₀</td><td>absolute, residual</td><td>Regularization-compensated control</td></tr>
+        <tr><th scope="row">A-non-decaying</th><td>Original + K − 1 non-decaying synthetic episodes</td><td>α₀</td><td>absolute</td><td>Count-matched varied-data comparison</td></tr>
+        <tr><th scope="row">A-contractive</th><td>Original + K − 1 contractive synthetic episodes</td><td>α₀</td><td>absolute</td><td>Count-matched target-contracting comparison</td></tr>
+        <tr><th scope="row">S-effective</th><td>Original once</td><td>α₀ / K</td><td>absolute, residual</td><td>Numerical reference for R; fitted and compared, never evaluated in closed loop</td></tr>
+      </tbody>
+    </table></div>
+    <p>That is 78 absolute and 42 residual behavioral configurations, plus 36 S-effective reference fits.
+      Both augmentation families use the fixed anchor of the recovery experiment (σ = 0.05 rad, φ = 0.99,
+      γ = 1, seed bank 1) and the smaller episode banks are verified prefixes of the larger ones.</p>
+    <h3>Numerical validation first</h3>
+    <p>Before any closed-loop run, every fit was checked
+      (<a href="numerical_validation_v1.md">numerical validation</a>): repeated arrays and reservoir states
+      are bitwise identical to the single episode's, the normalized normal-equation residual of every fit is
+      at or below 10<sup>−10</sup>, refits in fresh processes reproduce the cached readouts, and the two
+      identities are compared on a fixed probe matrix at an absolute tolerance of 10<sup>−8</sup> rad and a
+      relative tolerance of 10<sup>−8</sup>. The outcome of those comparisons is in
+      <a href="#ridge">section 04</a>.</p>
+    <h3>Paired closed-loop evaluation</h3>
+    <p>Each behavioral model faced the recovery experiment's 65 development scenarios under two trackers,
+      130 scenario/tracker pairs, against a replay of the demonstration under the same tracker and warm-up.
+      The sweep follows the fixed evaluation order and stops at the model's first infeasible pair; the
+      remaining pairs are recorded as unexecuted rather than failed. Feasibility gates are the historical
+      ones (target dwell, stationary dwell, generated-reference dwell, output bounds) with one declared
+      change: a simulation-only joint-speed abort at
+      <strong data-evidence="velocity_abort">12</strong> rad/s replaces the historical
+      <strong data-evidence="historical_limit">6</strong> rad/s limit, and every crossing of 6 rad/s is
+      recorded per run and phase as a diagnostic (<a href="#speed">section 06</a>).</p>
+    <div class="note"><p><strong>Task clock.</strong> Every time-series figure and animation on this page
+      uses task-relative time, run time minus the warm-up. Warm-up occupies the shaded negative interval,
+      activation is at 0 s, movement runs over [0, 3) s, and dwell over [3, 4] s. The ESN readout is absent
+      before activation; the tracker command is drawn separately so that the hold-to-generation jump at
+      zero is visible. Run records keep their original timestamps; only the export shifts the clock.</p></div>
+    <p>All fits and runs were executed in this machine's canonical execution environment, single-threaded
+      and pinned to its performance cores (<a href="execution_environment_v1.md">execution record</a>,
+      identity <code>a7f034c7aef4</code>), which every run record and cache identity binds.</p>
+  </section>
+
+  <section id="results">
+    <div class="eyebrow">03 / Paired results</div>
+    <h2>Only the original demonstration, with absolute output, produced feasible models</h2>
+    <figure><a href="plots/repetition_report_v1/outcomes_absolute.png"><img
+      src="plots/repetition_report_v1/outcomes_absolute.png" loading="lazy"
+      alt="Grid of the six panel entries against the thirteen absolute-output arms, each cell colored by the outcome of the closed-loop sweep and labeled with the number of completed pairs or the first failure."></a>
+      <figcaption><strong>Absolute output, all six entries and thirteen arms.</strong> Green cells completed
+        all 130 pairs; red cells stopped at their first infeasible pair, with the count of completed pairs.
+        The three feasible entries and failure-joint-velocity are feasible for S, R, and R-scaled at every
+        count, with one exception: feasible-worst's R arm.</figcaption></figure>
+    <div class="table-wrap"><table>
+      <caption>Sweep status of the feasible entries for S and the two repeated arms at K = 65. The report
+        tables carry K = 17 and 33 and every other arm.</caption>
+      <thead><tr><th scope="col">Entry</th><th scope="col">absolute/S</th><th scope="col">absolute/R/K65</th><th scope="col">absolute/R-scaled/K65</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">feasible-best</th><td class="pass" data-evidence="feasible-best:absolute/S:status">feasible</td><td class="pass" data-evidence="feasible-best:absolute/R/K65:status">feasible</td><td class="pass" data-evidence="feasible-best:absolute/R-scaled/K65:status">feasible</td></tr>
+        <tr><th scope="row">feasible-middle</th><td class="pass" data-evidence="feasible-middle:absolute/S:status">feasible</td><td class="pass" data-evidence="feasible-middle:absolute/R/K65:status">feasible</td><td class="pass" data-evidence="feasible-middle:absolute/R-scaled/K65:status">feasible</td></tr>
+        <tr><th scope="row">feasible-worst</th><td class="pass" data-evidence="feasible-worst:absolute/S:status">feasible</td><td class="fail" data-evidence="feasible-worst:absolute/R/K65:status">rc_gate_failure</td><td class="pass" data-evidence="feasible-worst:absolute/R-scaled/K65:status">feasible</td></tr>
+      </tbody>
+    </table></div>
+    <ul>
+      <li><strong>feasible-worst is where repetition at fixed α₀ changed the verdict.</strong> S and R-scaled
+        complete all 130 pairs at every count. R fails at K = 17 and 33 after 83 completed pairs, at scenario
+        41 under computed torque on the dwell gates, and at K = 65 after 8 pairs, at scenario 4 under PD v2
+        on the stationary-dwell gate.</li>
+      <li><strong>At the two dwell-failure entries, R lasts longer than S.</strong> failure-actual-dwell and
+        failure-generated-dwell remain infeasible for every arm, as in the historical search, but S and
+        R-scaled fail at the very first pair whereas R at every count completes 83 pairs before failing at
+        scenario 41 under computed torque.</li>
+      <li><strong>No augmented configuration was feasible</strong> (<span data-evidence="augmented_feasible">0</span>
+        of 36). At the three feasible entries and at failure-generated-dwell both families fail at the first
+        pair: dwell gates at K = 17 and 33, and at feasible-best and feasible-middle the 12 rad/s abort at
+        K = 65. At failure-actual-dwell the contractive family completes 83 pairs at every count and the
+        non-decaying family 44 (K = 17) and 2 (K = 33); at failure-joint-velocity the contractive family
+        completes 82 (K = 17) and 6 (K = 33). The plan's main varied-versus-repeated comparison therefore has
+        no shared completed pairs at any feasible entry; it is a comparison of verdicts.</li>
+      <li><strong>Every residual-output configuration failed at its first pair</strong>
+        (<a href="#residual">section 05</a>).</li>
+    </ul>
+    <h3>Early commands: signed differences, not only verdicts</h3>
+    <p>For pairs both arms completed, the report takes the median of the first-0.5-second command-gap
+      integral and of the activation jump, and the median of their signed differences in original units.
+      The table gives R against S at K = 65; R-scaled against S is listed below it. Comparisons with few
+      shared pairs describe those pairs only.</p>
+    <div class="table-wrap"><table>
+      <caption>Medians over the pairs both arms completed; "diff" is the median of R − S per pair. The worst
+        cell is the largest of the four posture-class-by-tracker early-gap ratios against replay; a
+        feasible sweep has four cells, an incomplete one has none.</caption>
+      <thead><tr><th scope="col">Entry</th><th scope="col" class="numeric">Shared pairs</th><th scope="col" class="numeric">Early gap R</th><th scope="col" class="numeric">Early gap S</th><th scope="col" class="numeric">diff</th><th scope="col" class="numeric">Jump R (rad)</th><th scope="col" class="numeric">Jump S (rad)</th><th scope="col" class="numeric">diff</th><th scope="col" class="numeric">Worst cell R</th><th scope="col" class="numeric">Worst cell S</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">feasible-best</th><td class="numeric" data-evidence="paired:feasible-best:R:shared">130</td><td class="numeric" data-evidence="paired:feasible-best:R:gap_left">0.001827</td><td class="numeric" data-evidence="paired:feasible-best:R:gap_right">0.002408</td><td class="numeric" data-evidence="paired:feasible-best:R:gap_diff">-0.001017</td><td class="numeric" data-evidence="paired:feasible-best:R:jump_left">0.03837</td><td class="numeric" data-evidence="paired:feasible-best:R:jump_right">0.04751</td><td class="numeric" data-evidence="paired:feasible-best:R:jump_diff">-0.02403</td><td class="numeric" data-evidence="paired:feasible-best:R:worst_left">0.8012</td><td class="numeric" data-evidence="paired:feasible-best:R:worst_right">0.6704</td></tr>
+        <tr><th scope="row">feasible-middle</th><td class="numeric" data-evidence="paired:feasible-middle:R:shared">130</td><td class="numeric" data-evidence="paired:feasible-middle:R:gap_left">0.006093</td><td class="numeric" data-evidence="paired:feasible-middle:R:gap_right">0.005676</td><td class="numeric" data-evidence="paired:feasible-middle:R:gap_diff">5.707e-05</td><td class="numeric" data-evidence="paired:feasible-middle:R:jump_left">0.04984</td><td class="numeric" data-evidence="paired:feasible-middle:R:jump_right">0.05159</td><td class="numeric" data-evidence="paired:feasible-middle:R:jump_diff">-0.001637</td><td class="numeric" data-evidence="paired:feasible-middle:R:worst_left">1.004</td><td class="numeric" data-evidence="paired:feasible-middle:R:worst_right">0.9602</td></tr>
+        <tr><th scope="row">feasible-worst</th><td class="numeric" data-evidence="paired:feasible-worst:R:shared">8</td><td class="numeric" data-evidence="paired:feasible-worst:R:gap_left">0.003506</td><td class="numeric" data-evidence="paired:feasible-worst:R:gap_right">0.00345</td><td class="numeric" data-evidence="paired:feasible-worst:R:gap_diff">-0.0008637</td><td class="numeric" data-evidence="paired:feasible-worst:R:jump_left">0.04743</td><td class="numeric" data-evidence="paired:feasible-worst:R:jump_right">0.05342</td><td class="numeric" data-evidence="paired:feasible-worst:R:jump_diff">-0.007945</td><td class="numeric" data-evidence="paired:feasible-worst:R:worst_left">n/a</td><td class="numeric" data-evidence="paired:feasible-worst:R:worst_right">1.286</td></tr>
+        <tr><th scope="row">failure-joint-velocity</th><td class="numeric" data-evidence="paired:failure-joint-velocity:R:shared">130</td><td class="numeric" data-evidence="paired:failure-joint-velocity:R:gap_left">0.004423</td><td class="numeric" data-evidence="paired:failure-joint-velocity:R:gap_right">0.004719</td><td class="numeric" data-evidence="paired:failure-joint-velocity:R:gap_diff">-0.0002777</td><td class="numeric" data-evidence="paired:failure-joint-velocity:R:jump_left">0.04943</td><td class="numeric" data-evidence="paired:failure-joint-velocity:R:jump_right">0.05007</td><td class="numeric" data-evidence="paired:failure-joint-velocity:R:jump_diff">-0.002808</td><td class="numeric" data-evidence="paired:failure-joint-velocity:R:worst_left">1.123</td><td class="numeric" data-evidence="paired:failure-joint-velocity:R:worst_right">1.344</td></tr>
+      </tbody>
+    </table></div>
+    <p>The signed differences do not point one way. At feasible-best the repeated fit's early gap and jump
+      are smaller than S's on the median pair, yet its worst cell is larger and grows with K
+      (0.7467, 0.7632, 0.8012 at K = 17, 33, 65 against S's 0.6704). At feasible-middle the median gap is
+      marginally larger and the worst cell crosses 1 at K = 65. At failure-joint-velocity both medians and the
+      worst cell are smaller for R. At feasible-worst the eight shared pairs precede R's failure.</p>
+    <p>R-scaled against S, K = 65, median signed differences of the early gap:
+      <span data-evidence="paired:feasible-best:R-scaled:gap_diff">-1.72e-14</span> (feasible-best),
+      <span data-evidence="paired:feasible-middle:R-scaled:gap_diff">-1.358e-12</span> (feasible-middle),
+      <span data-evidence="paired:feasible-worst:R-scaled:gap_diff">1.974e-13</span> (feasible-worst),
+      <span data-evidence="paired:failure-joint-velocity:R-scaled:gap_diff">-2.841e-14</span>
+      (failure-joint-velocity); the jump differences are of the same order, and every verdict matches.</p>
+    <figure><a href="plots/repetition_report_v1/worst_cell_by_count.png"><img
+      src="plots/repetition_report_v1/worst_cell_by_count.png" loading="lazy"
+      alt="Worst posture-by-tracker early-gap ratio against episode count for the absolute S, R, and R-scaled arms of the entries with feasible sweeps; R-scaled overlays S, R departs from it."></a>
+      <figcaption><strong>The worst early-gap cell against count.</strong> S is drawn at K = 1. R-scaled
+        overlays S at every count; R departs from it in a direction that differs between entries. A ratio
+        below 1 means the RC command was closer to the demonstration than replay's over the first 0.5 s in
+        that cell; the historical rule also required a per-scenario majority that this page does not
+        evaluate. No model is selected or frozen by this pilot.</figcaption></figure>
+  </section>
+
+  <section id="ridge">
+    <div class="eyebrow">04 / Ridge controls</div>
+    <h2>The compensated control reproduced the baseline; the fixed-parameter control did not</h2>
+    <p>Of the 108 numerical equivalence rows (36 absolute prediction comparisons, and 36 residual
+      comparisons each checked on the increment and on the reconstructed command),
+      <strong data-evidence="equivalence_passed">107</strong> passed the approved tolerances. The one
+      failure is feasible-middle's absolute R/K65 against its S-effective reference: largest prediction
+      difference <span data-evidence="exception_max_abs">2.93e-08</span> rad against the 10<sup>−8</sup> rad
+      tolerance, in a normal-equation system with condition number near 10<sup>9</sup>. The
+      <a href="numerical_validation_v1_diagnosis.md">diagnosis</a> reproduces the discrepancy with an
+      80-bit reference solution and attributes it to floating-point accumulation and solution in that
+      ill-conditioned problem, with the qualification that its NumPy reconstruction can include assembly
+      differences from the Eigen-based solver. The owner accepted the failure as a bound exception (C11)
+      without changing the fit, the tolerances, or the panel:</p>
+    <div class="verdict"><p data-evidence="c11">C11: the feasible-middle absolute R/K65 fit did not demonstrate numerical agreement with S-effective within the approved tolerance (largest prediction difference 2.93e-8 rad); the fit is retained unchanged, the exact-arithmetic ridge identity stands, and this small discrepancy does not establish that closed-loop behavior is unaffected.</p></div>
+    <p>Behaviorally, R-scaled matched S in every one of the 36 absolute and 18 residual verdicts and, where
+      both completed, in every reported median to within about 10<sup>−12</sup>. The exact identity
+      "K copies at K α₀ equals S" therefore survived closed-loop simulation at these settings. R did not
+      match S: it changed the verdict at feasible-worst, prolonged the sweep at the two dwell-failure entries,
+      and shifted the medians shown above. In exact arithmetic R at α₀ is S at α₀ / K, so within this pilot
+      the effect of repetition at a fixed solver parameter is the effect of a K-fold smaller effective ridge
+      parameter, up to floating-point differences. The pilot does not separate a regularization mechanism
+      from numerical computation, and at feasible-middle K = 65 the numerical agreement itself was not
+      demonstrated. The <a href="numerical_validation_v1.md">validation record</a> keeps every comparison,
+      including the failed one, with its measured differences.</p>
+  </section>
+
+  <section id="residual">
+    <div class="eyebrow">05 / Residual formulation</div>
+    <h2>Every residual model failed at its first pair</h2>
+    <p>The 42 residual-output configurations (S, R, and R-scaled at six entries and three counts) all
+      stopped at the nominal scenario under PD v2, the first pair of the evaluation order:
+      <span data-evidence="residual_first_pair_failures">42</span> of 42. Twenty-nine hit the 12 rad/s abort,
+      twelve terminated when the generated command left the joint bounds late in the run, and one
+      (feasible-best residual/R/K17) failed the dwell gates. The residual numerical equivalences passed on
+      both the increment and the reconstructed command, so the closed-loop failures are not a fitting
+      artifact of the repetition arms; the residual S baselines fail in the same way.</p>
+    <div class="two">
+      <figure><a href="plots/repetition_report_v1/outcomes_residual.png"><img
+        src="plots/repetition_report_v1/outcomes_residual.png" loading="lazy"
+        alt="Grid of the six panel entries against the seven residual-output arms; every cell is a first-pair failure."></a>
+        <figcaption><strong>Residual output, all entries and arms.</strong> Every cell stopped at pair 1.</figcaption></figure>
+      <figure><a href="plots/repetition_report_v1/trajectory_feasible-best__residual__S.png"><img
+        src="plots/repetition_report_v1/trajectory_feasible-best__residual__S.png" loading="lazy"
+        alt="Task-clock trajectory of feasible-best residual S on the nominal scenario: joint positions, speeds, torques, and the two predicted increments; the RC posture drifts away from replay and leaves the joint bounds at about 3.7 seconds."></a>
+        <figcaption><strong>feasible-best, residual S, nominal [pd_v2].</strong> The predicted increments
+          (bottom two panels, absent before activation) stay within a few milliradians per step, yet the
+          reconstructed absolute command drifts far from the replay path and leaves the joint bounds during
+          dwell. Increment and reconstructed command are labeled separately.</figcaption></figure>
+    </div>
+    <p>These fits reuse configurations that the historical search tuned for absolute output; the plan
+      prescribed no residual-specific retuning. The result says that repetition did not rescue residual
+      output at these settings, not that residual output is unusable.</p>
+  </section>
+
+  <section id="speed">
+    <div class="eyebrow">06 / Changed speed threshold</div>
+    <h2>A 12 rad/s abort, with 6 rad/s crossings counted separately</h2>
+    <p>The historical searches declared a run infeasible at 6 rad/s joint speed. This pilot lets a
+      simulation continue to 12 rad/s and records every crossing of 6 rad/s per run and phase, so that the
+      paired arms share one threshold while the historical comparison stays visible. Within this pilot,
+      <span data-evidence="crossed_historical_repeat">61</span> configurations crossed 6 rad/s in an executed
+      run and <span data-evidence="aborted_models">37</span> were aborted at 12 rad/s. Among the 25 feasible
+      models, <span data-evidence="feasible_crossed">10</span> crossed 6 rad/s: all seven S, R, and R-scaled
+      sweeps of failure-joint-velocity (peaks 6.08 to 6.16 rad/s) and feasible-middle's three R arms (peaks
+      6.00 to 6.01 rad/s, in six of 130 runs each, while its S and R-scaled arms peak at 5.99 rad/s).</p>
+    <figure><a href="plots/repetition_report_v1/peak_speed.png"><img
+      src="plots/repetition_report_v1/peak_speed.png" loading="lazy"
+      alt="Bar chart of the peak measured joint speed over the executed RC runs of all 120 configurations, colored green below 6 rad/s, orange between 6 and 12, and red for runs aborted at 12; dashed and dotted lines mark the two limits."></a>
+      <figcaption><strong>Peak measured joint speed per configuration.</strong> Green stayed below the
+        historical limit, orange crossed it, red reached the evaluation abort. Almost every residual arm and
+        most augmented arms at K = 65 of the feasible entries are red; the feasible absolute arms sit just
+        under 6 rad/s.</figcaption></figure>
+    <p>Consequences for reading this page: a feasible sweep here is not a recovery-v1 success unless it
+      never crossed 6 rad/s, and the pilot's feasibility fractions cannot be compared with the historical
+      searches' fractions. The dwell and ratio thresholds are unchanged.</p>
+  </section>
+
+  <section id="motion">
+    <div class="eyebrow">07 / Representative motion</div>
+    <h2>Representative runs, chosen by position</h2>
+    <div class="note"><p><strong>Selection rule, declared before any example was viewed.</strong></p>
+      <p data-evidence="representative_rule">For every panel entry, the first pair of the fixed evaluation order (the nominal scenario under pd_v2) of the absolute S, R/K65, R-scaled/K65, and A-contractive/K65 arms and of the residual S arm, whatever its outcome. Declared at the start of M3REP-007, after the execution accounting was visible; the rule selects by position in the panel, never by result, so failures are shown as often as successes.</p></div>
+    <p>Thirty trajectory figures follow from the rule, one per entry and arm; the report lists them all and
+      the table at the end of this section links every one. Each figure draws, on the task clock, the replay
+      tracker command (hold, then the demonstration reference), the replay motion, the RC tracker command
+      (hold, then the readout), the ESN readout itself (absent before activation), and the RC motion, then
+      the joint speeds with both limits, the applied torques, and for residual output the two predicted
+      increments.</p>
+    <div class="two">
+      <figure><a href="plots/repetition_report_v1/trajectory_feasible-best__absolute__S.png"><img
+        src="plots/repetition_report_v1/trajectory_feasible-best__absolute__S.png" loading="lazy"
+        alt="Task-clock trajectory of feasible-best absolute S on the nominal scenario: the RC motion follows the replay motion closely after a visible jump at activation."></a>
+        <figcaption><strong>feasible-best, absolute S, nominal [pd_v2], completed.</strong> Warm-up
+          [−0.25, 0) s shaded; the readout starts at 0 s with a visible jump from the hold.</figcaption></figure>
+      <figure><a href="plots/repetition_report_v1/trajectory_feasible-best__absolute__R__K65.png"><img
+        src="plots/repetition_report_v1/trajectory_feasible-best__absolute__R__K65.png" loading="lazy"
+        alt="Task-clock trajectory of feasible-best absolute R at K equal to 65 on the nominal scenario, completed, drawn with the same channels as the S figure."></a>
+        <figcaption><strong>feasible-best, absolute R/K65, nominal [pd_v2], completed.</strong> The same
+          reservoir and warm-up; only the readout differs.</figcaption></figure>
+    </div>
+    <div class="two">
+      <figure><a href="plots/repetition_report_v1/trajectory_feasible-best__absolute__A-contractive__K65.png"><img
+        src="plots/repetition_report_v1/trajectory_feasible-best__absolute__A-contractive__K65.png" loading="lazy"
+        alt="Task-clock trajectory of feasible-best absolute A-contractive at K equal to 65 on the nominal scenario, aborted when a joint speed reached 12 rad/s."></a>
+        <figcaption><strong>feasible-best, absolute A-contractive/K65, nominal [pd_v2], infeasible.</strong>
+          Aborted at the 12 rad/s joint-speed limit during movement.</figcaption></figure>
+      <figure><a href="plots/repetition_report_v1/trajectory_feasible-worst__absolute__R__K65.png"><img
+        src="plots/repetition_report_v1/trajectory_feasible-worst__absolute__R__K65.png" loading="lazy"
+        alt="Task-clock trajectory of feasible-worst absolute R at K equal to 65 on the nominal scenario, completed; the sweep failed later at scenario 4."></a>
+        <figcaption><strong>feasible-worst, absolute R/K65, nominal [pd_v2], completed.</strong> The
+          representative pair completed; this sweep failed at its ninth pair.</figcaption></figure>
+    </div>
+    <h3>Two RC runs and the replay they share</h3>
+    <p>The animation rule takes feasible-best's representative pair of absolute S and absolute R/K65 and the
+      replay run both were paired with, exported on the task clock. The player's <code>t</code> label shows
+      task time in seconds: the hold runs from −0.25 s, activation is at 0 s, and matching frames show
+      matching task times. The three playbacks are independent, not frame-synchronized.</p>
+    <p class="small">Motion is off until requested. "Stop motion" removes the GIFs.</p>
+    <details open><summary>feasible-best · nominal scenario · PD v2 · absolute S, absolute R/K65, and replay</summary>
+      <button type="button" class="motion-toggle" hidden aria-expanded="false" aria-controls="motion-feasible-best">Play motion set</button>
+      <div class="motion-grid" id="motion-feasible-best" hidden></div>
+      <template>
+        <figure><img src="animations/repetition_v1/feasible-best__absolute__S__rc.gif" alt="Recorded nominal-scenario motion of feasible-best absolute S under PD v2 on the task clock."><figcaption>RC, absolute S<br><code data-evidence="animation:absolute/S:run">run-20260910-79fe0985a4b1</code></figcaption></figure>
+        <figure><img src="animations/repetition_v1/feasible-best__absolute__R__K65__rc.gif" alt="Recorded nominal-scenario motion of feasible-best absolute R at K equal to 65 under PD v2 on the task clock."><figcaption>RC, absolute R/K65<br><code data-evidence="animation:absolute/R/K65:run">run-20260910-10f86520d538</code></figcaption></figure>
+        <figure><img src="animations/repetition_v1/feasible-best__replay_pd_v2.gif" alt="Recorded nominal-scenario motion of the demonstration replay under PD v2 with a 0.25 second warm-up on the task clock."><figcaption>Replay, PD v2<br><code data-evidence="animation:replay:run">run-20260910-54e04960dcbb</code></figcaption></figure>
+      </template>
+      <p class="small">Animations play back recorded joint positions; they do not rerun the controller. The
+        target ring is the 1 cm tolerance. Files:
+        <a href="animations/repetition_v1/feasible-best__absolute__S__rc.gif">absolute S</a>,
+        <a href="animations/repetition_v1/feasible-best__absolute__R__K65__rc.gif">absolute R/K65</a>,
+        <a href="animations/repetition_v1/feasible-best__replay_pd_v2.gif">replay</a>.</p>
+    </details>
+    <details><summary>All thirty representative trajectory figures</summary>
+      <div class="table-wrap"><table>
+        <thead><tr><th scope="col">Entry</th><th scope="col">absolute/S</th><th scope="col">absolute/R/K65</th><th scope="col">absolute/R-scaled/K65</th><th scope="col">absolute/A-contractive/K65</th><th scope="col">residual/S</th></tr></thead>
+        <tbody>
+          <tr><th scope="row">feasible-best</th><td><a href="plots/repetition_report_v1/trajectory_feasible-best__absolute__S.png" class="pass">completed</a></td><td><a href="plots/repetition_report_v1/trajectory_feasible-best__absolute__R__K65.png" class="pass">completed</a></td><td><a href="plots/repetition_report_v1/trajectory_feasible-best__absolute__R-scaled__K65.png" class="pass">completed</a></td><td><a href="plots/repetition_report_v1/trajectory_feasible-best__absolute__A-contractive__K65.png" class="fail">infeasible: limit_violation:joint_velocity</a></td><td><a href="plots/repetition_report_v1/trajectory_feasible-best__residual__S.png" class="fail">infeasible: early_termination:invalid_output:bounds</a></td></tr>
+          <tr><th scope="row">feasible-middle</th><td><a href="plots/repetition_report_v1/trajectory_feasible-middle__absolute__S.png" class="pass">completed</a></td><td><a href="plots/repetition_report_v1/trajectory_feasible-middle__absolute__R__K65.png" class="pass">completed</a></td><td><a href="plots/repetition_report_v1/trajectory_feasible-middle__absolute__R-scaled__K65.png" class="pass">completed</a></td><td><a href="plots/repetition_report_v1/trajectory_feasible-middle__absolute__A-contractive__K65.png" class="fail">infeasible: limit_violation:joint_velocity</a></td><td><a href="plots/repetition_report_v1/trajectory_feasible-middle__residual__S.png" class="fail">infeasible: limit_violation:joint_velocity</a></td></tr>
+          <tr><th scope="row">feasible-worst</th><td><a href="plots/repetition_report_v1/trajectory_feasible-worst__absolute__S.png" class="pass">completed</a></td><td><a href="plots/repetition_report_v1/trajectory_feasible-worst__absolute__R__K65.png" class="pass">completed</a></td><td><a href="plots/repetition_report_v1/trajectory_feasible-worst__absolute__R-scaled__K65.png" class="pass">completed</a></td><td><a href="plots/repetition_report_v1/trajectory_feasible-worst__absolute__A-contractive__K65.png" class="fail">infeasible: dwell:dwell_stationary</a></td><td><a href="plots/repetition_report_v1/trajectory_feasible-worst__residual__S.png" class="fail">infeasible: limit_violation:joint_velocity</a></td></tr>
+          <tr><th scope="row">failure-actual-dwell</th><td><a href="plots/repetition_report_v1/trajectory_failure-actual-dwell__absolute__S.png" class="fail">infeasible: dwell:dwell_stationary</a></td><td><a href="plots/repetition_report_v1/trajectory_failure-actual-dwell__absolute__R__K65.png" class="pass">completed</a></td><td><a href="plots/repetition_report_v1/trajectory_failure-actual-dwell__absolute__R-scaled__K65.png" class="fail">infeasible: dwell:dwell_stationary</a></td><td><a href="plots/repetition_report_v1/trajectory_failure-actual-dwell__absolute__A-contractive__K65.png" class="pass">completed</a></td><td><a href="plots/repetition_report_v1/trajectory_failure-actual-dwell__residual__S.png" class="fail">infeasible: limit_violation:joint_velocity</a></td></tr>
+          <tr><th scope="row">failure-joint-velocity</th><td><a href="plots/repetition_report_v1/trajectory_failure-joint-velocity__absolute__S.png" class="pass">completed</a></td><td><a href="plots/repetition_report_v1/trajectory_failure-joint-velocity__absolute__R__K65.png" class="pass">completed</a></td><td><a href="plots/repetition_report_v1/trajectory_failure-joint-velocity__absolute__R-scaled__K65.png" class="pass">completed</a></td><td><a href="plots/repetition_report_v1/trajectory_failure-joint-velocity__absolute__A-contractive__K65.png" class="fail">infeasible: dwell:dwell_stationary</a></td><td><a href="plots/repetition_report_v1/trajectory_failure-joint-velocity__residual__S.png" class="fail">infeasible: limit_violation:joint_velocity</a></td></tr>
+          <tr><th scope="row">failure-generated-dwell</th><td><a href="plots/repetition_report_v1/trajectory_failure-generated-dwell__absolute__S.png" class="fail">infeasible: generated_dwell:generated_dwell_stationary</a></td><td><a href="plots/repetition_report_v1/trajectory_failure-generated-dwell__absolute__R__K65.png" class="pass">completed</a></td><td><a href="plots/repetition_report_v1/trajectory_failure-generated-dwell__absolute__R-scaled__K65.png" class="fail">infeasible: generated_dwell:generated_dwell_stationary</a></td><td><a href="plots/repetition_report_v1/trajectory_failure-generated-dwell__absolute__A-contractive__K65.png" class="fail">infeasible: dwell:dwell_in_tolerance,dwell_stationary</a></td><td><a href="plots/repetition_report_v1/trajectory_failure-generated-dwell__residual__S.png" class="fail">infeasible: limit_violation:joint_velocity</a></td></tr>
+        </tbody>
+      </table></div>
+      <p class="small">Each cell states the representative pair's outcome; the sweep status of the whole
+        configuration is in the report tables.</p>
+    </details>
+  </section>
+
+  <section id="limitations">
+    <div class="eyebrow">08 / Limitations and costs</div>
+    <h2>What this pilot can and cannot say</h2>
+    <ul>
+      <li>The panel is six configurations chosen from historical development outcomes of one demonstration.
+        Reusing S as the comparator for three counts creates no additional independent baselines.</li>
+      <li>Augmentation uses one fixed anchor and seed bank; the varied arms are fresh matched fits at the
+        panel settings, not the historical study's winners.</li>
+      <li>First-failure censoring hides later behavior: a configuration that stopped at pair 1 tells nothing
+        about the other 129 pairs, and comparisons with few shared pairs describe those pairs only.</li>
+      <li>The repeated control resolves a particular count/loss-scaling confound at these settings. It does
+        not establish a universal causal explanation of the original 2,000-trial result or a general
+        recovery region.</li>
+      <li>The 12 rad/s abort prevents direct comparison of feasibility fractions with the historical
+        searches; 6 rad/s crossings are reported apart so that increased speed tolerance is not mistaken for
+        improved recovery quality.</li>
+      <li>One numerical equivalence check failed and is carried as the accepted exception above; the
+        exact-arithmetic identity is not a demonstrated numerical agreement for that pair.</li>
+      <li>Everything here is simulation in one execution environment; nothing was selected, frozen, or run
+        on hardware.</li>
+    </ul>
+    <h3>Measured cost</h3>
+    <p>A smoke check on feasible-best (<a href="timing_smoke_check_v1.md">timing record</a>) ran
+      <span data-evidence="smoke_runs">1053</span> runs in <span data-evidence="smoke_wall_s">268</span> s of
+      wall time with a process-cumulative peak resident set of
+      <span data-evidence="peak_rss_mib">264.5</span> MiB. Its projection for the full panel, 1.02 h and
+      about 1.9 GiB, multiplied maximum run counts by the means measured on that one entry and was a
+      projection, not a bound. The full panel then added 3,737 runs in 22 minutes and 500 MB, 631 MB in total
+      against the approved 2 GiB, because first-failure stopping removed most of the projected runs
+      (<a href="../../TASKS.md">ledger, M3REP-006</a>). In all, the pilot executed
+      <span data-evidence="panel_rc_runs">4400</span> RC runs and
+      <span data-evidence="panel_replay_runs">390</span> replay runs, and left
+      <span data-evidence="panel_unexecuted">11200</span> pairs unexecuted after first failures
+      (<a href="pilot_execution_v1.md">accounting</a>).</p>
+    <div class="table-wrap"><table>
+      <caption>Mean fit time and mean closed-loop evaluation time per model, over the six entries, for S and
+        the K = 65 arms; K = 17 and 33 are in the report tables. Fit times are those recorded when each fit was
+        made; S-effective fits are never evaluated in closed loop.</caption>
+      <thead><tr><th scope="col">Arm</th><th scope="col" class="numeric">Fit (s)</th><th scope="col" class="numeric">Evaluation (s)</th></tr></thead>
+      <tbody>
+        <tr><th scope="row">absolute/S</th><td class="numeric" data-evidence="cost:absolute/S:fit">0.04</td><td class="numeric" data-evidence="cost:absolute/S:eval">21.7</td></tr>
+        <tr><th scope="row">absolute/R/K65</th><td class="numeric" data-evidence="cost:absolute/R/K65:fit">1.12</td><td class="numeric" data-evidence="cost:absolute/R/K65:eval">22.1</td></tr>
+        <tr><th scope="row">absolute/R-scaled/K65</th><td class="numeric" data-evidence="cost:absolute/R-scaled/K65:fit">1.11</td><td class="numeric" data-evidence="cost:absolute/R-scaled/K65:eval">21.6</td></tr>
+        <tr><th scope="row">absolute/A-non-decaying/K65</th><td class="numeric" data-evidence="cost:absolute/A-non-decaying/K65:fit">5.23</td><td class="numeric" data-evidence="cost:absolute/A-non-decaying/K65:eval">0.1</td></tr>
+        <tr><th scope="row">absolute/A-contractive/K65</th><td class="numeric" data-evidence="cost:absolute/A-contractive/K65:fit">5.23</td><td class="numeric" data-evidence="cost:absolute/A-contractive/K65:eval">3.3</td></tr>
+        <tr><th scope="row">absolute/S-effective/K65</th><td class="numeric" data-evidence="cost:absolute/S-effective/K65:fit">0.03</td><td class="numeric" data-evidence="cost:absolute/S-effective/K65:eval">0.0</td></tr>
+        <tr><th scope="row">residual/S</th><td class="numeric" data-evidence="cost:residual/S:fit">0.04</td><td class="numeric" data-evidence="cost:residual/S:eval">0.1</td></tr>
+        <tr><th scope="row">residual/R/K65</th><td class="numeric" data-evidence="cost:residual/R/K65:fit">1.12</td><td class="numeric" data-evidence="cost:residual/R/K65:eval">0.1</td></tr>
+        <tr><th scope="row">residual/R-scaled/K65</th><td class="numeric" data-evidence="cost:residual/R-scaled/K65:fit">1.11</td><td class="numeric" data-evidence="cost:residual/R-scaled/K65:eval">0.1</td></tr>
+        <tr><th scope="row">residual/S-effective/K65</th><td class="numeric" data-evidence="cost:residual/S-effective/K65:fit">0.04</td><td class="numeric" data-evidence="cost:residual/S-effective/K65:eval">0.0</td></tr>
+      </tbody>
+    </table></div>
+    <p class="small">Timings are wall-clock in the single-threaded canonical environment of this machine;
+      another core type, thread setting, or machine measures differently. The first smoke-check attempt
+      failed on a diagnostics defect and its cleared artifacts are documented as a
+      <a href="retention_incident_2026-09-10.md">retention incident</a>; later interrupted attempts are
+      preserved or quarantined, never cleared.</p>
+  </section>
+
+  <section id="sources">
+    <div class="eyebrow">09 / Evidence &amp; reproduction</div>
+    <h2>A readable view of the recorded evidence</h2>
+    <p>This page is an editorial companion to the machine-readable records. Its figures and animations are
+      the report generator's committed outputs, unchanged. It opens directly from disk without a server,
+      internet access, or the external data store; keep it beside the <code>plots/</code> and
+      <code>animations/</code> folders when copying it.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th scope="col">Evidence</th><th scope="col">What it supports</th></tr></thead>
+      <tbody>
+        <tr><th scope="row"><a href="plan.md">Approved plan</a></th><td>Question, ridge identities, panel rule, arms, gates, report conventions, and clarifications C1 to C12</td></tr>
+        <tr><th scope="row"><a href="panel_manifest_v1.md">Panel manifest</a> (<a href="panel_manifest_v1.json">JSON</a>)</th><td>The six frozen configurations, their sources, and the selection rule</td></tr>
+        <tr><th scope="row"><a href="numerical_validation_v1.md">Numerical validation</a> (<a href="numerical_validation_v1.json">JSON</a>)</th><td>120 fits, 36 references, 72 comparisons with the retained failure, residuals, state identities, fresh-process refits</td></tr>
+        <tr><th scope="row"><a href="numerical_validation_v1_diagnosis.md">Diagnosis of the failed comparison</a> (<a href="numerical_validation_v1_diagnosis.json">JSON</a>)</th><td>Reference solutions, conditioning, and the accumulation bound behind the accepted exception</td></tr>
+        <tr><th scope="row"><a href="timing_smoke_check_v1.md">Timing smoke check</a> (<a href="timing_smoke_check_v1.json">JSON</a>)</th><td>Measured cost on feasible-best and the full-panel projection</td></tr>
+        <tr><th scope="row"><a href="pilot_execution_v1.md">Execution accounting</a> (<a href="pilot_execution_v1.json">JSON</a>)</th><td>Every configuration's status, first failure, pair counts, crossings, and payload; the 123 evidence pointers</td></tr>
+        <tr><th scope="row"><a href="repetition_report_v1.md">Report tables</a> (<a href="repetition_report_v1.json">JSON</a>)</th><td>Paired outcomes, comparisons, equivalence rows, speed diagnostics, costs, representatives, and the figure and animation lists this page shows</td></tr>
+        <tr><th scope="row"><a href="execution_environment_v1.md">Execution record</a> (<a href="execution_environment_v1.json">JSON</a>)</th><td>The canonical single-threaded, performance-core environment bound to every fit and run</td></tr>
+        <tr><th scope="row"><a href="rclib_build_parity_v1.md">Build parity</a></th><td>Bitwise parity of the readout solver across the dependency pin advance made for this pilot</td></tr>
+        <tr><th scope="row"><a href="retention_incident_2026-09-10.md">Retention incident</a></th><td>The cleared first smoke-check attempt and what survives of it</td></tr>
+      </tbody>
+    </table></div>
+    <p class="small">Machine-readable records retain code and submodule revisions, resolved configurations,
+      hashes, seeds, the execution environment, and worktree state. Every evidence manifest binds the
+      canonical execution identity and carries the C11 caveat. The clean-checkout reproduction (task
+      M3REP-008) had not run when this page was written; its audit will be linked from the ledger.</p>
+    <details><summary>Regenerate the tables, figures, and animations</summary>
+      <p>Run from the repository root after the <a href="../../../README.md">documented environment and
+        external-store setup</a>, launched through the canonical execution environment on this machine.
+        Viewing this page needs none of that setup. Use fresh output locations.</p>
+      <p>The report tables, all thirty-four figures, and the three animations, from the committed evidence:</p>
+      <pre><code>uv run python -m arm_rc_ctrl.execution run --policy p-cores -- \
+  uv run python -m arm_rc_ctrl.experiments.repetition_report render \
+  --docs docs/experiments/task_1a_repeated_demonstration</code></pre>
+      <p>Any recorded run on the task clock; substitute the run ID from a caption or the report:</p>
+      <pre><code>uv run python scripts/play_run.py \
+  --run run-20260910-79fe0985a4b1 \
+  --scenario configs/tasks/task_1a.toml --task-clock \
+  --export /tmp/feasible-best-absolute-S.gif --fps 12</code></pre>
+      <p>The execution accounting from the evidence pointers:</p>
+      <pre><code>uv run python -m arm_rc_ctrl.experiments.repetition_accounting account \
+  --evidence-dir docs/experiments/task_1a_repeated_demonstration/evidence \
+  --manifest docs/experiments/task_1a_repeated_demonstration/panel_manifest_v1.json \
+  --validation docs/experiments/task_1a_repeated_demonstration/numerical_validation_v1.json \
+  --output /tmp/pilot_execution.json --markdown /tmp/pilot_execution.md</code></pre>
+      <p class="small">This HTML is maintained as prose. <code>tests/regression/test_repetition_overview.py</code>
+        checks its evidence fields against the committed report, accounting, and timing records and validates
+        its local links, figures, and animation identities; <code>tests/regression/test_repetition_report_evidence.py</code>
+        binds the report to its sources and to the stored runs.</p>
+    </details>
+  </section>
+</main>
+<footer>Task 1-a repeated demonstration · Pilot evidence v1 · Human overview, 10 September 2026.<br>
+  Original work: GPL-3.0-only. <a href="#main">Back to top ↑</a></footer>
+<script>
+  // Existing GIFs are loaded only on request, including for reduced-motion users.
+  const stopMotion = (button, panel) => {
+    panel.replaceChildren();
+    panel.hidden = true;
+    button.textContent = 'Play motion set';
+    button.setAttribute('aria-expanded', 'false');
+  };
+  document.querySelectorAll('.motion-toggle').forEach(button => {
+    const panel = document.getElementById(button.getAttribute('aria-controls'));
+    const example = button.closest('details');
+    const template = example.querySelector('template');
+    button.hidden = false;
+    button.addEventListener('click', () => {
+      if (!panel.hidden) {
+        stopMotion(button, panel);
+      } else {
+        panel.replaceChildren(template.content.cloneNode(true));
+        panel.hidden = false;
+        button.textContent = 'Stop motion';
+        button.setAttribute('aria-expanded', 'true');
+      }
+    });
+    example.addEventListener('toggle', () => {
+      if (!example.open) stopMotion(button, panel);
+    });
+  });
+  let printDetails = [];
+  window.addEventListener('beforeprint', () => {
+    printDetails = [...document.querySelectorAll('details')].filter(detail => !detail.open);
+    printDetails.forEach(detail => { detail.open = true; });
+  });
+  window.addEventListener('afterprint', () => {
+    printDetails.forEach(detail => { detail.open = false; });
+    printDetails = [];
+  });
+</script>
+</body>
+</html>
