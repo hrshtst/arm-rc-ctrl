@@ -1322,6 +1322,38 @@ class PilotRunner:
             timing=timing,
         )
 
+    def _case(self, scenario_id: str, tracker: str) -> tuple[int, RobustnessScenario]:
+        if tracker not in self.trackers:
+            msg = f"unknown tracker {tracker!r}; the runner knows {sorted(self.trackers)}"
+            raise ValueError(msg)
+        for index, case in enumerate(self.scenarios):
+            if case.scenario_id == scenario_id:
+                return index, case
+        msg = f"unknown scenario {scenario_id!r}"
+        raise ValueError(msg)
+
+    def rerun_replay_pair(self, entry: PanelEntry, scenario_id: str, tracker: str) -> PairRecord:
+        """Simulate one replay pair of ``entry`` again into this runner's store (reproduction; no bank manifest)."""
+        prepared = self._prepare(entry)
+        index, case = self._case(scenario_id, tracker)
+        return self._replay_pair(prepared, index, case, tracker)
+
+    def rerun_rc_pair(
+        self, entry: PanelEntry, arm: ArmSpec, scenario_id: str, tracker: str, *, replay: PairRecord
+    ) -> PairRecord:
+        """Fit (or load) ``arm`` and simulate one RC pair again into this runner's store, paired with ``replay``."""
+        if not arm.behavioral:
+            msg = f"{arm.label} is a numerical reference arm and is never simulated"
+            raise ValueError(msg)
+        if replay.arm != "replay" or replay.scenario_id != scenario_id or replay.tracker != tracker:
+            msg = "the replay pair must be the stored replay of the same scenario and tracker"
+            raise ValueError(msg)
+        prepared = self._prepare(entry)
+        index, case = self._case(scenario_id, tracker)
+        cached = self.fits.fit_or_load(entry, arm, self.inputs)
+        controller = self._controllers(cached, prepared)[tracker]
+        return self._rc_pair(prepared, cached, controller, index, case, tracker, replay)
+
     def _unexecuted(self, index: int, case: RobustnessScenario, tracker: str) -> PairRecord:
         return PairRecord(
             index=index,

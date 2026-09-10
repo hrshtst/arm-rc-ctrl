@@ -103,7 +103,10 @@ accounts for the executed panel with
 renders the report tables, task-clock figures, and task-clock animations with
 `arm_rc_ctrl.experiments.repetition_report render --docs …` (thin
 `scripts/render_repetition_report.py`; the narrative `overview.html` is
-hand-written against that report), and records
+hand-written against that report), reproduces the whole pilot from the committed records with
+`scripts/reproduce_repetition.py` (`--from-checkout` reproduces in a fresh
+worktree; `--doc005` reruns the historical task 1-a reproduction apart;
+`--gates` records the quality gates), and records
 dependency-build parity across a submodule pin advance with
 `arm_rc_ctrl.experiments.build_parity probe` / `compare`. `scripts/play_run.py`
 and `scripts/export_run_sklog.py` take `--task-clock` to shift a run's log onto

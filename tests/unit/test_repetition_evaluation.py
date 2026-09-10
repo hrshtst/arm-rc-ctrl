@@ -616,3 +616,36 @@ def test_task_clock_export_shifts_a_pilot_run_by_its_activation(
     finally:
         monkeypatch_store.undo()
     assert StateLog.load(tmp_path / "cli.sklog.npz").times[0] == pytest.approx(-f.entry.warmup_s)
+
+
+def test_rerun_pairs_reproduce_stored_runs_and_refuse_bad_requests(
+    fixture: PlanarFixture, evaluated: tuple[CraftedSimulator, ModelEvidence]
+) -> None:
+    """One replay or RC pair reruns into the runner's store bitwise; unknown or reference requests are refused."""
+    _fake, evidence = evaluated
+    f = fixture
+    runner = build_pilot_runner(f, velocity_abort=(41.0, 41.0), simulate_fn=CraftedSimulator(f.samples))
+    bank = runner.replay_bank(f.entry)
+    first = evidence.pairs[0]
+    replay = next(p for p in bank.pairs if (p.scenario_id, p.tracker) == (first.scenario_id, first.tracker))
+    rerun_replay = runner.rerun_replay_pair(f.entry, first.scenario_id, first.tracker)
+    assert rerun_replay.run is not None
+    assert replay.run is not None
+    assert rerun_replay.run.arrays_sha256 == replay.run.arrays_sha256
+    assert rerun_replay.replay == replay.replay
+    rerun = runner.rerun_rc_pair(f.entry, ArmSpec("absolute", "S"), first.scenario_id, first.tracker, replay=replay)
+    assert rerun.run is not None
+    assert first.run is not None
+    assert rerun.run.arrays_sha256 == first.run.arrays_sha256
+    assert rerun.status == first.status
+    assert rerun.rc == first.rc
+    with pytest.raises(ValueError, match="unknown scenario"):
+        runner.rerun_replay_pair(f.entry, "no-such-scenario", first.tracker)
+    with pytest.raises(ValueError, match="unknown tracker"):
+        runner.rerun_replay_pair(f.entry, first.scenario_id, "no-such-tracker")
+    with pytest.raises(ValueError, match="numerical reference"):
+        runner.rerun_rc_pair(
+            f.entry, ArmSpec("absolute", "S-effective", 16), first.scenario_id, first.tracker, replay=replay
+        )
+    with pytest.raises(ValueError, match="stored replay"):
+        runner.rerun_rc_pair(f.entry, ArmSpec("absolute", "S"), first.scenario_id, first.tracker, replay=first)
