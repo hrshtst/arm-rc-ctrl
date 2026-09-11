@@ -3,7 +3,8 @@
 
 """Export a verified run as a disposable ``skelarm.StateLog`` and play it (``docs/PLAN.md`` 7.5; TOOL-001).
 
-The converter resolves a Git-tracked run pointer, verifies the external
+The converter resolves a Git-tracked run pointer (or reconstructs one from
+the configured store when no individual pointer exists), verifies the external
 payload against its recorded digest, checks the scenario the run claims,
 and writes a ``*.sklog.npz`` the pinned ``skelarm`` player can open: the
 robot geometry, the measured trajectory (``time`` and ``q``), the canonical
@@ -18,6 +19,9 @@ inspection of recorded state — not controller re-execution or simulation.
 
 Command lines::
 
+    uv run arm-rc-play-run --run run-20260910-4b19d25412c6
+        --scenario configs/tasks/task_1a.toml --task-clock
+        [--export failure.gif --fps 12 --panel]
     python scripts/export_run_sklog.py --run run-20260831-... --scenario configs/tasks/task_1a.toml --out run.sklog.npz
     python scripts/play_run.py --run run-20260831-...
         [--scenario configs/tasks/task_1a.toml] [--speed 0.5] [--show-com] [--panel]
@@ -286,13 +290,16 @@ def export_run_sklog(
 def _export_parser(description: str) -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=description)
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--run", help="run ID with a Git-tracked pointer under data/records/runs")
+    group.add_argument("--run", help="run ID found via data/records/runs or the configured store")
     group.add_argument("--pointer", type=Path, help="explicit pointer record (TOML)")
     parser.add_argument(
         "--scenario",
         type=Path,
         default=None,
-        help="optional scenario TOML to verify: it must match the run's recorded scenario completely",
+        help=(
+            "scenario TOML: required when the run lacks its configuration (e.g. M3REP); "
+            "otherwise must match the recorded configuration completely"
+        ),
     )
     parser.add_argument("--records-root", type=Path, default=None)
     parser.add_argument(
@@ -330,7 +337,7 @@ def main_export(argv: Sequence[str] | None = None) -> int:
 
 
 def main_play(argv: Sequence[str] | None = None) -> int:
-    """Entry point of ``scripts/play_run.py``: export to a temporary location and invoke the pinned player."""
+    """Entry point of ``arm-rc-play-run`` and ``scripts/play_run.py``; invoke the pinned player on verified state."""
     parser = _export_parser("Export one verified run to a temporary log and play it with the pinned skelarm player.")
     parser.add_argument("--speed", type=float, default=None, help="initial playback speed multiplier (> 0)")
     parser.add_argument("--show-com", action="store_true", help="overlay the centers of mass")

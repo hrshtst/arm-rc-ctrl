@@ -458,12 +458,18 @@ when explicitly curated for a human report; it must name its verified source run
 and generation command and remains an illustration rather than primary
 experimental evidence.
 
-A thin convenience command exports one run to a temporary location and invokes
+A thin convenience command (`uv run --locked arm-rc-play-run --run <run-id>`;
+the original `scripts/play_run.py` remains supported) exports one run to a temporary location and invokes
 the pinned `third_party/skelarm/tools/player.py`; it forwards playback speed,
 panel, center-of-mass, and GIF/MP4 export options and propagates failures. This
 is kinematic inspection of recorded state, not controller re-execution or
 simulation replay. The first version supports one run at a time; synchronized
 comparisons, editing, and re-simulation are out of scope.
+
+Runs without individual Git pointers (including M3REP runs) can be resolved
+from the configured external store. `--task-clock` shifts the display to the
+recorded activation time without changing the stored timestamps. CLI packaging,
+usage examples, and regression coverage are tracked as TOOL-003.
 
 Playback-only task metadata requires a generic `skelarm` enhancement. The player
 must accept target/tolerance metadata without treating a partial scenario as a

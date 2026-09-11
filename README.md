@@ -33,11 +33,42 @@ advance, add `--from-evidence` to reproduce inside a fresh git worktree at
 the recorded audit commit, which carries the evidence's pins. The recorded audits live next to
 the report. Any curated run can be exported as a
 disposable `skelarm` log and inspected with the pinned player
-(`uv run python scripts/play_run.py --run <run-id> --scenario configs/tasks/task_1a.toml`,
+(`uv run arm-rc-play-run --run <run-id> --scenario configs/tasks/task_1a.toml`,
 or `scripts/export_run_sklog.py` for the file; `docs/PLAN.md` section 7.5).
 Recorded results live under
 `docs/experiments/task_1a/` with Git-tracked records under `data/records/`;
 see `docs/TASKS.md` for the ledger.
+
+### Replay or regenerate an animation by run ID
+
+After the environment and external-store setup below, run these commands from
+the repository root (`uv run --locked` installs the CLI when needed). For example,
+this M3REP residual-output run failed when its generated command left the joint
+bounds:
+
+```bash
+# Interactive player at half speed; no simulation or refitting.
+uv run --locked arm-rc-play-run --run run-20260910-4b19d25412c6 \
+  --scenario configs/tasks/task_1a.toml --task-clock --speed 0.5
+
+# Browser-viewable GIF, including the time/telemetry panel.
+uv run --locked arm-rc-play-run --run run-20260910-4b19d25412c6 \
+  --scenario configs/tasks/task_1a.toml --task-clock \
+  --export /tmp/m3rep-residual-failure.gif --fps 12 --panel
+```
+
+Substitute any recorded run ID. The command uses its Git pointer when present,
+otherwise reconstructs a temporary pointer from the configured store, and checks
+the payload digests before playback. If the run records its scenario configuration,
+the command uses it and checks any supplied scenario against it. Otherwise
+(including M3REP runs), supply the original `--scenario` file as above; the player
+checks its scenario name and records that the configuration was supplied for playback.
+`--task-clock` makes warm-up negative and activation zero (omit it for runs that
+do not record an activation time). Use an `.mp4` output instead for video; MP4
+export requires FFmpeg. Existing output files are never overwritten: choose a
+fresh filename. Interactive playback requires a graphical desktop; `--export`
+runs headlessly. Use `uv run --locked arm-rc-play-run --help` for all options.
+The original `uv run python scripts/play_run.py` command remains supported.
 
 The follow-up recovery experiment is explained in the
 [browser-readable recovery overview](docs/experiments/task_1a_state_conditioned_recovery/overview.html).

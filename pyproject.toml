@@ -35,6 +35,9 @@ classifiers = [
 ]
 keywords = ["reservoir-computing", "echo-state-networks", "robot-arm", "control", "crane-x7"]
 
+[project.scripts]
+arm-rc-play-run = "arm_rc_ctrl.experiments.playback:main_play"
+
 [project.urls]
 Repository = "https://github.com/hrshtst/arm-rc-ctrl"
 
