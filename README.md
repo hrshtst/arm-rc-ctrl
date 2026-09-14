@@ -269,7 +269,9 @@ UV_PYTHON=3.13 ARM_RC_CTRL_EXPECTED_PYTHON=3.13 uv run --locked nox
 
 Repeat the same three commands with `3.12` to switch back.
 `.github/workflows/ci.yml` runs the same sessions on every pull request and on
-pushes to `main`.
+pushes to `main`. Its Python jobs clone the full history (`fetch-depth: 0`):
+the evidence locks verify with git that the audited reproduction commits are
+ancestors of the checkout, which a depth-1 clone cannot answer.
 
 ## External storage root
 

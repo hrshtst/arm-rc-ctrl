@@ -35,10 +35,19 @@ jobs:
       matrix:
         python-version: ["3.12", "3.13"]
     steps:
-      - name: Checkout
+      - name: Checkout (full history)
+        # The regression locks bind committed evidence to the commits it was
+        # produced from: test_repetition_reproduction_evidence asserts with
+        # `git merge-base --is-ancestor` that the audited reproduction commit is
+        # in this history, and the 1-a evidence test checks out that audit's
+        # commit in a worktree. The default depth-1 clone carries neither
+        # commit, so the lock failed on every push since 2026-09-10. The whole
+        # history costs about 2 MiB more than the depth-1 clone (measured
+        # 2026-09-14: 17.9 MiB against 15.9 MiB) and no measurable time.
         uses: actions/checkout@v7
         with:
           submodules: false
+          fetch-depth: 0
 
       - name: Initialize pinned submodules (rclib recursively; skelarm and rtctrl top-level)
         # rclib's Eigen submodule is hosted on gitlab.com, which regularly refuses
