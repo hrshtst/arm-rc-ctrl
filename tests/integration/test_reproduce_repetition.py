@@ -19,15 +19,28 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from arm_rc_ctrl.dependencies import submodule_revisions
 from arm_rc_ctrl.execution import ExecutionEnvironmentError, collect_execution, load_execution, require_canonical
 from arm_rc_ctrl.experiments.repetition_report import load_report
 from arm_rc_ctrl.experiments.reproduce_repetition import DOCS, STEPS, main
+from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.storage import StorageError, open_storage
 
 if TYPE_CHECKING:
     from pathlib import Path
 
 pytestmark = pytest.mark.integration
+
+REPO_ROOT = repository_root()
+_ENVIRONMENT_DEPENDENT = ("payloads", "recipes", "metrics", "tables", "assets")
+
+
+def at_evidence_pins() -> bool:
+    """Whether the checked-out submodules match the pilot evidence (required by the environment step)."""
+    report = load_report(DOCS / "repetition_report_v1.json")
+    recorded = {s.name: (s.checked_out or s.recorded) for s in report.provenance.submodules}
+    current = {s.name: (s.checked_out or s.recorded) for s in submodule_revisions(REPO_ROOT)}
+    return all(current.get(name) == revision for name, revision in recorded.items())
 
 
 def _require_evidence_environment() -> None:
@@ -48,7 +61,13 @@ def _require_evidence_environment() -> None:
 
 
 def test_verification_steps_reproduce_the_committed_evidence(tmp_path: Path) -> None:
-    """Records, payloads, recipes, metrics, tables, and assets all re-verify; the summary and audit are written."""
+    """Records, payloads, recipes, metrics, tables, and assets all re-verify; the summary and audit are written.
+
+    On a checkout whose submodule pins differ from the evidence (after a pin
+    advance) the environment step must refuse, naming the submodules, and every
+    step that depends on it must decline to run; the committed evidence is then
+    reproduced from its audit checkout (``--from-checkout``), never from the new pins.
+    """
     _require_evidence_environment()
     summary = tmp_path / "summary.json"
     audit = tmp_path / "audit.md"
@@ -66,13 +85,28 @@ def test_verification_steps_reproduce_the_committed_evidence(tmp_path: Path) -> 
             "--keep-going",
         ]
     )
-    assert status == 0
     data = json.loads(summary.read_text(encoding="utf-8"))
-    assert data["ok"] is True
     checks = data["checks"]
-    assert [c["name"] for c in checks] == list(STEPS)
-    assert all(c["ok"] for c in checks)
+    assert [c["name"] for c in checks] == list(STEPS)  # keep_going runs every step
     details = {c["name"]: c["detail"] for c in checks}
+    if not at_evidence_pins():
+        assert status != 0
+        assert data["ok"] is False
+        outcomes = {c["name"]: c["ok"] for c in checks}
+        assert not outcomes["environment"]
+        assert "submodule pins differ from the committed evidence" in details["environment"]
+        assert outcomes["storage"]  # independent of the environment
+        assert outcomes["records"]
+        for name in _ENVIRONMENT_DEPENDENT:
+            assert not outcomes[name]
+            assert "requires an earlier step that did not run" in details[name]
+        assert details["fits"].startswith("skipped on request")
+        assert details["resimulation"].startswith("skipped on request")
+        assert audit.is_file()
+        return
+    assert status == 0
+    assert data["ok"] is True
+    assert all(c["ok"] for c in checks)
     assert details["fits"].startswith("skipped on request")
     assert details["resimulation"].startswith("skipped on request")
     assert "123 evidence pointers" in details["records"]
