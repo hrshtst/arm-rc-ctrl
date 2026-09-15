@@ -424,3 +424,33 @@ def test_mismatched_channel_lengths_are_a_per_take_rejection(workspace: Workspac
     report = _validate(workspace, 1, [1, 2, 4])
     assert [v.accepted for v in report.verdicts] == [True, False, True]
     assert any("malformed" in reason and "rows" in reason for reason in report.verdicts[1].reasons)
+
+
+@pytest.mark.parametrize("target", ["raw", "processed", "catalog"])
+def test_an_interrupted_atomic_record_write_resumes_without_exploratory(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch, target: str
+) -> None:
+    """A temporary record or catalog file left by an interrupted atomic write is the batch's own and is cleaned up."""
+    _make_clean_worktree(workspace, monkeypatch)
+    original = Path.replace
+
+    def interrupted(path: Path, destination: Path) -> Path:
+        if target == "catalog":
+            hit = path.name == "catalog.toml.tmp"
+        else:
+            hit = path.parent.name == target and path.name.endswith(".toml.tmp")
+        if hit:
+            msg = "publication interrupted after the temporary file was written"
+            raise OSError(msg)
+        return original(path, destination)
+
+    with monkeypatch.context() as context:
+        context.setattr(Path, "replace", interrupted)
+        with pytest.raises(OSError, match="interrupted"):
+            _validate(workspace, 1, [1, 2], exploratory=False)
+    assert not workspace.manifest.exists()
+    assert list(workspace.records_root.rglob("*.toml.tmp"))
+    report = _validate(workspace, 1, [1, 2], exploratory=False)
+    assert [v.accepted for v in report.verdicts] == [True, True]
+    assert not list(workspace.records_root.rglob("*.tmp"))
+    assert load_bank_manifest(workspace.manifest).batches == (1,)

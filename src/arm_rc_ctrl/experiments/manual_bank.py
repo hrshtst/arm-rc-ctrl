@@ -57,7 +57,7 @@ from arm_rc_ctrl.data.manual import (
     register_manual_records,
 )
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
-from arm_rc_ctrl.data.records import record_path, to_toml
+from arm_rc_ctrl.data.records import catalog_path, record_path, to_toml
 from arm_rc_ctrl.provenance import DirtyWorktreeError, sha256_file
 from arm_rc_ctrl.repo import git_output, repository_root
 from arm_rc_ctrl.storage import ArtifactUri, StorageError, open_storage
@@ -87,6 +87,8 @@ __all__ = [
 
 BANK_SCHEMA_VERSION = 1
 JOURNAL_SCHEMA_VERSION = 1
+_TEMPORARY_SUFFIX = ".tmp"  # staging suffix of the atomic writers (records._write_atomic, _write_text_atomic)
+_STATUS_CODE_WIDTH = 2
 DEFAULT_REQUIRED = 10
 _ATTEMPT_RE = re.compile(r"^.+?_(?P<number>\d+)(?:\.[A-Za-z0-9]+)+$")
 
@@ -760,16 +762,35 @@ def _check_resume(journal: PublicationJournal, take_files: Sequence[Path], conte
         raise ValueError(msg)
 
 
-def _require_only_journal_changes(records_root: Path, journal: PublicationJournal) -> None:
-    """Refuse a confirmatory completion when the worktree holds anything but the pending batch's own outputs."""
-    allowed = {item.path for item in journal.files}
-    allowed |= {journal.manifest_path, f"{journal.manifest_path}.tmp", "data/catalog.toml"}
-    allowed |= {
+def _journal_outputs(records_root: Path, journal: PublicationJournal) -> tuple[set[str], list[str]]:
+    """The pending batch's output paths and their atomic writes' temporary paths, relative to the records root."""
+    catalog = catalog_path(records_root).relative_to(records_root).as_posix()
+    records = [
         record_path(records_root, _record_from_journal(item).artifact).relative_to(records_root).as_posix()
         for item in journal.records
-    }
+    ]
+    atomic = [journal.manifest_path, catalog, *records]
+    finals = {item.path for item in journal.files} | set(atomic)
+    return finals, sorted(f"{path}{_TEMPORARY_SUFFIX}" for path in atomic)
+
+
+def _porcelain_path(line: str) -> str:
+    """The path of one ``git status --porcelain`` line (the first line may have lost its leading space)."""
+    if len(line) > _STATUS_CODE_WIDTH and line[_STATUS_CODE_WIDTH] == " ":
+        return line[_STATUS_CODE_WIDTH + 1 :]
+    return line[_STATUS_CODE_WIDTH:]
+
+
+def _require_only_journal_changes(records_root: Path, journal: PublicationJournal) -> None:
+    """Refuse a confirmatory completion when the worktree holds anything but the pending batch's own outputs.
+
+    The batch's own outputs include the temporary files an interrupted atomic
+    write of its records, the catalog, or the manifest may have left behind.
+    """
+    finals, temporaries = _journal_outputs(records_root, journal)
+    allowed = finals | set(temporaries)
     status = git_output("status", "--porcelain", "--untracked-files=all", cwd=records_root)
-    dirty = {line[3:] if len(line) > 2 and line[2] == " " else line[2:] for line in status.splitlines() if line.strip()}  # noqa: PLR2004
+    dirty = {_porcelain_path(line) for line in status.splitlines() if line.strip()}
     unrelated = sorted(dirty - allowed)
     if unrelated:
         msg = (
@@ -786,6 +807,9 @@ def _apply_journal(
     if _file_sha256(manifest_file) not in (journal.base_manifest_sha256, journal.final_manifest_sha256):
         msg = f"{manifest_file} changed since batch {journal.batch} was staged; restore it before completing the batch"
         raise ValueError(msg)
+    _, temporaries = _journal_outputs(records_root, journal)
+    for relative in temporaries:
+        (records_root / relative).unlink(missing_ok=True)  # interrupted atomic writes of this batch's own outputs
     for item in journal.files:
         target = records_root / item.path
         target.parent.mkdir(parents=True, exist_ok=True)
