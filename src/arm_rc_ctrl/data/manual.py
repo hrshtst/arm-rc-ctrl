@@ -24,6 +24,7 @@ import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
+from zipfile import BadZipFile
 
 import numpy as np
 from numpy.typing import NDArray
@@ -68,6 +69,7 @@ from arm_rc_ctrl.data.records import (
     load_catalog,
     load_record,
     make_artifact_id,
+    record_path,
     to_toml,
     verify_payload,
     write_catalog,
@@ -88,12 +90,14 @@ from arm_rc_ctrl.storage import ArtifactUri, StorageRoot
 from arm_rc_ctrl.validation import require_finite
 
 if TYPE_CHECKING:
+    from collections.abc import Iterable
     from datetime import datetime
 
 __all__ = [
     "MANUAL_PHASE_CODES",
     "MANUAL_RAW_UNITS",
     "MANUAL_SCHEMA_VERSION",
+    "DuplicatePayloadError",
     "DwellMeasurement",
     "DwellPredicate",
     "HoldAnchoredResult",
@@ -115,9 +119,11 @@ __all__ = [
     "assess_take",
     "continuous_dwell",
     "derive_manual_dataset",
+    "derive_manual_take",
     "import_manual_take",
     "load_manual_derive_config",
     "load_manual_take",
+    "register_manual_records",
     "smooth_hold_anchored",
 ]
 
@@ -138,6 +144,18 @@ _HOLD_ANCHORED_LABEL = "butterworth-zero-phase-hold-anchored"
 
 class ManualTakeError(RuntimeError):
     """A take cannot be read, does not match its record, or is refused by the dataset contract."""
+
+
+class DuplicatePayloadError(ManualTakeError):
+    """The same bytes are already registered as another attempt; a copy never inherits that attempt's record."""
+
+    def __init__(self, existing: ManualTakeRecord, *, session: str, take: int) -> None:
+        self.existing = existing
+        super().__init__(
+            f"payload identical to {existing.artifact.artifact_id} (attempt {existing.take} of session "
+            f"{existing.session!r}): attempt {take} of session {session!r} is a byte-identical copy, not a distinct "
+            "recording"
+        )
 
 
 _PLANE = 2
@@ -731,20 +749,30 @@ def import_manual_take(
     notes: str = "",
     now: datetime | None = None,
     command: str = "python -m arm_rc_ctrl.data.manual import",
+    register: bool = True,
 ) -> ManualImportResult:
     """Copy a saved take into the store unchanged, verify it against its new record, and register the record.
 
     Saving is independent of acceptance: a take that the offline rules will
-    reject is imported all the same, so every attempt stays retrievable.
+    reject is imported all the same, so every attempt stays retrievable. With
+    ``register=False`` the payload is stored and verified but the Git-tracked
+    record and catalog entry are left to :func:`register_manual_records`, so a
+    batch can register everything once its takes are processed.
 
     Raises
     ------
     ManualTakeError
-        If the log is not a structurally valid recorder take.
+        If the file cannot be read as a recorder take or is structurally invalid.
+    DuplicatePayloadError
+        If the same bytes are already registered as another session or attempt.
     """
     config = load_manual_scenario(scenario_file)
-    log = StateLog.load(log_file)
-    payload_schema = read_log_schema_version(log_file)
+    try:
+        log = StateLog.load(log_file)
+        payload_schema = read_log_schema_version(log_file)
+    except (ValueError, KeyError, OSError, BadZipFile) as exc:
+        msg = f"cannot read {log_file.name} as a recorder log: {exc}"
+        raise ManualTakeError(msg) from exc
     times, q, _tip, _nominal = _read_arrays(log, config.dof)
     acquisition = RecorderAcquisition.from_extra(cast("dict[str, Any]", log.extra["acquisition"]))
     display = RecorderDisplay.from_extra(cast("dict[str, Any]", log.extra["display"]))
@@ -806,23 +834,54 @@ def import_manual_take(
             shutil.rmtree(final_dir, ignore_errors=True)
         raise
 
-    record_file = records_root / "data" / "records" / "raw" / f"{artifact_id}.toml"
+    record, record_file = _settle_take_record(record, records_root, resumed=resumed, register=register)
+    return ManualImportResult(record, record_file, final_dir / RAW_PAYLOAD_NAME, resumed)
+
+
+def _settle_take_record(
+    record: ManualTakeRecord, records_root: Path, *, resumed: bool, register: bool
+) -> tuple[ManualTakeRecord, Path]:
+    """Reuse an existing record of the same attempt, refuse another attempt's record, or write a new one."""
+    record_file = record_path(records_root, record.artifact)
     if record_file.exists():
         existing = load_record(record_file, ManualTakeRecord)
         if not resumed or existing.artifact.payload != record.artifact.payload:
             msg = f"{record_file} already exists and does not describe this payload; records are immutable"
             raise FileExistsError(msg)
+        if (existing.session, existing.take) != (record.session, record.take):
+            raise DuplicatePayloadError(existing, session=record.session, take=record.take)
         record = existing
-    else:
+    elif register:
         record_file.parent.mkdir(parents=True, exist_ok=True)
         write_record(record_file, record)
-    catalog_file = catalog_path(records_root)
-    catalog = load_catalog(catalog_file)
-    if catalog.find(artifact_id) is None:
-        write_catalog(
-            catalog_file, catalog.with_record(record.artifact, record_file.relative_to(records_root).as_posix())
-        )
-    return ManualImportResult(record, record_file, final_dir / RAW_PAYLOAD_NAME, resumed)
+    if register:
+        catalog_file = catalog_path(records_root)
+        catalog = load_catalog(catalog_file)
+        if catalog.find(record.artifact.artifact_id) is None:
+            write_catalog(
+                catalog_file, catalog.with_record(record.artifact, record_file.relative_to(records_root).as_posix())
+            )
+    return record, record_file
+
+
+def register_manual_records(
+    records_root: Path, records: Iterable[ManualTakeRecord | ManualDatasetRecord]
+) -> list[Path]:
+    """Write the Git-tracked record files and catalog entries of records whose payloads are already stored.
+
+    Idempotent: an existing identical record is accepted, a differing one is a
+    ``FileExistsError`` (records are immutable). Returns the record files.
+    """
+    written: list[Path] = []
+    for record in records:
+        record_file = record_path(records_root, record.artifact)
+        if isinstance(record, ManualTakeRecord):
+            finalize_record(record_file, record, schema=ManualTakeRecord, resumed=True)
+        else:
+            finalize_record(record_file, record, schema=ManualDatasetRecord, resumed=True)
+        finalize_catalog(records_root, record.artifact, record_file)
+        written.append(record_file)
+    return written
 
 
 # --- assessment ---------------------------------------------------------------------------
@@ -1362,7 +1421,39 @@ def derive_manual_dataset(
     now: datetime | None = None,
     command: str = "python -m arm_rc_ctrl.data.manual derive",
 ) -> ManualDeriveResult:
+    """Assess the take of a Git-tracked raw record and persist its dataset (see :func:`derive_manual_take`)."""
+    return derive_manual_take(
+        load_record(raw_record_file, ManualTakeRecord),
+        scenario_file,
+        config_file,
+        store=store,
+        records_root=records_root,
+        exploratory=exploratory,
+        license_override=license_override,
+        access_override=access_override,
+        now=now,
+        command=command,
+    )
+
+
+def derive_manual_take(
+    raw: ManualTakeRecord,
+    scenario_file: Path,
+    config_file: Path,
+    *,
+    store: StorageRoot,
+    records_root: Path,
+    exploratory: bool,
+    license_override: str | None = None,
+    access_override: AccessClass | None = None,
+    now: datetime | None = None,
+    command: str = "python -m arm_rc_ctrl.data.manual derive",
+    register: bool = True,
+) -> ManualDeriveResult:
     """Assess a take and, when it is accepted, persist its full-recording dataset, record, and catalog entry.
+
+    With ``register=False`` the payload is finalized in the store but the record
+    file and catalog entry are left to :func:`register_manual_records`.
 
     Raises
     ------
@@ -1371,7 +1462,6 @@ def derive_manual_dataset(
     ValueError
         If the raw record was made under another scenario file.
     """
-    raw = load_record(raw_record_file, ManualTakeRecord)
     config = load_manual_scenario(scenario_file)
     derive = load_manual_derive_config(config_file)
     digest = sha256_file(scenario_file)
@@ -1444,9 +1534,10 @@ def derive_manual_dataset(
 
     artifact_id = record.artifact.artifact_id
     final_dir = store.path(ArtifactUri("processed", (artifact_id,)), mode="write")
-    record_file = records_root / "data" / "records" / "processed" / f"{artifact_id}.toml"
-    record = finalize_record(record_file, record, schema=ManualDatasetRecord, resumed=resumed)
-    finalize_catalog(records_root, record.artifact, record_file)
+    record_file = record_path(records_root, record.artifact)
+    if register:
+        record = finalize_record(record_file, record, schema=ManualDatasetRecord, resumed=resumed)
+        finalize_catalog(records_root, record.artifact, record_file)
     return ManualDeriveResult(
         record, samples, assessment, record_file, final_dir / PROCESSED_PAYLOAD_NAME, provenance, resumed
     )

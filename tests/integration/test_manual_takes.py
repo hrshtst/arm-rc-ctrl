@@ -15,6 +15,7 @@ from skelarm import StateLog
 
 from arm_rc_ctrl.data.manual import (
     MANUAL_PHASE_CODES,
+    DuplicatePayloadError,
     ManualDatasetRecord,
     ManualImportResult,
     ManualTakeError,
@@ -24,6 +25,7 @@ from arm_rc_ctrl.data.manual import (
     import_manual_take,
     load_manual_derive_config,
     load_manual_take,
+    register_manual_records,
 )
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
 from arm_rc_ctrl.data.records import load_catalog, load_record
@@ -309,3 +311,40 @@ def test_derivation_writes_the_full_dataset_once_and_dispatches_its_schema(
             rejected.record_file, scenario, derive_file, store=store, records_root=records_root, exploratory=True
         )
     assert len(list((records_root / "data" / "records" / "processed").glob("*.toml"))) == 1
+
+
+def test_the_same_bytes_under_another_attempt_are_a_duplicate_at_import(workspace: Workspace, tmp_path: Path) -> None:
+    """A copied file is never lent the original attempt's record; the same identity resumes instead."""
+    log_file = _log(workspace.scenario, tmp_path / "reach_001.sklog.npz")
+    first = _import(workspace, log_file, take=1)
+    copy = tmp_path / "reach_002.sklog.npz"
+    shutil.copyfile(log_file, copy)
+    with pytest.raises(DuplicatePayloadError, match="attempt 1") as info:
+        _import(workspace, copy, take=2)
+    assert info.value.existing.artifact.artifact_id == first.record.artifact.artifact_id
+    assert _import(workspace, log_file, take=1).resumed
+
+
+def test_registration_can_be_deferred_and_is_idempotent(workspace: Workspace, tmp_path: Path) -> None:
+    """A batch registers its records once all takes are processed; registering twice changes nothing."""
+    log_file = _log(workspace.scenario, tmp_path / "reach_001.sklog.npz")
+    result = import_manual_take(
+        log_file,
+        workspace.scenario,
+        store=workspace.store,
+        records_root=workspace.records_root,
+        session="manual-fixture-session",
+        take=1,
+        license_label="proprietary",
+        access="private",
+        exploratory=True,
+        register=False,
+    )
+    assert result.payload_file.exists()
+    assert not result.record_file.exists()
+    assert not (workspace.records_root / "data").exists()
+    written = register_manual_records(workspace.records_root, [result.record])
+    assert written == [result.record_file]
+    assert load_record(result.record_file, ManualTakeRecord) == result.record
+    assert register_manual_records(workspace.records_root, [result.record]) == [result.record_file]
+    assert load_catalog(workspace.records_root / "data" / "catalog.toml").find(result.record.artifact.artifact_id)

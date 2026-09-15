@@ -163,11 +163,19 @@ the residual start shift is measured and bounded, never snapped).
 gaps, raw increment and processed speeds within the bound, limits, workspace,
 one second of uninterrupted final dwell inside 1 cm at joint speeds no greater
 than 0.05 rad/s), derives a processed dataset for each accepted take, and keeps
-a versioned bank manifest: the first ten accepted takes in acquisition order
-become `D01`–`D10`, rejected and duplicate takes stay retained with their
-reasons, a batch number is validated once and never edited, and the command
-exits 2 while the bank still needs takes (it names how many) and 0 once it is
-complete. Practice takes belong to a separate session and never enter a manifest.
+a versioned bank manifest: the first ten accepted takes by attempt number
+(acquisition order, whatever batch they arrive in) become `D01`–`D10`, rejected
+takes stay retained with their reasons, a byte-identical copy of an earlier take
+is rejected without a record of its own and names the original, and an
+unreadable file is a per-take `malformed` rejection that never aborts the batch.
+A batch writes its reports, then its Git-tracked records, then the manifest, so
+a failed batch stays retryable and a run without `--exploratory` never trips
+over its own records; a batch number is recorded once and never edited, and a
+complete bank locks its assignments (later batches may only add later
+attempts). The manifest is loaded strictly (types, unknown keys, and
+assignment consistency). The command exits 2 while the bank still needs takes
+(it names how many) and 0 once it is complete. Practice takes belong to a
+separate session and never enter a manifest.
 
 ## Requirements
 

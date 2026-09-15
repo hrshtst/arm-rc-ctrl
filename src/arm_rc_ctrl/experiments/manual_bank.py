@@ -9,8 +9,12 @@ the manual protocol. Every attempt is imported and retained with its verdict
 and reasons, accepted takes derive their full-recording datasets, and the
 first ``required`` accepted takes in acquisition order become the bank
 (``D01`` .. ``D10``). A shortfall asks for another batch; there is no attempt
-cap. Batches are versioned: a batch number is validated once and never edited.
-Practice payloads never enter a manifest.
+cap. Batches are versioned: a batch number is validated once and never edited,
+and a batch's Git-tracked records are registered only after all of its takes
+were processed, so a confirmatory run never trips over its own outputs. Once
+the bank is complete its assignments are locked: later batches may only add
+later attempts, which stay retained but unassigned. Practice payloads never
+enter a manifest.
 
 Usage (one line)::
 
@@ -22,7 +26,6 @@ Usage (one line)::
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import hashlib
 import json
 import re
@@ -34,14 +37,19 @@ from typing import TYPE_CHECKING, Any, cast
 
 import numpy as np
 
+from arm_rc_ctrl.config import ConfigError, from_mapping, to_mapping
 from arm_rc_ctrl.data.manual import (
+    DuplicatePayloadError,
+    ManualDatasetRecord,
     ManualTakeError,
+    ManualTakeRecord,
     TakeAssessment,
     assess_take,
-    derive_manual_dataset,
+    derive_manual_take,
     import_manual_take,
     load_manual_derive_config,
     load_manual_take,
+    register_manual_records,
 )
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
 from arm_rc_ctrl.provenance import sha256_file
@@ -59,6 +67,7 @@ __all__ = [
     "DEFAULT_REQUIRED",
     "BankManifest",
     "BatchReport",
+    "TakeMeasurements",
     "TakeVerdict",
     "attempt_number",
     "load_bank_manifest",
@@ -88,6 +97,28 @@ def attempt_number(path: Path) -> int:
 
 
 @dataclass(frozen=True)
+class TakeMeasurements:
+    """Summary figures of one assessed take (``None`` where the assessment did not get that far)."""
+
+    n_frames: int | None = None
+    duration_s: float | None = None
+    median_interval_s: float | None = None
+    max_interval_s: float | None = None
+    late_frames: int | None = None
+    max_raw_speed_rad_s: float | None = None
+    start_deviation_rad: float | None = None
+    start_shift_rad: float | None = None
+    dwell_final_duration_s: float | None = None
+    dwell_final_samples: int | None = None
+    hold_end_s: float | None = None
+    movement_duration_s: float | None = None
+    time_to_dwell_s: float | None = None
+    path_length_rad: float | None = None
+    peak_speed_rad_s: float | None = None
+    final_endpoint_error_m: float | None = None
+
+
+@dataclass(frozen=True)
 class TakeVerdict:
     """One attempt's outcome: retained identifiers, the verdict, its reasons, and summary measurements."""
 
@@ -98,11 +129,33 @@ class TakeVerdict:
     reasons: tuple[str, ...]
     raw_artifact_id: str | None
     processed_artifact_id: str | None
+    payload_sha256: str | None
+    """Digest of the submitted file, used to detect byte-identical copies."""
     q_sha256: str | None
-    """Digest of the raw joint trajectory, used to detect duplicate takes."""
+    """Digest of the raw joint trajectory, used to detect duplicate recordings."""
+    duplicate_of: str | None
+    """Raw artifact of the earlier take this one duplicates, if any; a copy never gets a record of its own."""
     assignment: str | None
     """``D01`` .. ``D<required>`` once the bank is complete, else ``None``."""
-    measurements: dict[str, float | int | None]
+    measurements: TakeMeasurements
+
+    def __post_init__(self) -> None:
+        """Validate the verdict's internal consistency."""
+        if self.batch < 1 or self.attempt < 1:
+            msg = f"batch and attempt must be positive, got {self.batch} and {self.attempt}"
+            raise ValueError(msg)
+        if self.accepted and (self.raw_artifact_id is None or self.processed_artifact_id is None or self.reasons):
+            msg = f"attempt {self.attempt} is accepted but lacks its artifacts or carries reasons"
+            raise ValueError(msg)
+        if not self.accepted and (self.processed_artifact_id is not None or not self.reasons):
+            msg = f"attempt {self.attempt} is rejected but has a processed artifact or no reason"
+            raise ValueError(msg)
+        if self.assignment is not None and not self.accepted:
+            msg = f"attempt {self.attempt} is rejected and cannot carry the assignment {self.assignment!r}"
+            raise ValueError(msg)
+        if self.duplicate_of is not None and self.accepted:
+            msg = f"attempt {self.attempt} duplicates {self.duplicate_of} and cannot be accepted"
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True)
@@ -119,6 +172,27 @@ class BankManifest:
     required: int
     takes: tuple[TakeVerdict, ...]
     updated_at: str
+
+    def __post_init__(self) -> None:
+        """Validate the schema version, the ordering of the takes, and the assignments."""
+        if self.bank_schema_version != BANK_SCHEMA_VERSION:
+            msg = f"unsupported bank_schema_version {self.bank_schema_version}; expected {BANK_SCHEMA_VERSION}"
+            raise ValueError(msg)
+        if self.required < 1:
+            msg = f"required must be positive, got {self.required}"
+            raise ValueError(msg)
+        attempts = [t.attempt for t in self.takes]
+        if attempts != sorted(set(attempts)):
+            msg = "takes must be unique and ordered by attempt number (acquisition order)"
+            raise ValueError(msg)
+        expected = _expected_assignments(self.takes, self.required)
+        for take in self.takes:
+            if take.assignment != expected.get(take.attempt):
+                msg = (
+                    f"attempt {take.attempt} carries assignment {take.assignment!r} but the first {self.required} "
+                    f"accepted takes in acquisition order give {expected.get(take.attempt)!r}"
+                )
+                raise ValueError(msg)
 
     @property
     def accepted_attempts(self) -> tuple[int, ...]:
@@ -146,67 +220,45 @@ class BankManifest:
         return {t.assignment: cast("str", t.raw_artifact_id) for t in self.takes if t.assignment is not None}
 
 
+def _expected_assignments(takes: tuple[TakeVerdict, ...], required: int) -> dict[int, str]:
+    """``attempt -> D..`` for the first ``required`` accepted takes in acquisition order, once they exist."""
+    accepted = sorted((t for t in takes if t.accepted), key=lambda t: t.attempt)
+    if len(accepted) < required:
+        return {}
+    return {t.attempt: f"D{i + 1:02d}" for i, t in enumerate(accepted[:required])}
+
+
 def _assign(takes: tuple[TakeVerdict, ...], required: int) -> tuple[TakeVerdict, ...]:
-    """Assign ``D01`` .. once ``required`` takes are accepted; later accepted takes stay unassigned."""
-    accepted = [t for t in takes if t.accepted]
-    labels: dict[int, str] = {}
-    if len(accepted) >= required:
-        labels = {t.attempt: f"D{i + 1:02d}" for i, t in enumerate(accepted[:required])}
-    return tuple(replace(t, assignment=labels.get(t.attempt) if t.accepted else None) for t in takes)
-
-
-def _manifest_dict(manifest: BankManifest) -> dict[str, Any]:
-    return dataclasses.asdict(manifest)
+    """Order the takes by attempt and assign ``D01`` .. to the first ``required`` accepted ones."""
+    ordered = tuple(sorted(takes, key=lambda t: t.attempt))
+    labels = _expected_assignments(ordered, required)
+    return tuple(replace(t, assignment=labels.get(t.attempt) if t.accepted else None) for t in ordered)
 
 
 def write_bank_manifest(path: Path, manifest: BankManifest) -> None:
     """Write the manifest atomically as portable JSON (no machine paths)."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(_manifest_dict(manifest), indent=2, sort_keys=True) + "\n"
+    text = json.dumps(to_mapping(manifest), indent=2, sort_keys=True) + "\n"
     temporary = path.with_name(path.name + ".tmp")
     temporary.write_text(text, encoding="utf-8")
     temporary.replace(path)
 
 
 def load_bank_manifest(path: Path) -> BankManifest:
-    """Read a manifest written by :func:`write_bank_manifest`.
+    """Read a manifest strictly: wrong types, unknown keys, and inconsistent assignments are refused.
 
     Raises
     ------
-    ValueError
-        If the schema version is not supported.
+    ConfigError
+        If the document does not satisfy the manifest schema (a ``ValueError``).
     """
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if data.get("bank_schema_version") != BANK_SCHEMA_VERSION:
-        msg = f"unsupported bank_schema_version {data.get('bank_schema_version')!r} in {path}"
-        raise ValueError(msg)
-    takes = tuple(
-        TakeVerdict(
-            batch=int(t["batch"]),
-            attempt=int(t["attempt"]),
-            source_file=str(t["source_file"]),
-            accepted=bool(t["accepted"]),
-            reasons=tuple(str(r) for r in t["reasons"]),
-            raw_artifact_id=t["raw_artifact_id"],
-            processed_artifact_id=t["processed_artifact_id"],
-            q_sha256=t["q_sha256"],
-            assignment=t["assignment"],
-            measurements=dict(t["measurements"]),
-        )
-        for t in data["takes"]
-    )
-    return BankManifest(
-        bank_schema_version=BANK_SCHEMA_VERSION,
-        protocol=str(data["protocol"]),
-        session=str(data["session"]),
-        scenario_path=str(data["scenario_path"]),
-        scenario_sha256=str(data["scenario_sha256"]),
-        derive_config_path=str(data["derive_config_path"]),
-        derive_config_sha256=str(data["derive_config_sha256"]),
-        required=int(data["required"]),
-        takes=takes,
-        updated_at=str(data["updated_at"]),
-    )
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ConfigError(str(path), f"not valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ConfigError(str(path), "the manifest must be a JSON object")
+    return from_mapping(cast("dict[str, Any]", data), BankManifest)
 
 
 @dataclass(frozen=True)
@@ -233,34 +285,27 @@ def _relative(path: Path, records_root: Path, label: str) -> str:
         raise ValueError(msg) from exc
 
 
-def _measurements(assessment: TakeAssessment | None) -> dict[str, float | int | None]:
-    if assessment is None:
-        return {}
+def _measurements(assessment: TakeAssessment) -> TakeMeasurements:
     timing = assessment.raw_timing
-    out: dict[str, float | int | None] = {
-        "n_frames": timing.n_frames,
-        "duration_s": timing.duration_s,
-        "median_interval_s": timing.median_interval_s,
-        "max_interval_s": timing.max_interval_s,
-        "late_frames": timing.late_frames,
-        "max_raw_speed_rad_s": max(timing.max_raw_speed_rad_s),
-        "start_deviation_rad": assessment.start.max_deviation_rad,
-        "start_shift_rad": None if assessment.smoothing is None else assessment.smoothing.start_shift_rad,
-        "dwell_final_duration_s": None if assessment.dwell is None else assessment.dwell.final_duration_s,
-        "dwell_final_samples": None if assessment.dwell is None else assessment.dwell.final_samples,
-    }
-    if assessment.motion is not None:
-        out.update(
-            {
-                "hold_end_s": assessment.motion.hold_end_s,
-                "movement_duration_s": assessment.motion.movement_duration_s,
-                "time_to_dwell_s": assessment.motion.time_to_dwell_s,
-                "path_length_rad": assessment.motion.path_length_rad,
-                "peak_speed_rad_s": assessment.motion.peak_speed_rad_s,
-                "final_endpoint_error_m": assessment.motion.final_endpoint_error_m,
-            }
-        )
-    return out
+    motion = assessment.motion
+    return TakeMeasurements(
+        n_frames=timing.n_frames,
+        duration_s=timing.duration_s,
+        median_interval_s=timing.median_interval_s,
+        max_interval_s=timing.max_interval_s,
+        late_frames=timing.late_frames,
+        max_raw_speed_rad_s=max(timing.max_raw_speed_rad_s),
+        start_deviation_rad=assessment.start.max_deviation_rad,
+        start_shift_rad=None if assessment.smoothing is None else assessment.smoothing.start_shift_rad,
+        dwell_final_duration_s=None if assessment.dwell is None else assessment.dwell.final_duration_s,
+        dwell_final_samples=None if assessment.dwell is None else assessment.dwell.final_samples,
+        hold_end_s=None if motion is None else motion.hold_end_s,
+        movement_duration_s=None if motion is None else motion.movement_duration_s,
+        time_to_dwell_s=None if motion is None else motion.time_to_dwell_s,
+        path_length_rad=None if motion is None else motion.path_length_rad,
+        peak_speed_rad_s=None if motion is None else motion.peak_speed_rad_s,
+        final_endpoint_error_m=None if motion is None else motion.final_endpoint_error_m,
+    )
 
 
 @dataclass(frozen=True)
@@ -277,8 +322,51 @@ class _Context:
     now: datetime | None
 
 
-def _validate_take(path: Path, attempt: int, seen: dict[str, TakeVerdict], context: _Context) -> TakeVerdict:
-    """Import, measure, and (when accepted) derive one attempt; never raise for a bad take."""
+type _Records = list[ManualTakeRecord | ManualDatasetRecord]
+
+
+def _rejected(context: _Context, attempt: int, path: Path, reasons: tuple[str, ...], **fields: object) -> TakeVerdict:
+    values: dict[str, Any] = {
+        "batch": context.batch,
+        "attempt": attempt,
+        "source_file": path.name,
+        "accepted": False,
+        "reasons": reasons,
+        "raw_artifact_id": None,
+        "processed_artifact_id": None,
+        "payload_sha256": None,
+        "q_sha256": None,
+        "duplicate_of": None,
+        "assignment": None,
+        "measurements": TakeMeasurements(),
+    }
+    values.update(fields)
+    return TakeVerdict(**values)
+
+
+def _validate_take(
+    path: Path,
+    attempt: int,
+    seen_payloads: dict[str, TakeVerdict],
+    seen_trajectories: dict[str, TakeVerdict],
+    context: _Context,
+) -> tuple[TakeVerdict, _Records]:
+    """Import, measure, and (when accepted) derive one attempt without registering records; never raise for a bad take.
+
+    A byte-identical copy of an earlier take is rejected before import and gets
+    no record of its own (``duplicate_of`` names the earlier take's artifact);
+    an unreadable or structurally invalid file is a ``malformed`` rejection.
+    """
+    payload_digest = sha256_file(path)
+    twin = seen_payloads.get(payload_digest)
+    if twin is not None:
+        reason = (
+            f"duplicate of attempt {twin.attempt} (batch {twin.batch}): byte-identical file, retained as "
+            f"{twin.raw_artifact_id or 'that attempt'}"
+        )
+        return _rejected(
+            context, attempt, path, (reason,), payload_sha256=payload_digest, duplicate_of=twin.raw_artifact_id
+        ), []
     config = load_manual_scenario(context.scenario_file)
     derive = load_manual_derive_config(context.config_file)
     try:
@@ -293,52 +381,62 @@ def _validate_take(path: Path, attempt: int, seen: dict[str, TakeVerdict], conte
             access=context.access,
             exploratory=context.exploratory,
             now=context.now,
+            register=False,
         )
+    except DuplicatePayloadError as exc:
+        reason = (
+            f"duplicate of {exc.existing.artifact.artifact_id} (attempt {exc.existing.take} of session "
+            f"{exc.existing.session!r}): byte-identical file"
+        )
+        return _rejected(
+            context,
+            attempt,
+            path,
+            (reason,),
+            payload_sha256=payload_digest,
+            duplicate_of=exc.existing.artifact.artifact_id,
+        ), []
     except ManualTakeError as exc:
-        return TakeVerdict(
-            batch=context.batch,
-            attempt=attempt,
-            source_file=path.name,
-            accepted=False,
-            reasons=(f"malformed: {exc}",),
-            raw_artifact_id=None,
-            processed_artifact_id=None,
-            q_sha256=None,
-            assignment=None,
-            measurements={},
-        )
+        return _rejected(context, attempt, path, (f"malformed: {exc}",), payload_sha256=payload_digest), []
+    records: _Records = [imported.record]
     take = load_manual_take(context.store, imported.record)
-    digest = hashlib.sha256(np.ascontiguousarray(take.q).tobytes()).hexdigest()
+    q_digest = hashlib.sha256(np.ascontiguousarray(take.q).tobytes()).hexdigest()
     assessment = assess_take(take, config, derive)
     reasons = list(assessment.problems)
-    twin = seen.get(digest)
+    twin = seen_trajectories.get(q_digest)
+    duplicate_of: str | None = None
     if twin is not None:
         reasons.append(f"duplicate of attempt {twin.attempt} (batch {twin.batch}): identical joint trajectory")
-    accepted = not reasons
+        duplicate_of = twin.raw_artifact_id
     processed_id: str | None = None
-    if accepted:
-        derived = derive_manual_dataset(
-            imported.record_file,
+    if not reasons:
+        derived = derive_manual_take(
+            imported.record,
             context.scenario_file,
             context.config_file,
             store=context.store,
             records_root=context.records_root,
             exploratory=context.exploratory,
             now=context.now,
+            register=False,
         )
         processed_id = derived.record.artifact.artifact_id
-    return TakeVerdict(
+        records.append(derived.record)
+    verdict = TakeVerdict(
         batch=context.batch,
         attempt=attempt,
         source_file=path.name,
-        accepted=accepted,
+        accepted=not reasons,
         reasons=tuple(reasons),
         raw_artifact_id=imported.record.artifact.artifact_id,
         processed_artifact_id=processed_id,
-        q_sha256=digest,
+        payload_sha256=payload_digest,
+        q_sha256=q_digest,
+        duplicate_of=duplicate_of,
         assignment=None,
         measurements=_measurements(assessment),
     )
+    return verdict, records
 
 
 def _load_or_create_manifest(manifest_file: Path, context: _Context, required: int) -> BankManifest:
@@ -397,8 +495,9 @@ def _render_markdown(report: BatchReport, manifest: BankManifest) -> str:
     ]
     for v in report.verdicts:
         verdict = "accepted" if v.accepted else "rejected"
+        raw = v.raw_artifact_id or (f"duplicate of {v.duplicate_of}" if v.duplicate_of else "-")
         lines.append(
-            f"| {v.attempt} | `{v.source_file}` | {verdict} | {v.raw_artifact_id or '-'} | "
+            f"| {v.attempt} | `{v.source_file}` | {verdict} | {raw} | "
             f"{v.processed_artifact_id or '-'} | {'; '.join(v.reasons) or '-'} |"
         )
     if manifest.complete:
@@ -440,29 +539,21 @@ def validate_batch(
         scenario_file, config_file, store, records_root, session, batch, license_label, access, exploratory, now
     )
     manifest = _load_or_create_manifest(manifest_file, context, required)
-    numbered = sorted(((attempt_number(path), path) for path in take_files), key=lambda item: item[0])
-    attempts = [attempt for attempt, _ in numbered]
-    known = {t.attempt for t in manifest.takes}
-    repeated = [a for a in attempts if attempts.count(a) > 1 or a in known]
-    if repeated:
-        msg = f"attempt numbers must be unique across the session; repeated: {sorted(set(repeated))}"
-        raise ValueError(msg)
-    seen = {t.q_sha256: t for t in manifest.takes if t.q_sha256 is not None}
+    numbered = _check_submission(take_files, manifest)
+    seen_payloads, seen_trajectories = _seen_digests(manifest.takes)
     verdicts: list[TakeVerdict] = []
+    pending: _Records = []
     for attempt, path in numbered:
-        verdict = _validate_take(path, attempt, seen, context)
+        verdict, records = _validate_take(path, attempt, seen_payloads, seen_trajectories, context)
         verdicts.append(verdict)
-        if verdict.q_sha256 is not None and verdict.q_sha256 not in seen:
-            seen[verdict.q_sha256] = verdict
+        pending.extend(records)
+        _remember(verdict, seen_payloads, seen_trajectories)
     stamp = (now or datetime.now(tz=UTC)).replace(microsecond=0).isoformat()
-    takes = _assign(tuple(sorted([*manifest.takes, *verdicts], key=lambda t: (t.batch, t.attempt))), required)
-    manifest = replace(manifest, takes=takes, updated_at=stamp)
-    write_bank_manifest(manifest_file, manifest)
-    batch_verdicts = tuple(t for t in takes if t.batch == batch)
+    manifest = replace(manifest, takes=_assign((*manifest.takes, *verdicts), required), updated_at=stamp)
     stem = manifest_file.with_suffix("").name
     report = BatchReport(
         batch=batch,
-        verdicts=batch_verdicts,
+        verdicts=tuple(t for t in manifest.takes if t.batch == batch),
         accepted_total=len(manifest.accepted_attempts),
         required=required,
         shortfall=manifest.shortfall,
@@ -472,20 +563,78 @@ def validate_batch(
         report_json=manifest_file.with_name(f"{stem}_batch_{batch:03d}.json"),
         report_markdown=manifest_file.with_name(f"{stem}_batch_{batch:03d}.md"),
     )
+    _publish(report, manifest, pending, records_root=records_root, session=session, stamp=stamp)
+    return report
+
+
+def _check_submission(take_files: Sequence[Path], manifest: BankManifest) -> list[tuple[int, Path]]:
+    """Existing numbered files, unique attempts, and no attempt before the locked assignments of a complete bank."""
+    missing = [str(path) for path in take_files if not path.is_file()]
+    if missing:
+        msg = f"take file not found: {', '.join(missing)}"
+        raise ValueError(msg)
+    numbered = sorted(((attempt_number(path), path) for path in take_files), key=lambda item: item[0])
+    attempts = [attempt for attempt, _ in numbered]
+    known = {t.attempt for t in manifest.takes}
+    repeated = [a for a in attempts if attempts.count(a) > 1 or a in known]
+    if repeated:
+        msg = f"attempt numbers must be unique across the session; repeated: {sorted(set(repeated))}"
+        raise ValueError(msg)
+    if manifest.complete:
+        highest = max(t.attempt for t in manifest.takes if t.assignment is not None)
+        early = [a for a in attempts if a <= highest]
+        if early:
+            msg = (
+                f"the bank is complete and its assignments are locked: attempts {early} precede the last assigned "
+                f"attempt {highest}; later batches may only add later recordings"
+            )
+            raise ValueError(msg)
+    return numbered
+
+
+def _seen_digests(takes: tuple[TakeVerdict, ...]) -> tuple[dict[str, TakeVerdict], dict[str, TakeVerdict]]:
+    """The earliest retained take per payload and per joint trajectory: the original every later copy points at."""
+    payloads: dict[str, TakeVerdict] = {}
+    trajectories: dict[str, TakeVerdict] = {}
+    for earlier in takes:
+        _remember(earlier, payloads, trajectories)
+    return payloads, trajectories
+
+
+def _remember(verdict: TakeVerdict, payloads: dict[str, TakeVerdict], trajectories: dict[str, TakeVerdict]) -> None:
+    if verdict.raw_artifact_id is None:
+        return  # a rejected copy or malformed file is never an original
+    if verdict.payload_sha256 is not None:
+        payloads.setdefault(verdict.payload_sha256, verdict)
+    if verdict.q_sha256 is not None:
+        trajectories.setdefault(verdict.q_sha256, verdict)
+
+
+def _publish(
+    report: BatchReport, manifest: BankManifest, pending: _Records, *, records_root: Path, session: str, stamp: str
+) -> None:
+    """Write the reports, then the Git-tracked records, then the manifest.
+
+    Until the manifest names the batch it is not recorded, so a failure anywhere
+    before leaves the batch retryable, and the retry finds the same payloads
+    (resumed) and rebuilds the same verdicts.
+    """
     payload = {
-        "batch": batch,
+        "batch": report.batch,
         "session": session,
-        "verdicts": [dataclasses.asdict(v) for v in batch_verdicts],
+        "verdicts": [to_mapping(v) for v in report.verdicts],
         "accepted_total": report.accepted_total,
-        "required": required,
+        "required": report.required,
         "shortfall": report.shortfall,
         "complete": report.complete,
         "next_action": report.next_action,
         "updated_at": stamp,
     }
+    report.manifest_file.parent.mkdir(parents=True, exist_ok=True)
     report.report_json.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     report.report_markdown.write_text(_render_markdown(report, manifest), encoding="utf-8")
-    return report
+    register_manual_records(records_root, pending)
+    write_bank_manifest(report.manifest_file, manifest)
 
 
 def build_parser() -> argparse.ArgumentParser:

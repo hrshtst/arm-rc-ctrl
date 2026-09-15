@@ -5,12 +5,15 @@
 
 from __future__ import annotations
 
+import json
 import shutil
+import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
+from arm_rc_ctrl import provenance
 from arm_rc_ctrl.data.manual import ManualDatasetRecord, ManualTakeRecord
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
 from arm_rc_ctrl.data.records import load_record
@@ -24,6 +27,7 @@ from arm_rc_ctrl.experiments.manual_bank import (
     main,
     validate_batch,
 )
+from arm_rc_ctrl.provenance import DirtyWorktreeError
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.storage import StorageRoot
 
@@ -92,7 +96,9 @@ def workspace(tmp_path: Path) -> Workspace:
     return Workspace(store, records_root, scenario, derive, takes, manifest)
 
 
-def _validate(ws: Workspace, batch: int, attempts: list[int], scenario_file: Path | None = None) -> BatchReport:
+def _validate(
+    ws: Workspace, batch: int, attempts: list[int], scenario_file: Path | None = None, *, exploratory: bool = True
+) -> BatchReport:
     files = [ws.takes / f"reach_{a:03d}.sklog.npz" for a in attempts]
     return validate_batch(
         files,
@@ -106,8 +112,29 @@ def _validate(ws: Workspace, batch: int, attempts: list[int], scenario_file: Pat
         required=10,
         license_label="proprietary",
         access="private",
-        exploratory=True,
+        exploratory=exploratory,
     )
+
+
+def _git(root: Path, *args: str) -> str:
+    return subprocess.run(  # trusted: git on the fixture directory
+        ["git", *args], cwd=root, text=True, check=True, capture_output=True
+    ).stdout.strip()
+
+
+def _make_clean_worktree(ws: Workspace, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Turn the fixture records root into a committed Git worktree whose dirty state the provenance reads."""
+    root = ws.records_root
+    _git(root, "init", "-q")
+    _git(root, "add", ".")
+    _git(root, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "fixture")
+    real = provenance.worktree_state
+
+    def state(path: Path) -> tuple[str, bool]:
+        commit, _ = real(path)
+        return commit, bool(_git(root, "status", "--porcelain"))
+
+    monkeypatch.setattr(provenance, "worktree_state", state)
 
 
 def test_attempt_numbers_come_from_the_recorder_file_names() -> None:
@@ -219,3 +246,126 @@ def test_cli_validates_a_batch_and_signals_the_shortfall(
     files = [str(workspace.takes / f"reach_{a:03d}.sklog.npz") for a in [7, 8, 10, 11, 12, 13]]
     assert main([*common, "--batch", "2", "--takes", *files]) == 0
     assert "complete" in capsys.readouterr().out
+
+
+# ----------------------------------------------------------------------------------------------
+# Review round 2026-09-15
+# ----------------------------------------------------------------------------------------------
+
+
+def test_a_confirmatory_batch_registers_its_records_only_at_the_end(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without --exploratory a batch must not trip over its own records: they are registered after the takes."""
+    _make_clean_worktree(workspace, monkeypatch)
+    report = _validate(workspace, 1, [1, 2], exploratory=False)
+    assert [v.accepted for v in report.verdicts] == [True, True]
+    for verdict in report.verdicts:
+        raw = load_record(
+            workspace.records_root / "data" / "records" / "raw" / f"{verdict.raw_artifact_id}.toml", ManualTakeRecord
+        )
+        processed = load_record(
+            workspace.records_root / "data" / "records" / "processed" / f"{verdict.processed_artifact_id}.toml",
+            ManualDatasetRecord,
+        )
+        assert raw.artifact.origin.project_dirty is False
+        assert processed.artifact.origin.project_dirty is False
+    _git(workspace.records_root, "add", ".")
+    _git(workspace.records_root, "-c", "user.name=Test", "-c", "user.email=test@example.invalid", "commit", "-qm", "b1")
+    (workspace.records_root / "scratch.txt").write_text("dirty", encoding="utf-8")
+    with pytest.raises(DirtyWorktreeError):
+        _validate(workspace, 2, [4], exploratory=False)
+    assert load_bank_manifest(workspace.manifest).batches == (1,)
+
+
+def test_a_corrupt_archive_is_rejected_without_aborting_the_batch(workspace: Workspace) -> None:
+    """An unreadable file becomes a per-take rejection; the later takes of the batch are still assessed."""
+    (workspace.takes / "reach_002.sklog.npz").write_bytes(b"not an npz archive")
+    report = _validate(workspace, 1, [1, 2, 4])
+    assert [v.accepted for v in report.verdicts] == [True, False, True]
+    assert any("malformed" in reason for reason in report.verdicts[1].reasons)
+    assert report.verdicts[1].raw_artifact_id is None
+    with pytest.raises(ValueError, match="not found"):
+        _validate(workspace, 2, [99])
+
+
+def test_a_failed_report_write_leaves_the_batch_unrecorded_and_retryable(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The manifest is published last: a report failure records nothing, and the retry rebuilds identical verdicts."""
+    original = Path.write_text
+
+    def failing(path: Path, *args: object, **kwargs: object) -> int:
+        if path.name.endswith("_batch_001.json"):
+            msg = "disk full while writing the batch report"
+            raise OSError(msg)
+        return original(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    with monkeypatch.context() as context:
+        context.setattr(Path, "write_text", failing)
+        with pytest.raises(OSError, match="disk full"):
+            _validate(workspace, 1, [1, 2])
+    assert not workspace.manifest.exists() or 1 not in load_bank_manifest(workspace.manifest).batches
+    report = _validate(workspace, 1, [1, 2])
+    assert [v.accepted for v in report.verdicts] == [True, True]
+    assert report.report_json.exists()
+    assert load_bank_manifest(workspace.manifest).batches == (1,)
+
+
+def test_selection_follows_acquisition_order_and_locks_once_complete(workspace: Workspace) -> None:
+    """Attempt numbers, not batch numbers, order the bank; a complete bank refuses earlier attempts."""
+    _validate(workspace, 1, [4, 5, 6, 8, 10, 11])
+    report = _validate(workspace, 2, [1, 2, 12, 13, 14])
+    assert report.complete
+    manifest = load_bank_manifest(workspace.manifest)
+    assert manifest.accepted_attempts == (1, 2, 4, 5, 6, 8, 10, 11, 12, 13, 14)
+    by_raw = {t.raw_artifact_id: t.attempt for t in manifest.takes}
+    assert [by_raw[raw] for raw in manifest.assignments.values()] == [1, 2, 4, 5, 6, 8, 10, 11, 12, 13]
+    with pytest.raises(ValueError, match="locked"):
+        _validate(workspace, 3, [3])
+    assert load_bank_manifest(workspace.manifest).batches == (1, 2)
+
+
+def test_a_byte_identical_file_is_a_duplicate_without_a_record_of_its_own(workspace: Workspace) -> None:
+    """Payload deduplication never lends another attempt's record to a copied file."""
+    shutil.copyfile(workspace.takes / "reach_001.sklog.npz", workspace.takes / "reach_002.sklog.npz")
+    report = _validate(workspace, 1, [1, 2])
+    first, second = report.verdicts
+    assert first.accepted
+    assert not second.accepted
+    assert second.raw_artifact_id is None
+    assert second.duplicate_of == first.raw_artifact_id
+    assert any("byte-identical" in reason and "attempt 1" in reason for reason in second.reasons)
+    raw = load_record(
+        workspace.records_root / "data" / "records" / "raw" / f"{first.raw_artifact_id}.toml", ManualTakeRecord
+    )
+    assert raw.take == 1
+    shutil.copyfile(workspace.takes / "reach_001.sklog.npz", workspace.takes / "reach_003.sklog.npz")
+    later = _validate(workspace, 2, [3])
+    assert later.verdicts[0].duplicate_of == first.raw_artifact_id
+    assert later.verdicts[0].raw_artifact_id is None
+
+
+def test_manifest_loading_is_strict_and_checks_consistency(workspace: Workspace) -> None:
+    """A tampered manifest is refused: wrong types, unknown keys, and assignments that contradict the verdicts."""
+    _validate(workspace, 1, [1, 2, 3])
+    data = json.loads(workspace.manifest.read_text(encoding="utf-8"))
+
+    def write(document: dict[str, object]) -> None:
+        workspace.manifest.write_text(json.dumps(document), encoding="utf-8")
+
+    tampered = json.loads(json.dumps(data))
+    tampered["takes"][2]["accepted"] = "false"
+    write(tampered)
+    with pytest.raises(ValueError, match="accepted"):
+        load_bank_manifest(workspace.manifest)
+    write({**data, "extra": 1})
+    with pytest.raises(ValueError, match="extra"):
+        load_bank_manifest(workspace.manifest)
+    tampered = json.loads(json.dumps(data))
+    tampered["takes"][2]["assignment"] = "D01"
+    write(tampered)
+    with pytest.raises(ValueError, match="assignment"):
+        load_bank_manifest(workspace.manifest)
+    write(data)
+    assert load_bank_manifest(workspace.manifest).batches == (1,)

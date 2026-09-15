@@ -103,7 +103,10 @@ serialization must stay byte-stable.
   the reset-start check, the hold-anchored smoothing check, the raw timing, and
   a motion summary; no normalization is fitted.
   `arm_rc_ctrl.data.recovery.load_processed_record` dispatches the M3,
-  recovery, and manual processed schemas.
+  recovery, and manual processed schemas. Raw take artifact IDs are content
+  addressed, so identical bytes can carry only one attempt's record: importing
+  them as another session or attempt raises `DuplicatePayloadError` instead of
+  lending that record, and a batch rejects such a copy with `duplicate_of`.
 - **Catalog:** `data/catalog.toml` lists every record (`artifact_id`, `kind`,
   record path, `uri`, `sha256`, `created_at`). It is append-only: entries are
   never changed or removed.
