@@ -8,11 +8,13 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 import numpy as np
 import pytest
 
+from arm_rc_ctrl.data import recording
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
 from arm_rc_ctrl.data.recording import (
     RecorderSession,
@@ -23,7 +25,7 @@ from arm_rc_ctrl.data.recording import (
     resolve_recorder_session,
     write_session_settings,
 )
-from arm_rc_ctrl.dependencies import submodule_revisions
+from arm_rc_ctrl.dependencies import BuildIdentityError, SubmoduleRevision, submodule_revisions, verify_builds
 from arm_rc_ctrl.provenance import sha256_file
 from arm_rc_ctrl.repo import repository_root
 
@@ -161,3 +163,71 @@ def test_the_launcher_dry_run_prints_the_session_and_writes_nothing(
     )
     assert result.returncode == 0, result.stderr
     assert "--dry-run" in result.stdout
+
+
+def _drifted(drift: str) -> tuple[SubmoduleRevision, ...]:
+    """The repository's submodule revisions with the skelarm checkout dirty, off its pin, or uninitialized."""
+    changed: list[SubmoduleRevision] = []
+    for revision in submodule_revisions(REPO_ROOT):
+        if revision.name != "skelarm":
+            changed.append(revision)
+        elif drift == "dirty":
+            changed.append(replace(revision, dirty=True))
+        elif drift == "different_commit":
+            changed.append(replace(revision, checked_out="0" * 40))
+        else:
+            changed.append(replace(revision, checked_out=None, dirty=None))
+    return tuple(changed)
+
+
+@pytest.mark.parametrize("drift", ["dirty", "different_commit", "uninitialized"])
+def test_an_unpinned_or_modified_recorder_is_refused_everywhere(
+    qapp: object,  # noqa: ARG001
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    drift: str,
+) -> None:
+    """Resolution, the dry run, and the window all refuse a recorder that is not the clean pinned checkout."""
+    session = _resolve(tmp_path)
+    changed = _drifted(drift)
+
+    def drifted_revisions(_root: Path | None = None) -> tuple[SubmoduleRevision, ...]:
+        return changed
+
+    monkeypatch.setattr(recording, "submodule_revisions", drifted_revisions)
+    with pytest.raises(RecordingError, match="skelarm"):
+        _resolve(tmp_path)
+    with pytest.raises(RecordingError, match="skelarm"):
+        create_recorder_window(session, load_manual_scenario(SCENARIO), run_timer=False)
+    with pytest.raises(RecordingError, match="skelarm"):
+        write_session_settings(session, repo_root=REPO_ROOT)
+    argv = [
+        "--scenario", str(SCENARIO), "--recording", str(RECORDING), "--session", "study-b",
+        "--purpose", "study", "--output-root", str(tmp_path), "--dry-run",
+    ]  # fmt: skip
+    assert main(argv) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert "skelarm" in captured.err
+    assert not (tmp_path / "study" / "study-b").exists()
+
+
+def test_a_stale_installed_build_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The installed skelarm package must be the build of the pinned checkout."""
+
+    def stale(_root: Path | None = None) -> tuple[object, ...]:
+        msg = "skelarm: installed Python sources differ from the recorded build"
+        raise BuildIdentityError(msg)
+
+    monkeypatch.setattr(recording, "verify_builds", stale)
+    with pytest.raises(RecordingError, match="rebuild"):
+        _resolve(tmp_path)
+
+
+def test_session_settings_record_the_verified_build(tmp_path: Path) -> None:
+    """The settings carry the installed skelarm build identity that the guard verified."""
+    data = json.loads(write_session_settings(_resolve(tmp_path), repo_root=REPO_ROOT).read_text(encoding="utf-8"))
+    build = next(b for b in verify_builds(REPO_ROOT) if b.name == "skelarm")
+    assert data["recorder"]["skelarm_python_sources_sha256"] == build.python_sources_sha256
+    assert data["recorder"]["skelarm_version"] == build.version

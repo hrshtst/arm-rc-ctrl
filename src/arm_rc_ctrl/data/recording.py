@@ -38,13 +38,15 @@ from skelarm import Task
 
 from arm_rc_ctrl.config import ConfigError, load_config
 from arm_rc_ctrl.data.manual_scenario import ManualScenarioConfig, load_manual_scenario, manual_build_skeleton
-from arm_rc_ctrl.dependencies import submodule_revisions
+from arm_rc_ctrl.dependencies import BuildIdentityError, submodule_revisions, verify_builds
 from arm_rc_ctrl.provenance import sha256_file
 from arm_rc_ctrl.repo import repository_root
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
     from types import ModuleType
+
+    from arm_rc_ctrl.dependencies import BuildIdentity, SubmoduleRevision
 
 __all__ = [
     "RECORDER",
@@ -55,6 +57,7 @@ __all__ = [
     "create_recorder_window",
     "load_recording_config",
     "main",
+    "require_pinned_recorder",
     "resolve_recorder_session",
     "session_settings",
     "write_session_settings",
@@ -154,6 +157,51 @@ def _check_output_root(output_root: Path, repo_root: Path) -> None:
     raise RecordingError(msg)
 
 
+def require_pinned_recorder(repo_root: Path) -> tuple[SubmoduleRevision, BuildIdentity]:
+    """The skelarm checkout the recorder runs from, verified as initialized, clean, at its pin, and installed as built.
+
+    Session settings name the recorder by its commit, so a recording from a
+    modified or unpinned recorder must never start.
+
+    Raises
+    ------
+    RecordingError
+        If ``third_party/skelarm`` is uninitialized, has uncommitted changes, is
+        checked out away from its pin, or the installed build does not match it.
+    """
+    skelarm = next((s for s in submodule_revisions(repo_root) if s.name == "skelarm"), None)
+    if skelarm is None:
+        msg = "skelarm is not a submodule of this repository; the recorder cannot be pinned"
+        raise RecordingError(msg)
+    if skelarm.checked_out is None:
+        msg = "third_party/skelarm is not initialized; run `git submodule update --init third_party/skelarm`"
+        raise RecordingError(msg)
+    if skelarm.dirty is not False:
+        msg = (
+            "third_party/skelarm has uncommitted changes; the recorder must run from the clean pinned skelarm checkout"
+        )
+        raise RecordingError(msg)
+    if skelarm.checked_out != skelarm.recorded:
+        msg = (
+            f"third_party/skelarm is checked out at {skelarm.checked_out[:12]}, not at its pin "
+            f"{skelarm.recorded[:12]}; check out the pinned skelarm commit"
+        )
+        raise RecordingError(msg)
+    try:
+        builds = verify_builds(repo_root)
+    except BuildIdentityError as exc:
+        msg = (
+            "the installed skelarm build does not match the pinned checkout; run "
+            f"`uv run python -m arm_rc_ctrl.dependencies rebuild`: {exc}"
+        )
+        raise RecordingError(msg) from exc
+    build = next((b for b in builds if b.name == "skelarm"), None)
+    if build is None:
+        msg = "no installed skelarm build identity is recorded; run `uv run python -m arm_rc_ctrl.dependencies rebuild`"
+        raise RecordingError(msg)
+    return skelarm, build
+
+
 def resolve_recorder_session(
     scenario_file: Path,
     recording_file: Path,
@@ -172,6 +220,7 @@ def resolve_recorder_session(
         root is not an existing absolute directory outside the repository, or
         the task period is not a whole number of milliseconds.
     """
+    require_pinned_recorder(repo_root)
     scenario = load_manual_scenario(scenario_file)
     recording = load_recording_config(recording_file)
     if recording.protocol != scenario.protocol:
@@ -233,6 +282,7 @@ def create_recorder_window(  # noqa: ANN201  # the pinned tool's RecorderWindow 
     *,
     run_timer: bool = True,
     recorder_path: Path = RECORDER,
+    repo_root: Path | None = None,
 ):
     """Build the pinned recorder window for ``session`` and verify it against the protocol.
 
@@ -242,6 +292,7 @@ def create_recorder_window(  # noqa: ANN201  # the pinned tool's RecorderWindow 
         If the posture, joint limits, target marker, or sampling tick of the
         built recorder differ from the configuration.
     """
+    require_pinned_recorder(repository_root() if repo_root is None else repo_root)
     skeleton = manual_build_skeleton(config)
     if not np.array_equal(skeleton.q, np.asarray(session.initial_q, dtype=np.float64)):
         msg = (
@@ -280,7 +331,7 @@ def create_recorder_window(  # noqa: ANN201  # the pinned tool's RecorderWindow 
 
 def session_settings(session: RecorderSession, *, repo_root: Path) -> dict[str, object]:
     """The portable settings of a session: configurations by digest, the pinned recorder, and the resolved options."""
-    skelarm = next(s for s in submodule_revisions(repo_root) if s.name == "skelarm")
+    skelarm, build = require_pinned_recorder(repo_root)
     return {
         "settings_schema_version": SETTINGS_SCHEMA_VERSION,
         "protocol": session.protocol,
@@ -290,7 +341,9 @@ def session_settings(session: RecorderSession, *, repo_root: Path) -> dict[str, 
         "recording": {"path": session.recording_path, "sha256": session.recording_sha256},
         "recorder": {
             "tool": "third_party/skelarm/tools/trajectory_recorder.py",
-            "skelarm_commit": skelarm.checked_out or skelarm.recorded,
+            "skelarm_commit": skelarm.checked_out,
+            "skelarm_version": build.version,
+            "skelarm_python_sources_sha256": build.python_sources_sha256,
         },
         "options": {
             "mode": session.mode,
