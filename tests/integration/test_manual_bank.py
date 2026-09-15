@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import json
+import math
 import shutil
 import subprocess
 from dataclasses import dataclass
@@ -16,7 +17,7 @@ import pytest
 
 from arm_rc_ctrl import provenance
 from arm_rc_ctrl.data.manual import ManualDatasetRecord, ManualTakeRecord
-from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
+from arm_rc_ctrl.data.manual_scenario import ManualScenarioConfig, load_manual_scenario
 from arm_rc_ctrl.data.records import load_record
 from arm_rc_ctrl.data.synthetic import synthetic_manual_take_log
 from arm_rc_ctrl.experiments import manual_bank
@@ -454,3 +455,81 @@ def test_an_interrupted_atomic_record_write_resumes_without_exploratory(
     assert [v.accepted for v in report.verdicts] == [True, True]
     assert not list(workspace.records_root.rglob("*.tmp"))
     assert load_bank_manifest(workspace.manifest).batches == (1,)
+
+
+# ----------------------------------------------------------------------------------------------
+# M3MAN-013: a v2 batch (50 Hz acquisition, natural pre-roll, first-sample reflection)
+# ----------------------------------------------------------------------------------------------
+
+
+def _goal_posture(config: ManualScenarioConfig) -> tuple[float, float]:
+    """Joint angles that put the endpoint on the target, on the elbow branch of the reset posture."""
+    l1 = config.robot.links[0].length
+    l2 = config.robot.links[1].length
+    x, y = config.task.target
+    elbow = math.acos((x * x + y * y - l1 * l1 - l2 * l2) / (2.0 * l1 * l2))
+    return math.atan2(y, x) - math.atan2(l2 * math.sin(elbow), l1 + l2 * math.cos(elbow)), elbow
+
+
+def test_a_v2_batch_of_50hz_takes_that_move_at_once_is_validated_end_to_end(tmp_path: Path) -> None:
+    """Under the v2 configurations, takes moving from the second sample are accepted and a 100 Hz take is not."""
+    root = tmp_path / "store"
+    root.mkdir()
+    store = StorageRoot(root, repositories=(REPO_ROOT,))
+    records_root = tmp_path / "repo"
+    (records_root / "configs" / "tasks").mkdir(parents=True)
+    (records_root / "configs" / "preprocessing").mkdir(parents=True)
+    scenario = records_root / "configs" / "tasks" / "task_1a_manual_v2.toml"
+    shutil.copyfile(REPO_ROOT / "configs" / "tasks" / "task_1a_manual_v2.toml", scenario)
+    derive = records_root / "configs" / "preprocessing" / "manual_v2.toml"
+    shutil.copyfile(REPO_ROOT / "configs" / "preprocessing" / "manual_v2.toml", derive)
+    config = load_manual_scenario(scenario)
+    takes = tmp_path / "takes"
+    takes.mkdir()
+    shapes: dict[int, tuple[float, float, float]] = {1: (0.02, 1.0, 0.004), 2: (0.02, 1.3, 0.003), 3: (0.01, 1.0, 0.0)}
+    for attempt, (period, move_s, jitter_s) in shapes.items():
+        log = synthetic_manual_take_log(
+            config,
+            goal_q=_goal_posture(config),
+            sample_period_s=period,
+            hold_s=period,
+            move_s=move_s,
+            dwell_s=2.0,
+            preroll_amplitude_rad=0.005,
+            jitter_s=jitter_s,
+            seed=attempt,
+        )
+        log.save(takes / f"reach_{attempt:03d}.sklog.npz")
+    manifest = records_root / "docs" / "bank" / "task_bank_v2.json"
+    report = validate_batch(
+        [takes / f"reach_{attempt:03d}.sklog.npz" for attempt in shapes],
+        scenario_file=scenario,
+        config_file=derive,
+        store=store,
+        records_root=records_root,
+        session="practice-v2",
+        batch=1,
+        manifest_file=manifest,
+        required=2,
+        license_label="proprietary",
+        access="private",
+        exploratory=True,
+    )
+    assert [v.accepted for v in report.verdicts] == [True, True, False]
+    assert any("100 Hz" in reason and "50 Hz" in reason for reason in report.verdicts[2].reasons)
+    assert report.verdicts[2].raw_artifact_id is not None  # the rejected take is retained
+    assert report.complete
+    assert list(load_bank_manifest(manifest).assignments) == ["D01", "D02"]
+    for verdict in report.verdicts[:2]:
+        measurements = verdict.measurements
+        assert measurements.start_shift_rad is not None
+        assert measurements.start_shift_rad <= 1e-12
+        assert measurements.hold_end_s is not None
+        assert measurements.hold_end_s < 0.05  # movement from the second raw sample on
+        assert measurements.median_interval_s == pytest.approx(0.02, abs=0.005)
+        processed = load_record(
+            records_root / "data" / "records" / "processed" / f"{verdict.processed_artifact_id}.toml",
+            ManualDatasetRecord,
+        )
+        assert processed.manual_schema_version == 2
+        assert processed.raw_timing.acquisition_period_s == 0.02

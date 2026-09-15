@@ -1,13 +1,18 @@
 # Copyright (c) 2026 Hiroshi Atsuta
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""Manual-demonstration takes: measurements, hold-anchored smoothing, records, import, and derivation.
+"""Manual-demonstration takes: measurements, boundary-preserving smoothing, records, import, and derivation.
 
 Implements the dataset contract of ``task_1a_manual_v1`` (plan section 3 and
-clarifications I6 and I9): a take is one full recording of the pinned skelarm
-trajectory recorder, kept unchanged from its exact reset posture through the
-stationary pre-roll, the natural transient, and the final dwell. Nothing is
-cropped, warped, or padded. The processed dataset lives on the task grid with a
+clarifications I6, I9, I10, I11, and I13): a take is one full recording of the
+pinned skelarm trajectory recorder, kept unchanged from its exact reset posture
+through the pre-roll (stationary or naturally fluctuating from the second sample
+on), the natural transient, and the final dwell. Nothing is cropped, warped, or
+padded. Each take is reconstructed from its actual timestamps onto the task's
+training grid and smoothed with a filter that preserves the first sample: the
+hold-anchored filter of the v1 derivation (manual schema 1) or the first-sample
+point reflection of the v2 derivation (manual schema 2), which needs no
+stationary hold. The processed dataset lives on the training grid with a
 measured continuous final dwell, a start check against the reset posture, and
 descriptive hold/move/dwell annotations that never decide which samples train.
 Saving a take is independent of accepting it: every attempt is imported and
@@ -96,6 +101,7 @@ if TYPE_CHECKING:
 __all__ = [
     "MANUAL_PHASE_CODES",
     "MANUAL_RAW_UNITS",
+    "MANUAL_REFLECTED_SCHEMA_VERSION",
     "MANUAL_SCHEMA_VERSION",
     "DuplicatePayloadError",
     "DwellMeasurement",
@@ -113,8 +119,10 @@ __all__ = [
     "RawTiming",
     "RecorderAcquisition",
     "RecorderDisplay",
+    "ReflectionSettings",
     "SmoothingCheck",
     "StartCheck",
+    "StartReflectedResult",
     "TakeAssessment",
     "assess_take",
     "continuous_dwell",
@@ -123,11 +131,16 @@ __all__ = [
     "import_manual_take",
     "load_manual_derive_config",
     "load_manual_take",
+    "reconstruct_on_grid",
     "register_manual_records",
     "smooth_hold_anchored",
+    "smooth_start_reflected",
 ]
 
 MANUAL_SCHEMA_VERSION = 1
+"""Schema of raw take records and of datasets smoothed with the hold-anchored filter (v1 derivation)."""
+MANUAL_REFLECTED_SCHEMA_VERSION = 2
+"""Schema of datasets smoothed with the first-sample point reflection (v2 derivation, clarification I11)."""
 MANUAL_PHASE_CODES: dict[str, int] = {"hold": 0, "move": 1, "dwell": 2}
 """Descriptive annotations of a full recording; every sample enters training regardless of its phase."""
 MANUAL_RAW_UNITS: dict[str, str] = {"t": "s", "q": "rad", "tip": "m", "nominal_time": "s"}
@@ -142,6 +155,8 @@ _TASK_DIM = 2
 _MIN_FRAMES = 2
 _MIN_DWELL_SAMPLES = 2
 _HOLD_ANCHORED_LABEL = "butterworth-zero-phase-hold-anchored"
+_REFLECTED_LABEL = "butterworth-zero-phase-first-sample-reflected"
+_DATASET_SCHEMA_VERSIONS = (MANUAL_SCHEMA_VERSION, MANUAL_REFLECTED_SCHEMA_VERSION)
 
 
 class ManualTakeError(RuntimeError):
@@ -391,6 +406,91 @@ def smooth_hold_anchored(
     out[start:] = anchor + filtered
     shift = float(np.max(np.abs(out[0] - anchor)))
     return HoldAnchoredResult(out, start, shift, onset)
+
+
+# --- first-sample point reflection (I11) --------------------------------------------------
+
+
+@dataclass(frozen=True)
+class StartReflectedResult:
+    """The smoothed take and how far its first sample moved."""
+
+    values: NDArray[np.float64]
+    start_shift_rad: float
+    """Largest deviation of the processed first sample from the recorded first sample."""
+    onset: int | None
+    """First sample that departs from the first sample, or ``None`` for a stationary take."""
+
+
+def smooth_start_reflected(
+    values: NDArray[np.float64],
+    sample_rate_hz: float,
+    config: SmoothingConfig,
+    *,
+    extension_samples: int,
+) -> StartReflectedResult:
+    """Zero-phase smoothing that preserves the first sample without a stationary hold (clarification I11).
+
+    The filter acts on the deviation ``d = q - q[0]``. Before the first sample the
+    deviation is extended by its point reflection about that sample,
+    ``d(-k) = -d(k)`` for ``k = 1 .. extension_samples`` (continuing with the
+    reflected final value when the take is shorter), and after the last sample by
+    repeating the final value over the same length. A zero-phase filter maps an
+    antisymmetric signal to an antisymmetric one, so once the extension covers the
+    transient of the filter's edge initialization the filtered deviation vanishes
+    at the first sample up to roundoff; the smoothed velocity is continuous through
+    the first sample and the acceleration passes through zero there, so no
+    derivative spike appears. The recorded pre-roll is filtered like every other
+    sample, never replaced by a constant, and nothing is snapped:
+    ``start_shift_rad`` reports the residual for the caller to bound.
+
+    Raises
+    ------
+    ValueError
+        If the input is not a finite ``(N, k)`` array, the extension is not
+        positive, or the cutoff is not below the Nyquist frequency.
+    """
+    data = np.asarray(values, dtype=np.float64)
+    if data.ndim != _TASK_DIM or data.shape[0] == 0:
+        msg = f"values must have shape (N, k) with N > 0, got {data.shape}"
+        raise ValueError(msg)
+    if not np.all(np.isfinite(data)):
+        msg = "values contain non-finite values; smoothing never repairs data"
+        raise ValueError(msg)
+    if extension_samples < 1:
+        msg = f"extension_samples must be positive, got {extension_samples}"
+        raise ValueError(msg)
+    anchor = data[0]
+    onset_indices = np.flatnonzero(np.any(data != anchor, axis=1))
+    onset = int(onset_indices[0]) if onset_indices.size else None
+    if onset is None or config.method == "none":
+        return StartReflectedResult(data.copy(), 0.0, onset)
+    sos = _lowpass_sos(sample_rate_hz, config)
+    deviation = data - anchor
+    after = np.concatenate([deviation, np.tile(deviation[-1], (extension_samples, 1))], axis=0)
+    before = -after[extension_samples:0:-1]
+    extended = np.concatenate([before, after], axis=0)
+    filtered = cast("NDArray[Any]", sosfiltfilt(sos, extended, axis=0, padtype=None))
+    out = np.ascontiguousarray(anchor + filtered[extension_samples : extension_samples + data.shape[0]])
+    shift = float(np.max(np.abs(out[0] - anchor)))
+    return StartReflectedResult(out, shift, onset)
+
+
+def reconstruct_on_grid(
+    times: NDArray[np.float64],
+    values: NDArray[np.float64],
+    period_s: float,
+    interpolation: Literal["linear", "cubic"],
+) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+    """Reconstruct a take from its actual timestamps onto the uniform training grid (clarification I13).
+
+    The grid runs from the first sample (task time zero) in steps of ``period_s``
+    to the last grid time within the recording. Values are interpolated between
+    the actual raw timestamps and never extrapolated: grid values between recorded
+    samples are reference values and recover no motion that was not sampled.
+    """
+    grid, grid_values = resample(times, values, ResamplingConfig(period_s=period_s, interpolation=interpolation))
+    return grid - grid[0], grid_values
 
 
 # --- recorder metadata and the raw take record -------------------------------------------
@@ -940,13 +1040,54 @@ class HoldSettings:
 
 
 @dataclass(frozen=True)
+class ReflectionSettings:
+    """First-sample point reflection (clarification I11): the extension length and the start bound."""
+
+    extension_s: float
+    """Length of the reflected extension before the first sample and of the repeated final value after the last."""
+    max_start_shift_rad: float
+
+    def __post_init__(self) -> None:
+        """Validate positivity."""
+        for name, value in (("extension_s", self.extension_s), ("max_start_shift_rad", self.max_start_shift_rad)):
+            if not (value > 0 and math.isfinite(value)):
+                msg = f"reflection.{name} must be positive and finite, got {value!r}"
+                raise ValueError(msg)
+
+
+@dataclass(frozen=True)
 class ManualDeriveConfig:
-    """Versioned derivation settings of manual takes (no normalization is fitted, clarification I8)."""
+    """Versioned derivation settings of manual takes (no normalization is fitted, clarification I8).
+
+    Exactly one boundary-preserving method is selected: ``[hold]``, the
+    hold-anchored filter of ``manual_v1``, or ``[reflection]``, the first-sample
+    point reflection of ``manual_v2`` (clarification I11).
+    """
 
     smoothing: SmoothingConfig
     resampling: ResamplingSettings
     derivatives: DerivativeConfig
-    hold: HoldSettings
+    hold: HoldSettings | None = None
+    reflection: ReflectionSettings | None = None
+
+    def __post_init__(self) -> None:
+        """Require exactly one boundary-preserving method."""
+        if (self.hold is None) == (self.reflection is None):
+            msg = (
+                "declare exactly one of [hold] (hold-anchored smoothing, manual_v1) and [reflection] "
+                "(first-sample point reflection, manual_v2)"
+            )
+            raise ValueError(msg)
+
+    @property
+    def boundary(self) -> HoldSettings | ReflectionSettings:
+        """The selected boundary-preserving method."""
+        return self.reflection if self.reflection is not None else cast("HoldSettings", self.hold)
+
+    @property
+    def schema_version(self) -> int:
+        """Manual schema of the datasets this configuration derives."""
+        return MANUAL_REFLECTED_SCHEMA_VERSION if self.reflection is not None else MANUAL_SCHEMA_VERSION
 
 
 def load_manual_derive_config(path: Path) -> ManualDeriveConfig:
@@ -966,6 +1107,8 @@ class RawTiming:
     """Intervals slower than the recorder's late-tick factor times its period."""
     max_raw_speed_rad_s: tuple[float, ...]
     """Largest ``|dq| / dt`` between consecutive raw frames, per joint, against the actual interval."""
+    acquisition_period_s: float | None = None
+    """Acquisition period the rules applied (required by manual schema 2)."""
 
 
 @dataclass(frozen=True)
@@ -981,15 +1124,19 @@ class StartCheck:
 
 @dataclass(frozen=True)
 class SmoothingCheck:
-    """How the hold-anchored filter was applied and how far it moved the first sample."""
+    """How the boundary-preserving filter was applied and how far it moved the first sample."""
 
     method: str
-    hold_margin_s: float
-    anchored_from_s: float
     onset_s: float | None
     start_shift_rad: float
     tolerance_rad: float
     ok: bool
+    hold_margin_s: float | None = None
+    """Hold-anchored filter (manual schema 1): how far before the first departure the filter starts."""
+    anchored_from_s: float | None = None
+    """Hold-anchored filter (manual schema 1): the first time the filter touched."""
+    extension_s: float | None = None
+    """First-sample point reflection (manual schema 2): the extension on each side of the take."""
 
 
 @dataclass(frozen=True)
@@ -1022,7 +1169,7 @@ class TakeAssessment:
     samples: SampleSet | None
 
 
-def _raw_timing(take: ManualTake) -> RawTiming:
+def _raw_timing(take: ManualTake, config: ManualScenarioConfig) -> RawTiming:
     intervals = np.diff(take.times)
     speeds = np.abs(np.diff(take.q, axis=0)) / intervals[:, None]
     late = float(take.record.acquisition.late_tick_factor) * take.record.acquisition.tick_period_s
@@ -1033,20 +1180,47 @@ def _raw_timing(take: ManualTake) -> RawTiming:
         max_interval_s=float(np.max(intervals)),
         late_frames=int(np.count_nonzero(intervals > late)),
         max_raw_speed_rad_s=tuple(float(v) for v in np.max(speeds, axis=0)),
+        acquisition_period_s=config.acquisition_period_s,
     )
+
+
+def _start_check(take: ManualTake, config: ManualScenarioConfig) -> StartCheck:
+    reset = np.asarray(config.task.initial_q, dtype=np.float64)
+    deviation = float(np.max(np.abs(take.q[0] - reset)))
+    return StartCheck(
+        expected=tuple(float(v) for v in reset),
+        observed=tuple(float(v) for v in take.q[0]),
+        max_deviation_rad=deviation,
+        tolerance_rad=config.acquisition.start_tolerance_rad,
+        ok=deviation <= config.acquisition.start_tolerance_rad,
+    )
+
+
+def _length_problems(take: ManualTake, config: ManualScenarioConfig) -> list[str]:
+    """The v1 frame count, or the v2 minimum duration in actual time from the first sample."""
+    rules = config.acquisition
+    if rules.min_frames is not None:
+        if take.n_frames < rules.min_frames:
+            return [f"too few frames: {take.n_frames} < min_frames {rules.min_frames}"]
+        return []
+    duration = float(take.times[-1])
+    minimum = cast("float", rules.min_duration_s)
+    if duration < minimum - _TIME_TOLERANCE_S:
+        return [
+            f"recording too short: {duration:.3f} s < min_duration_s {minimum} s of actual time from the first sample"
+        ]
+    return []
 
 
 def _raw_problems(take: ManualTake, config: ManualScenarioConfig, timing: RawTiming, start: StartCheck) -> list[str]:
     rules = config.acquisition
-    problems: list[str] = []
-    if take.n_frames < rules.min_frames:
-        problems.append(f"too few frames: {take.n_frames} < min_frames {rules.min_frames}")
+    problems = _length_problems(take, config)
     if not start.ok:
         problems.append(
             f"first sample deviates from the reset posture by {start.max_deviation_rad:.3e} rad "
             f"(start_tolerance_rad {start.tolerance_rad:.1e})"
         )
-    if timing.max_interval_s > rules.max_sample_gap_s:
+    if timing.max_interval_s > rules.max_sample_gap_s + _TIME_TOLERANCE_S:
         at = float(take.times[int(np.argmax(np.diff(take.times)))])
         problems.append(
             f"sample gap of {timing.max_interval_s:.4f} s after t = {at:.3f} s exceeds max_sample_gap_s "
@@ -1059,11 +1233,12 @@ def _raw_problems(take: ManualTake, config: ManualScenarioConfig, timing: RawTim
                 f"{rules.velocity_bound_rad_s} (jump)"
             )
     problems.extend(_integrity_problems(take, config))
+    problems.extend(_clock_problems(take, config))
     return problems
 
 
 def _integrity_problems(take: ManualTake, config: ManualScenarioConfig) -> list[str]:
-    """Joint limits, the workspace radius, the logged tip against forward kinematics, and the tick clock."""
+    """Joint limits, the workspace radius, and the logged tip against forward kinematics."""
     problems: list[str] = []
     for joint, link in enumerate(config.robot.links):
         column = take.q[:, joint]
@@ -1075,7 +1250,20 @@ def _integrity_problems(take: ManualTake, config: ManualScenarioConfig) -> list[
     fk = manual_endpoint_positions(config, take.q)
     if np.max(np.abs(fk - take.tip)) > _TIP_TOLERANCE_M:
         problems.append("the logged tip differs from the forward kinematics of the logged joints")
-    period = config.timing.dt
+    return problems
+
+
+def _clock_problems(take: ManualTake, config: ManualScenarioConfig) -> list[str]:
+    """The recorder's declared sample period and its nominal tick clock against the configured acquisition period."""
+    period = config.acquisition_period_s
+    declared = take.record.acquisition
+    problems: list[str] = []
+    if max(abs(declared.sample_period_s - period), abs(declared.tick_period_s - period)) > _TIME_TOLERANCE_S:
+        problems.append(
+            f"the take was recorded at {1.0 / declared.sample_period_s:g} Hz (sample_period_s "
+            f"{declared.sample_period_s} s) but the acquisition rules expect {1.0 / period:g} Hz (period {period} s); "
+            "a take recorded at another rate is rejected"
+        )
     nominal = take.nominal_times
     if abs(float(nominal[0])) > _TIME_TOLERANCE_S or np.max(np.abs(np.diff(nominal) - period)) > _TIME_TOLERANCE_S:
         problems.append(f"nominal_time is not the tick clock of period {period} s")
@@ -1089,91 +1277,136 @@ def _phase_codes(t: NDArray[np.float64], hold_end_s: float, dwell_start_s: float
     return phase
 
 
-def assess_take(take: ManualTake, config: ManualScenarioConfig, derive: ManualDeriveConfig) -> TakeAssessment:
-    """Measure a take against the frozen offline rules and build its processed samples.
-
-    The raw rules (frame count, exact start, gaps, raw increment speeds, limits,
-    workspace, tip integrity, the tick clock) come first. A take that starts at
-    rest and moves is then resampled onto the task grid, smoothed with the
-    hold-anchored filter, differentiated, and measured for its continuous final
-    dwell; the processed speeds and limits are checked again on the grid. Every
-    problem names the rule and what was measured; the take is accepted only when
-    there is none.
-    """
-    period = config.timing.dt
-    reset = np.asarray(config.task.initial_q, dtype=np.float64)
-    timing = _raw_timing(take)
-    deviation = float(np.max(np.abs(take.q[0] - reset)))
-    start = StartCheck(
-        expected=tuple(float(v) for v in reset),
-        observed=tuple(float(v) for v in take.q[0]),
-        max_deviation_rad=deviation,
-        tolerance_rad=config.acquisition.start_tolerance_rad,
-        ok=deviation <= config.acquisition.start_tolerance_rad,
+def _partial(
+    problems: list[str],
+    timing: RawTiming,
+    start: StartCheck,
+    smoothing: SmoothingCheck | None = None,
+    dwell: DwellMeasurement | None = None,
+) -> TakeAssessment:
+    """A rejected assessment that stopped before the motion summary and samples."""
+    return TakeAssessment(
+        accepted=False,
+        problems=tuple(problems),
+        raw_timing=timing,
+        start=start,
+        smoothing=smoothing,
+        dwell=dwell,
+        motion=None,
+        samples=None,
     )
-    problems = _raw_problems(take, config, timing, start)
-    onset_indices = np.flatnonzero(np.any(take.q != take.q[0], axis=1))
-    if onset_indices.size == 0:
-        problems.append("no movement recorded: the take never departs from its first posture")
-    if not start.ok or onset_indices.size == 0:
-        return TakeAssessment(
-            accepted=False,
-            problems=tuple(problems),
-            raw_timing=timing,
-            start=start,
-            smoothing=None,
-            dwell=None,
-            motion=None,
-            samples=None,
-        )
-    hold_end_s = float(take.times[int(onset_indices[0])])
 
-    interpolation = cast("Literal['linear', 'cubic']", derive.resampling.interpolation)
-    grid, q_grid = resample(take.times, take.q, ResamplingConfig(period_s=period, interpolation=interpolation))
-    grid = grid - grid[0]
-    margin_samples = round(derive.hold.margin_s / period)
-    try:
-        anchored = smooth_hold_anchored(
-            q_grid, 1.0 / period, derive.smoothing, reset=reset, margin_samples=margin_samples
+
+def _smooth_on_grid(
+    q_grid: NDArray[np.float64], config: ManualScenarioConfig, derive: ManualDeriveConfig
+) -> tuple[NDArray[np.float64], SmoothingCheck]:
+    """Apply the configured boundary-preserving smoothing on the training grid; refusals raise ``ValueError``."""
+    period = config.timing.dt
+    boundary = derive.boundary
+    filtered = derive.smoothing.method != "none"
+    if isinstance(boundary, ReflectionSettings):
+        reflected = smooth_start_reflected(
+            q_grid, 1.0 / period, derive.smoothing, extension_samples=round(boundary.extension_s / period)
         )
-    except ValueError as exc:
-        problems.append(f"smoothing refused the take: {exc}")
-        return TakeAssessment(
-            accepted=False,
-            problems=tuple(problems),
-            raw_timing=timing,
-            start=start,
-            smoothing=None,
-            dwell=None,
-            motion=None,
-            samples=None,
+        return reflected.values, SmoothingCheck(
+            method=_REFLECTED_LABEL if filtered else "none",
+            onset_s=None if reflected.onset is None else float(reflected.onset * period),
+            start_shift_rad=reflected.start_shift_rad,
+            tolerance_rad=boundary.max_start_shift_rad,
+            ok=reflected.start_shift_rad <= boundary.max_start_shift_rad,
+            extension_s=boundary.extension_s,
         )
-    smoothing = SmoothingCheck(
-        method=_HOLD_ANCHORED_LABEL if derive.smoothing.method != "none" else "none",
-        hold_margin_s=derive.hold.margin_s,
-        anchored_from_s=float(anchored.anchored_from * period),
+    anchored = smooth_hold_anchored(
+        q_grid,
+        1.0 / period,
+        derive.smoothing,
+        reset=np.asarray(config.task.initial_q, dtype=np.float64),
+        margin_samples=round(boundary.margin_s / period),
+    )
+    return anchored.values, SmoothingCheck(
+        method=_HOLD_ANCHORED_LABEL if filtered else "none",
         onset_s=None if anchored.onset is None else float(anchored.onset * period),
         start_shift_rad=anchored.start_shift_rad,
-        tolerance_rad=derive.hold.max_start_shift_rad,
-        ok=anchored.start_shift_rad <= derive.hold.max_start_shift_rad,
+        tolerance_rad=boundary.max_start_shift_rad,
+        ok=anchored.start_shift_rad <= boundary.max_start_shift_rad,
+        hold_margin_s=boundary.margin_s,
+        anchored_from_s=float(anchored.anchored_from * period),
     )
-    if not smoothing.ok:
-        problems.append(
-            f"processed start shift {smoothing.start_shift_rad:.3e} rad exceeds max_start_shift_rad "
-            f"{smoothing.tolerance_rad:.1e}: the hold of {hold_end_s:.2f} s is shorter than the smoothing margin "
-            f"{derive.hold.margin_s} s, so the onset leaks into the reset state"
-        )
-    q_s = anchored.values
-    dq, ddq = differentiate(q_s, period, derive.derivatives)
-    tip_s = manual_endpoint_positions(config, q_s)
-    dtip, ddtip = differentiate(tip_s, period, derive.derivatives)
-    bound = config.acquisition.velocity_bound_rad_s
-    for joint in range(config.dof):
+
+
+def _start_shift_problem(smoothing: SmoothingCheck, hold_end_s: float) -> str:
+    head = (
+        f"processed start shift {smoothing.start_shift_rad:.3e} rad exceeds max_start_shift_rad "
+        f"{smoothing.tolerance_rad:.1e}"
+    )
+    if smoothing.extension_s is not None:
+        return f"{head}: the point-reflected extension of {smoothing.extension_s} s does not cover the filter transient"
+    return (
+        f"{head}: the hold of {hold_end_s:.2f} s is shorter than the smoothing margin {smoothing.hold_margin_s} s, "
+        "so the onset leaks into the reset state"
+    )
+
+
+def _speed_problems(dq: NDArray[np.float64], bound: float) -> list[str]:
+    problems: list[str] = []
+    for joint in range(dq.shape[1]):
         peak = float(np.max(np.abs(dq[:, joint])))
         if peak > bound:
             problems.append(
                 f"processed joint speed {peak:.3f} rad/s on joint {joint} exceeds velocity_bound_rad_s {bound}"
             )
+    return problems
+
+
+def _dwell_problem(dwell: DwellMeasurement, config: ManualScenarioConfig) -> str:
+    predicate = dwell.predicate
+    return (
+        f"final dwell of {dwell.final_duration_s:.2f} s ({dwell.final_samples} samples) is shorter than the "
+        f"required {predicate.min_duration_s} s ({predicate.min_samples} samples inside {predicate.tolerance_m} m "
+        f"at joint speeds <= {predicate.max_velocity_rad_s} rad/s), measured in actual time on the "
+        f"{config.timing.dt} s training grid reconstructed from the raw timestamps (raw samples at most "
+        f"max_sample_gap_s {config.acquisition.max_sample_gap_s} s apart)"
+    )
+
+
+def assess_take(take: ManualTake, config: ManualScenarioConfig, derive: ManualDeriveConfig) -> TakeAssessment:
+    """Measure a take against the frozen offline rules and build its processed samples.
+
+    The raw rules (recording length, exact start, gaps and raw increment speeds
+    against the actual intervals, limits, workspace, tip integrity, the declared
+    acquisition rate and its tick clock) come first. A take that starts at the
+    reset posture and moves is then reconstructed from its actual timestamps onto
+    the training grid, smoothed with the configured boundary-preserving filter,
+    differentiated from the smoothed trajectory, and measured for its continuous
+    final dwell in actual time; the processed speeds and limits are checked again
+    on the grid. Movement onset (the first raw departure from the first sample) is
+    descriptive only. Every problem names the rule and what was measured; the take
+    is accepted only when there is none.
+    """
+    period = config.timing.dt
+    timing = _raw_timing(take, config)
+    start = _start_check(take, config)
+    problems = _raw_problems(take, config, timing, start)
+    onset_indices = np.flatnonzero(np.any(take.q != take.q[0], axis=1))
+    if onset_indices.size == 0:
+        problems.append("no movement recorded: the take never departs from its first posture")
+    if not start.ok or onset_indices.size == 0:
+        return _partial(problems, timing, start)
+    hold_end_s = float(take.times[int(onset_indices[0])])
+
+    interpolation = cast("Literal['linear', 'cubic']", derive.resampling.interpolation)
+    grid, q_grid = reconstruct_on_grid(take.times, take.q, period, interpolation)
+    try:
+        q_s, smoothing = _smooth_on_grid(q_grid, config, derive)
+    except ValueError as exc:
+        problems.append(f"smoothing refused the take: {exc}")
+        return _partial(problems, timing, start)
+    if not smoothing.ok:
+        problems.append(_start_shift_problem(smoothing, hold_end_s))
+    dq, ddq = differentiate(q_s, period, derive.derivatives)
+    tip_s = manual_endpoint_positions(config, q_s)
+    dtip, ddtip = differentiate(tip_s, period, derive.derivatives)
+    problems.extend(_speed_problems(dq, config.acquisition.velocity_bound_rad_s))
     predicate = DwellPredicate(
         tolerance_m=config.task.tolerance,
         max_velocity_rad_s=config.task.dwell_max_velocity,
@@ -1182,34 +1415,12 @@ def assess_take(take: ManualTake, config: ManualScenarioConfig, derive: ManualDe
     )
     dwell = continuous_dwell(grid, tip_s, dq, target=np.asarray(config.task.target), predicate=predicate)
     if not dwell.ok:
-        problems.append(
-            f"final dwell of {dwell.final_duration_s:.2f} s ({dwell.final_samples} samples) is shorter than the "
-            f"required {predicate.min_duration_s} s ({predicate.min_samples} samples inside {predicate.tolerance_m} m "
-            f"at joint speeds <= {predicate.max_velocity_rad_s} rad/s)"
-        )
-        return TakeAssessment(
-            accepted=False,
-            problems=tuple(problems),
-            raw_timing=timing,
-            start=start,
-            smoothing=smoothing,
-            dwell=dwell,
-            motion=None,
-            samples=None,
-        )
+        problems.append(_dwell_problem(dwell, config))
+        return _partial(problems, timing, start, smoothing, dwell)
     dwell_start_s = cast("float", dwell.start_s)
     if dwell_start_s <= hold_end_s:
         problems.append("the final dwell begins before the take departs from its reset posture")
-        return TakeAssessment(
-            accepted=False,
-            problems=tuple(problems),
-            raw_timing=timing,
-            start=start,
-            smoothing=smoothing,
-            dwell=dwell,
-            motion=None,
-            samples=None,
-        )
+        return _partial(problems, timing, start, smoothing, dwell)
     distance = np.hypot(tip_s[:, 0] - config.task.target[0], tip_s[:, 1] - config.task.target[1])
     motion = MotionSummary(
         hold_end_s=hold_end_s,
@@ -1287,8 +1498,11 @@ class ManualDatasetRecord:
 
     def __post_init__(self) -> None:
         """Validate the envelope, dimensions, phases, and the recorded checks."""
-        if self.manual_schema_version != MANUAL_SCHEMA_VERSION:
-            msg = f"unsupported manual_schema_version {self.manual_schema_version}; expected {MANUAL_SCHEMA_VERSION}"
+        if self.manual_schema_version not in _DATASET_SCHEMA_VERSIONS:
+            msg = (
+                f"unsupported manual_schema_version {self.manual_schema_version}; "
+                f"expected one of {list(_DATASET_SCHEMA_VERSIONS)}"
+            )
             raise ValueError(msg)
         _check_envelope(
             self.artifact,
@@ -1305,7 +1519,36 @@ class ManualDatasetRecord:
         if not (self.dwell.ok and self.start.ok and self.smoothing.ok):
             msg = "a manual dataset record describes an accepted take: dwell, start, and smoothing checks must hold"
             raise ValueError(msg)
+        self._check_smoothing()
         self._check_arrays()
+
+    def _check_smoothing(self) -> None:
+        """Schema 1 carries the hold-anchored check; schema 2 the first-sample reflection and the acquisition period."""
+        check = self.smoothing
+        if self.manual_schema_version == MANUAL_SCHEMA_VERSION:
+            fits = check.hold_margin_s is not None and check.anchored_from_s is not None and check.extension_s is None
+            label = _HOLD_ANCHORED_LABEL
+            needs = "the hold-anchored smoothing check (hold_margin_s and anchored_from_s, no extension_s)"
+        else:
+            fits = (
+                check.extension_s is not None
+                and check.hold_margin_s is None
+                and check.anchored_from_s is None
+                and self.raw_timing.acquisition_period_s is not None
+            )
+            label = _REFLECTED_LABEL
+            needs = (
+                "the first-sample reflection check (extension_s, no hold fields) and raw_timing.acquisition_period_s"
+            )
+        if not fits:
+            msg = f"manual_schema_version {self.manual_schema_version} requires {needs}"
+            raise ValueError(msg)
+        if check.method not in (label, "none") or self.preprocessing.smoothing != check.method:
+            msg = (
+                f"smoothing.method {check.method!r} and preprocessing.smoothing {self.preprocessing.smoothing!r} "
+                f"must both be {label!r} or 'none' under manual_schema_version {self.manual_schema_version}"
+            )
+            raise ValueError(msg)
 
     def _check_dimensions(self) -> None:
         if self.n_samples < _MIN_FRAMES or self.dof < 1 or self.task_dim != _TASK_DIM or self.task_code_dim != 0:
@@ -1350,12 +1593,12 @@ class ManualDatasetRecord:
                 problems.append(f"array {name!r} differs from its recorded spec")
         if float(samples.t[0]) != 0.0:
             problems.append("t does not start at 0")
-        reset = np.asarray(self.start.expected, dtype=np.float64)
+        first = np.asarray(self.start.observed, dtype=np.float64)  # the reset posture within the start tolerance
         if self.smoothing.start_shift_rad == 0.0:
-            if not np.array_equal(samples.q[0], reset):
-                problems.append("q[0] is not the reset posture although the hold was anchored")
-        elif float(np.max(np.abs(samples.q[0] - reset))) > self.smoothing.tolerance_rad:
-            problems.append("q[0] deviates from the reset posture beyond the recorded tolerance")
+            if not np.array_equal(samples.q[0], first):
+                problems.append("q[0] is not the recorded first posture although the recorded start shift is zero")
+        elif float(np.max(np.abs(samples.q[0] - first))) > self.smoothing.tolerance_rad:
+            problems.append("q[0] deviates from the recorded first posture beyond the recorded tolerance")
         expected_phase = _phase_codes(samples.t, self.motion.hold_end_s, self.motion.dwell_start_s)
         if not np.array_equal(samples.phase, expected_phase):
             problems.append("phase annotations disagree with the recorded hold end and dwell start")
@@ -1381,9 +1624,14 @@ def _preprocessing_section(derive: ManualDeriveConfig, period: float) -> Preproc
     params = dict(derive.smoothing.parameters())
     label = "none"
     if derive.smoothing.method != "none":
-        label = _HOLD_ANCHORED_LABEL
-        params["hold_margin_s"] = derive.hold.margin_s
-        params["max_start_shift_rad"] = derive.hold.max_start_shift_rad
+        boundary = derive.boundary
+        if isinstance(boundary, ReflectionSettings):
+            label = _REFLECTED_LABEL
+            params["extension_s"] = boundary.extension_s
+        else:
+            label = _HOLD_ANCHORED_LABEL
+            params["hold_margin_s"] = boundary.margin_s
+        params["max_start_shift_rad"] = boundary.max_start_shift_rad
     return Preprocessing(
         resample_period_s=period,
         smoothing=label,
@@ -1440,6 +1688,7 @@ def _build_record(
         dwell=cast("DwellMeasurement", assessment.dwell),
         motion=cast("MotionSummary", assessment.motion),
         arrays=array_specs(samples),
+        manual_schema_version=derive.schema_version,
     )
 
 

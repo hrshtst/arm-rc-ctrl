@@ -1,0 +1,29 @@
+# Offline preprocessing of manual takes into full-recording datasets, revised after the first
+# practice pilot (docs/experiments/task_1a_manual_demonstration/plan.md section 3, clarifications
+# I11 and I13). Each take is reconstructed from its actual timestamps onto the training grid of
+# the task configuration by the interpolation below, then smoothed with the zero-phase filter
+# applied to the deviation from the first sample. The deviation is extended before the first
+# sample by its point reflection about that sample and after the last sample by repeating the
+# final value, so the first sample stays at the recorded reset posture up to roundoff without a
+# stationary hold and without a velocity or acceleration spike, and the pre-roll fluctuations are
+# kept. The residual start shift is measured and must stay within the bound below; it is never
+# snapped. Derivatives come from the smoothed trajectory. No normalization is fitted here: the
+# input transform is copied from the historical scripted dataset (clarification I8).
+
+[smoothing]
+method = "butterworth"
+cutoff_hz = 5.0
+order = 4
+
+[resampling]
+interpolation = "linear"
+
+[derivatives]
+method = "central"
+
+[reflection]
+# Length (s) of the reflected extension before the first sample and of the repeated final value
+# after the last sample; it must lie well beyond the transient of the filter's edge initialization.
+extension_s = 5.0
+# Largest allowed deviation of the processed first sample from the recorded first sample.
+max_start_shift_rad = 1e-12

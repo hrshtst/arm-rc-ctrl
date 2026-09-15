@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 
+from arm_rc_ctrl.config import ConfigError
 from arm_rc_ctrl.data import recording
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
 from arm_rc_ctrl.data.recording import (
@@ -37,6 +38,8 @@ pytestmark = pytest.mark.integration
 REPO_ROOT = repository_root()
 SCENARIO = REPO_ROOT / "configs" / "tasks" / "task_1a_manual_v1.toml"
 RECORDING = REPO_ROOT / "configs" / "recording" / "task_1a_manual_v1.toml"
+SCENARIO_V2 = REPO_ROOT / "configs" / "tasks" / "task_1a_manual_v2.toml"
+RECORDING_V2 = REPO_ROOT / "configs" / "recording" / "task_1a_manual_v2.toml"
 
 
 @pytest.fixture(scope="module")
@@ -53,9 +56,10 @@ def _resolve(
     session: str = "study-a",
     purpose: str = "study",
     recording: Path = RECORDING,
+    scenario: Path = SCENARIO,
 ) -> RecorderSession:
     return resolve_recorder_session(
-        SCENARIO, recording, session=session, purpose=purpose, output_root=output_root, repo_root=REPO_ROOT
+        scenario, recording, session=session, purpose=purpose, output_root=output_root, repo_root=REPO_ROOT
     )
 
 
@@ -231,3 +235,59 @@ def test_session_settings_record_the_verified_build(tmp_path: Path) -> None:
     build = next(b for b in verify_builds(REPO_ROOT) if b.name == "skelarm")
     assert data["recorder"]["skelarm_python_sources_sha256"] == build.python_sources_sha256
     assert data["recorder"]["skelarm_version"] == build.version
+
+
+# ----------------------------------------------------------------------------------------------
+# M3MAN-013 (I13): the acquisition rate comes from the v2 recording configuration
+# ----------------------------------------------------------------------------------------------
+
+
+def test_v2_recording_takes_the_acquisition_rate_from_its_configuration(tmp_path: Path) -> None:
+    """50 Hz comes from the recording file while the task keeps its 0.01 s grid; the other options are v1's."""
+    v1 = load_recording_config(RECORDING)
+    v2 = load_recording_config(RECORDING_V2)
+    assert v1.sample_rate_hz is None
+    assert v2.sample_rate_hz == 50.0
+    assert replace(v2, sample_rate_hz=None) == v1
+    session = _resolve(tmp_path, scenario=SCENARIO_V2, recording=RECORDING_V2)
+    assert session.sample_rate_hz == 50.0
+    assert load_manual_scenario(SCENARIO_V2).timing.dt == 0.01
+    assert session.recording_path == "configs/recording/task_1a_manual_v2.toml"
+    data = json.loads(write_session_settings(session, repo_root=REPO_ROOT).read_text(encoding="utf-8"))
+    assert data["options"]["sample_rate_hz"] == 50.0
+    assert data["scenario"]["path"] == "configs/tasks/task_1a_manual_v2.toml"
+    assert data["recording"]["sha256"] == sha256_file(RECORDING_V2)
+
+
+def test_the_v2_recorder_window_ticks_every_20_ms(qapp: object, tmp_path: Path) -> None:  # noqa: ARG001
+    """The built recorder samples at the acquisition period, not at the training grid."""
+    session = _resolve(tmp_path, scenario=SCENARIO_V2, recording=RECORDING_V2)
+    window = create_recorder_window(session, load_manual_scenario(SCENARIO_V2), run_timer=False)
+    assert window.tick_ms == 20
+    assert np.array_equal(window.skeleton.q, np.asarray(load_manual_scenario(SCENARIO_V2).task.initial_q))
+    assert window.close()
+
+
+@pytest.mark.parametrize(
+    ("rate", "scenario", "message"),
+    [
+        ("30.0", SCENARIO_V2, "whole number of milliseconds"),
+        ("200.0", SCENARIO_V2, "at least as fine"),
+        ("25.0", SCENARIO_V2, "acquisition rules"),
+        ("50.0", SCENARIO, "acquisition rules"),
+        (None, SCENARIO_V2, "acquisition rules"),
+    ],
+)
+def test_acquisition_rates_the_recorder_grid_or_rules_cannot_use_are_refused(
+    tmp_path: Path, rate: str | None, scenario: Path, message: str
+) -> None:
+    """A whole-millisecond tick, a grid at least as fine as the rate, and the task's acquisition rules must agree."""
+    text = RECORDING_V2.read_text(encoding="utf-8")
+    replacement = "" if rate is None else f"sample_rate_hz = {rate}"
+    variant = tmp_path / "recording.toml"
+    variant.write_text(text.replace("sample_rate_hz = 50.0", replacement), encoding="utf-8")
+    with pytest.raises(RecordingError, match=message):
+        _resolve(tmp_path, scenario=scenario, recording=variant)
+    variant.write_text(text.replace("sample_rate_hz = 50.0", "sample_rate_hz = 0.0"), encoding="utf-8")
+    with pytest.raises(ConfigError, match="sample_rate_hz"):
+        load_recording_config(variant)

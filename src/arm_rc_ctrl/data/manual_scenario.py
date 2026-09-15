@@ -9,6 +9,12 @@ prime/move/dwell intervals and the dwell-occupancy rule with the protocol's
 continuous final-dwell rule and the offline acquisition rules that the
 acquisition pilot freezes. The historical ``configs/tasks/task_1a.toml`` keeps
 its own schema and semantics; every committed dataset is digest-bound to it.
+
+Two acquisition styles exist. ``task_1a_manual_v1.toml`` declares a minimum frame
+count and acquires at the training period ``timing.dt``. ``task_1a_manual_v2.toml``
+(M3MAN-013, clarification I13) declares the recorder's own ``sample_rate_hz``,
+separate from the training grid, and expresses its rules in actual time
+(``min_duration_s``, ``max_sample_gap_s``). A file declares exactly one style.
 """
 
 from __future__ import annotations
@@ -94,11 +100,15 @@ class AcquisitionRules:
     """Largest allowed interval between consecutive raw frames (a missing interval rejects the take)."""
     velocity_bound_rad_s: float
     """Per-joint bound on raw increments and processed joint speeds (D3: 6 rad/s until the pilot tightens it)."""
-    min_frames: int
-    """Fewest raw frames a take may have."""
+    min_frames: int | None = None
+    """Fewest raw frames a take may have (v1 style: the recorder samples at ``timing.dt``)."""
+    sample_rate_hz: float | None = None
+    """Acquisition rate of the recorder (v2 style, I13), separate from the training grid ``timing.dt``."""
+    min_duration_s: float | None = None
+    """Shortest recording in actual time from the first logged sample (v2 style; replaces ``min_frames``)."""
 
     def __post_init__(self) -> None:
-        """Validate positivity."""
+        """Validate positivity and that exactly one acquisition style is declared."""
         for name, value in (
             ("start_tolerance_rad", self.start_tolerance_rad),
             ("max_sample_gap_s", self.max_sample_gap_s),
@@ -107,9 +117,33 @@ class AcquisitionRules:
             if not (value > 0 and math.isfinite(value)):
                 msg = f"acquisition.{name} must be positive and finite, got {value!r}"
                 raise ValueError(msg)
-        if self.min_frames < 2:  # noqa: PLR2004
-            msg = f"acquisition.min_frames must be at least 2, got {self.min_frames}"
+        if self.min_frames is not None:
+            self._check_frame_style(self.min_frames)
+        else:
+            self._check_time_style()
+
+    def _check_frame_style(self, min_frames: int) -> None:
+        if self.sample_rate_hz is not None or self.min_duration_s is not None:
+            msg = (
+                "acquisition mixes min_frames (v1: acquisition at timing.dt) with sample_rate_hz or "
+                "min_duration_s (v2: rules in actual time); declare one style"
+            )
             raise ValueError(msg)
+        if min_frames < 2:  # noqa: PLR2004
+            msg = f"acquisition.min_frames must be at least 2, got {min_frames}"
+            raise ValueError(msg)
+
+    def _check_time_style(self) -> None:
+        if self.sample_rate_hz is None or self.min_duration_s is None:
+            msg = (
+                "acquisition must declare either min_frames (v1) or both sample_rate_hz and min_duration_s "
+                f"(v2), got sample_rate_hz={self.sample_rate_hz!r}, min_duration_s={self.min_duration_s!r}"
+            )
+            raise ValueError(msg)
+        for name, value in (("sample_rate_hz", self.sample_rate_hz), ("min_duration_s", self.min_duration_s)):
+            if not (value > 0 and math.isfinite(value)):
+                msg = f"acquisition.{name} must be positive and finite, got {value!r}"
+                raise ValueError(msg)
 
 
 @dataclass(frozen=True)
@@ -160,6 +194,29 @@ class ManualScenarioConfig:
             raise ValueError(msg)
 
     def _check_rules(self) -> None:
+        self._check_dwell_grid()
+        if self.acquisition.velocity_bound_rad_s > min(self.limits.velocity):
+            msg = (
+                f"acquisition.velocity_bound_rad_s {self.acquisition.velocity_bound_rad_s} exceeds "
+                f"limits.velocity {list(self.limits.velocity)}"
+            )
+            raise ValueError(msg)
+        period = self.acquisition_period_s
+        rate = self.acquisition.sample_rate_hz
+        if rate is not None and self.timing.dt > period + _GRID_TOLERANCE:
+            msg = (
+                f"timing.dt {self.timing.dt} s is coarser than the acquisition period {period} s "
+                f"(acquisition.sample_rate_hz {rate}); the training grid must be at least as fine as the acquisition"
+            )
+            raise ValueError(msg)
+        if self.acquisition.max_sample_gap_s < period:
+            msg = (
+                f"acquisition.max_sample_gap_s {self.acquisition.max_sample_gap_s} is below the acquisition period "
+                f"{period} s"
+            )
+            raise ValueError(msg)
+
+    def _check_dwell_grid(self) -> None:
         samples = self.task.dwell_min_duration_s / self.timing.dt
         if abs(samples - round(samples)) > _GRID_TOLERANCE:
             msg = (
@@ -167,22 +224,17 @@ class ManualScenarioConfig:
                 f"at timing.dt {self.timing.dt}"
             )
             raise ValueError(msg)
-        if self.acquisition.velocity_bound_rad_s > min(self.limits.velocity):
-            msg = (
-                f"acquisition.velocity_bound_rad_s {self.acquisition.velocity_bound_rad_s} exceeds "
-                f"limits.velocity {list(self.limits.velocity)}"
-            )
-            raise ValueError(msg)
-        if self.acquisition.max_sample_gap_s < self.timing.dt:
-            msg = (
-                f"acquisition.max_sample_gap_s {self.acquisition.max_sample_gap_s} is below timing.dt {self.timing.dt}"
-            )
-            raise ValueError(msg)
 
     @property
     def dof(self) -> int:
         """Number of actuated joints."""
         return self.robot.dof
+
+    @property
+    def acquisition_period_s(self) -> float:
+        """Period of the recorder's samples: ``1 / sample_rate_hz`` (v2), or the training period ``timing.dt`` (v1)."""
+        rate = self.acquisition.sample_rate_hz
+        return self.timing.dt if rate is None else 1.0 / rate
 
     @property
     def dwell_min_samples(self) -> int:

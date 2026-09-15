@@ -100,8 +100,13 @@ serialization must stay byte-stable.
   tables. `ManualDatasetRecord` (kind `processed`) describes the full-recording
   dataset of an accepted take on the task grid with descriptive `hold` / `move` /
   `dwell` annotations, the measured continuous final dwell and its predicate,
-  the reset-start check, the hold-anchored smoothing check, the raw timing, and
-  a motion summary; no normalization is fitted.
+  the reset-start check, the smoothing check, the raw timing, and a motion
+  summary; no normalization is fitted. `manual_schema_version = 1` marks raw take
+  records and datasets smoothed with the hold-anchored filter (`hold_margin_s`,
+  `anchored_from_s`); `manual_schema_version = 2` marks datasets derived with the
+  first-sample point reflection (`extension_s`), which also record the acquisition
+  period the rules applied (`raw_timing.acquisition_period_s`). Both versions load
+  and validate.
   `arm_rc_ctrl.data.recovery.load_processed_record` dispatches the M3,
   recovery, and manual processed schemas. Raw take artifact IDs are content
   addressed, so identical bytes can carry only one attempt's record: importing
@@ -127,6 +132,23 @@ margin before the first departure, so the recorded hold is returned bitwise.
 When the hold is shorter than the margin the filter starts at the first sample
 and the resulting `start_shift_rad` is the zero-phase filter's onset leakage,
 reported and bounded by the derivation configuration rather than snapped away.
+
+`arm_rc_ctrl.data.manual.smooth_start_reflected(values, sample_rate_hz, config,
+extension_samples=…)` replaces it in the v2 derivation
+(`configs/preprocessing/manual_v2.toml`, clarification I11), where movement may
+begin right after the first sample. The filter acts on the deviation from the
+first sample, extended before it by the point reflection `d(-k) = -d(k)`
+(continued with the reflected final value when the take is shorter) and after
+the last sample by the repeated final value, `extension_samples` each. A
+zero-phase filter keeps that antisymmetric extension antisymmetric, so once the
+extension covers the filter's edge transient the first sample is preserved up to
+roundoff, the smoothed velocity stays continuous and the acceleration passes
+through zero at the first sample (no spike), and pre-roll fluctuations are
+filtered like any other samples rather than replaced by a constant; the measured
+`start_shift_rad` is bounded by the configuration, never snapped. Before
+smoothing, `arm_rc_ctrl.data.manual.reconstruct_on_grid` reconstructs the take
+from its actual timestamps onto the training grid (clarification I13), which may
+be finer than the acquisition rate.
 
 `arm_rc_ctrl.data.resampling.resample(t, values, ResamplingConfig)` moves a
 signal onto the uniform grid `t[0] + k * period` (endpoint included within a

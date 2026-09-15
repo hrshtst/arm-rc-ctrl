@@ -110,6 +110,7 @@ def synthetic_demonstration_log(*, dt: float = 0.01, duration: float = 0.3) -> S
 
 
 _LATE_TICK_FACTOR = 1.5
+_DISPLAY_PERIOD_S = 0.02  # the recorder repaints every 20 ms, in whole ticks
 
 
 def synthetic_manual_take_log(
@@ -119,51 +120,68 @@ def synthetic_manual_take_log(
     hold_s: float = 0.5,
     move_s: float = 0.6,
     dwell_s: float = 0.3,
+    sample_period_s: float | None = None,
     jitter_s: float = 0.0,
     seed: int = 0,
     gap_at_s: float | None = None,
+    gap_s: float = 0.05,
     jump_at_s: float | None = None,
     start_offset_rad: float = 0.0,
+    preroll_amplitude_rad: float = 0.0,
+    preroll_frequency_hz: float = 2.0,
     history: tuple[int, ...] = (1, 2),
 ) -> StateLog:
     """A take in the layout of the pinned trajectory recorder (IK mode) for tests and fixtures.
 
-    The arm rests at the configured reset posture for ``hold_s`` (the ``t = 0``
-    frame included), reaches ``goal_q`` along a minimum-jerk profile over
-    ``move_s``, and rests there for ``dwell_s`` plus one frame. ``jitter_s``
-    perturbs the wall-clock frame times uniformly (deterministic in ``seed``),
-    ``gap_at_s`` inserts a 50 ms missing interval, ``jump_at_s`` an instantaneous
-    0.5 rad step on the first joint that persists, and ``start_offset_rad``
-    displaces the recorded hold from the reset posture. The log carries ``q``,
-    ``tip`` (forward kinematics), ``nominal_time``, and the recorder's
-    ``[extra.acquisition]`` and ``[extra.display]`` tables.
+    Frames are acquired every ``sample_period_s`` (default: the task period
+    ``timing.dt``). The arm is at the configured reset posture for ``hold_s``
+    (the ``t = 0`` frame included; one sample period leaves only that frame, so
+    the take departs at its second sample), reaches ``goal_q`` along a
+    minimum-jerk profile over ``move_s``, and rests there for ``dwell_s`` plus one
+    frame. ``preroll_amplitude_rad`` adds a natural pre-roll wobble
+    ``A sin(2 pi f t)`` (joint pattern ``1, -0.5, ...``) that starts at zero on the
+    first frame and fades out with the reach, so the dwell stays exact.
+    ``jitter_s`` perturbs the wall-clock frame times uniformly (deterministic in
+    ``seed``) and the motion is sampled at those actual times; ``gap_at_s``
+    delays every later frame by ``gap_s`` (a missing interval after which the
+    motion resumes), ``jump_at_s`` adds an instantaneous 0.5 rad step on the first
+    joint that persists, and ``start_offset_rad`` displaces the recorded start from
+    the reset posture. The log carries ``q``, ``tip`` (forward kinematics),
+    ``nominal_time``, and the recorder's ``[extra.acquisition]`` and
+    ``[extra.display]`` tables.
     """
-    dt = config.timing.dt
+    period = config.timing.dt if sample_period_s is None else sample_period_s
     reset = np.asarray(config.task.initial_q, dtype=np.float64) + np.array(
         [start_offset_rad] + [0.0] * (config.dof - 1), dtype=np.float64
     )
     goal = np.asarray(goal_q, dtype=np.float64)
-    n_hold, n_move, n_dwell = (round(x / dt) for x in (hold_s, move_s, dwell_s))
-    frames = [reset] * n_hold
-    if n_move:
-        tau = np.arange(1, n_move + 1, dtype=np.float64) / n_move
-        profile = tau**3 * (10.0 - 15.0 * tau + 6.0 * tau**2)
-        frames.extend(reset + s * (goal - reset) for s in profile)
-        frames.extend([goal] * (n_dwell + 1))
-    else:
-        frames.extend([reset] * (n_dwell + 1))
-    q: NDArray[np.float64] = np.stack(frames, axis=0)
-    n = q.shape[0]
-    if jump_at_s is not None:
-        k = round(jump_at_s / dt)
-        q[k:, 0] += 0.5
-    times: NDArray[np.float64] = np.arange(n, dtype=np.float64) * dt
+    n_hold, n_move, n_dwell = (round(x / period) for x in (hold_s, move_s, dwell_s))
+    n = n_hold + n_move + n_dwell + 1
+    offsets: NDArray[np.float64] = np.zeros(n, dtype=np.float64)
     if jitter_s > 0:
         rng = np.random.default_rng(seed)
-        times[1:] += rng.uniform(-jitter_s, jitter_s, size=n - 1)
+        offsets[1:] = rng.uniform(-jitter_s, jitter_s, size=n - 1)
+    position = np.arange(n, dtype=np.float64) + offsets / period  # the motion clock in frames at the actual times
+    q: NDArray[np.float64] = np.tile(reset, (n, 1))
+    fade: NDArray[np.float64] = np.ones(n, dtype=np.float64)
+    if n_move:
+        tau = np.clip((position[n_hold : n_hold + n_move] - n_hold + 1.0) / n_move, 0.0, 1.0)
+        profile = tau**3 * (10.0 - 15.0 * tau + 6.0 * tau**2)
+        q[n_hold : n_hold + n_move] = reset[None, :] + profile[:, None] * (goal - reset)[None, :]
+        q[n_hold + n_move :] = goal
+        fade[n_hold : n_hold + n_move] = 1.0 - profile
+        fade[n_hold + n_move :] = 0.0
+    if preroll_amplitude_rad > 0:
+        wave = preroll_amplitude_rad * np.sin(2.0 * np.pi * preroll_frequency_hz * position * period) * fade
+        pattern = np.array([1.0] + [-0.5] * (config.dof - 1), dtype=np.float64)
+        q += wave[:, None] * pattern[None, :]
+    if jump_at_s is not None:
+        k = round(jump_at_s / period)
+        q[k:, 0] += 0.5
+    times: NDArray[np.float64] = np.arange(n, dtype=np.float64) * period + offsets
     if gap_at_s is not None:
-        times[round(gap_at_s / dt) :] += 0.05
-    nominal: NDArray[np.float64] = np.arange(n, dtype=np.float64) * dt
+        times[round(gap_at_s / period) :] += gap_s
+    nominal: NDArray[np.float64] = np.arange(n, dtype=np.float64) * period
     tip = manual_endpoint_positions(config, q)
     intervals = np.diff(times)
     joints = [f"j{i + 1}" for i in range(config.dof)]
@@ -182,14 +200,14 @@ def synthetic_manual_take_log(
                 "dialog pauses excluded",
                 "nominal_time_channel": "tick index x tick_period_s",
                 "mode": "ik",
-                "tick_period_s": dt,
-                "sample_period_s": dt,
+                "tick_period_s": period,
+                "sample_period_s": period,
                 "pose_updates_per_sample": 1,
-                "display_period_s": 2 * dt,
+                "display_period_s": max(1, round(_DISPLAY_PERIOD_S / period)) * period,
                 "ticks": n - 1,
                 "wall_mean_tick_s": float(np.mean(intervals)),
                 "wall_max_tick_s": float(np.max(intervals)),
-                "late_ticks": int(np.count_nonzero(intervals > _LATE_TICK_FACTOR * dt)),
+                "late_ticks": int(np.count_nonzero(intervals > _LATE_TICK_FACTOR * period)),
                 "late_tick_factor": _LATE_TICK_FACTOR,
             },
             "display": {

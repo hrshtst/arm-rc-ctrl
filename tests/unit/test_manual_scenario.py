@@ -28,6 +28,7 @@ from arm_rc_ctrl.scenario import load_scenario
 REPO_ROOT = repository_root()
 TASK_1A = REPO_ROOT / "configs" / "tasks" / "task_1a.toml"
 MANUAL_V1 = REPO_ROOT / "configs" / "tasks" / "task_1a_manual_v1.toml"
+MANUAL_V2 = REPO_ROOT / "configs" / "tasks" / "task_1a_manual_v2.toml"
 FIXTURE = REPO_ROOT / "tests" / "fixtures" / "configs" / "planar_2dof_manual_fixture.toml"
 
 
@@ -57,6 +58,7 @@ def test_manual_v1_declares_the_continuous_dwell_rule_and_no_fixed_intervals() -
     assert rules.velocity_bound_rad_s == 6.0  # D3: the canonical bound until the pilot tightens it
     assert rules.start_tolerance_rad > 0
     assert rules.max_sample_gap_s > manual.timing.dt
+    assert rules.min_frames is not None
     assert rules.min_frames >= 2
 
 
@@ -114,3 +116,61 @@ def test_fixture_configuration_loads_with_the_manual_schema() -> None:
     fixture = load_config(FIXTURE, ManualScenarioConfig)
     assert fixture.dof == 2
     assert fixture.dwell_min_samples == round(fixture.task.dwell_min_duration_s / fixture.timing.dt) + 1
+
+
+def test_manual_v2_separates_the_acquisition_rate_from_the_training_grid() -> None:
+    """M3MAN-013 (I13): 50 Hz acquisition with rules in actual time; the task and its 0.01 s grid are v1's."""
+    v1 = load_manual_scenario(MANUAL_V1)
+    v2 = load_manual_scenario(MANUAL_V2)
+    assert (v2.name, v2.protocol, v2.robot, v2.limits, v2.task, v2.timing) == (
+        v1.name,
+        v1.protocol,
+        v1.robot,
+        v1.limits,
+        v1.task,
+        v1.timing,
+    )
+    assert v2.protocol == "task_1a_manual_v1"  # the experiment label
+    assert v2.timing.dt == 0.01
+    assert v2.dwell_min_samples == 101  # one actual second on the training grid
+    rules = v2.acquisition
+    assert rules.sample_rate_hz == 50.0
+    assert v2.acquisition_period_s == 0.02
+    assert rules.min_duration_s == 1.0
+    assert rules.min_frames is None
+    assert rules.max_sample_gap_s == 0.06  # provisional: three acquisition periods
+    assert rules.start_tolerance_rad == v1.acquisition.start_tolerance_rad
+    assert rules.velocity_bound_rad_s == 6.0
+    assert v1.acquisition.sample_rate_hz is None
+    assert v1.acquisition.min_duration_s is None
+    assert v1.acquisition_period_s == v1.timing.dt  # v1: acquisition implied by the grid
+
+
+def _variant(data: dict[str, Any], section: str, changes: dict[str, object]) -> dict[str, Any]:
+    table = dict(cast("dict[str, object]", data[section]))
+    table.update(changes)
+    result = dict(data)
+    result[section] = table
+    return result
+
+
+@pytest.mark.parametrize(
+    ("section", "changes", "message"),
+    [
+        ("acquisition", {"min_frames": 101}, "mixes"),
+        ("acquisition", {"min_duration_s": None}, "min_duration_s"),
+        ("acquisition", {"sample_rate_hz": None, "min_duration_s": None}, "either"),
+        ("acquisition", {"sample_rate_hz": 0.0}, "sample_rate_hz"),
+        ("acquisition", {"min_duration_s": -1.0}, "min_duration_s"),
+        ("acquisition", {"max_sample_gap_s": 0.01}, "acquisition period"),
+        ("timing", {"dt": 0.05}, "at least as fine"),
+    ],
+)
+def test_acquisition_rules_use_one_style_and_a_grid_at_least_as_fine_as_the_acquisition(
+    section: str, changes: dict[str, object], message: str
+) -> None:
+    """v1 and v2 acquisition keys never mix; the gap limit spans an acquisition period; the grid is not coarser."""
+    data = cast("dict[str, Any]", to_mapping(load_manual_scenario(MANUAL_V2)))
+    assert from_mapping(data, ManualScenarioConfig) == load_manual_scenario(MANUAL_V2)
+    with pytest.raises(ConfigError, match=message):
+        from_mapping(_variant(data, section, changes), ManualScenarioConfig)

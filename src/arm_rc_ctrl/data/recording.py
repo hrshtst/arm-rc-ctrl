@@ -8,7 +8,13 @@ not the arm-rc-ctrl task configuration. This adapter therefore builds the
 recorder in-process from the versioned manual task configuration through the
 shared scenario conversion, so the reset posture reaches the recorder exactly
 (no degree round trip), and verifies the posture, joint limits, target marker,
-sampling tick, and numbered output before anything is recorded. Takes go to an
+sampling tick, and numbered output before anything is recorded. The sampling
+rate comes from the recording configuration when it declares ``sample_rate_hz``
+(``task_1a_manual_v2``, clarification I13: 50 Hz acquisition beside the 0.01 s
+training grid); a v1 recording configuration keeps the rate of the task period
+``timing.dt``. Either way the rate must give a whole-millisecond tick, the task's
+training grid must be at least as fine, and the task's acquisition rules must
+expect that rate. Takes go to an
 absolute directory outside the repository, separated by purpose (``practice``
 or ``study``) and session, next to a portable ``session.json`` that names the
 configurations by digest and the recorder by its pinned commit.
@@ -70,6 +76,7 @@ _PURPOSES: Final = ("practice", "study")
 _SESSION_RE: Final = re.compile(r"^[a-z0-9][a-z0-9-]{2,31}$")
 _LOG_SUFFIX: Final = ".sklog.npz"
 _TICK_TOLERANCE: Final = 1e-9
+_PERIOD_TOLERANCE_S: Final = 1e-12
 
 
 class RecordingError(RuntimeError):
@@ -90,14 +97,19 @@ class RecordingConfig:
     show_past_trails: bool
     output_name: str
     """Base of the numbered take files, e.g. ``reach.sklog.npz`` -> ``reach_001.sklog.npz``."""
+    sample_rate_hz: float | None = None
+    """Acquisition rate (v2, I13); without it the rate follows the task period ``timing.dt`` (v1)."""
 
     def __post_init__(self) -> None:
-        """Validate the protocol, the timeout, and the output base name."""
+        """Validate the protocol, the timeout, the acquisition rate, and the output base name."""
         if not self.protocol.strip() or not self.ik_method.strip():
             msg = "protocol and ik_method must not be empty"
             raise ValueError(msg)
         if not (self.timeout_s > 0 and math.isfinite(self.timeout_s)):
             msg = f"timeout_s must be positive and finite, got {self.timeout_s!r}"
+            raise ValueError(msg)
+        if self.sample_rate_hz is not None and not (self.sample_rate_hz > 0 and math.isfinite(self.sample_rate_hz)):
+            msg = f"sample_rate_hz must be positive and finite, got {self.sample_rate_hz!r}"
             raise ValueError(msg)
         if "/" in self.output_name or not self.output_name.endswith(_LOG_SUFFIX) or self.output_name == _LOG_SUFFIX:
             msg = f"output_name must be a bare file name ending in {_LOG_SUFFIX}, got {self.output_name!r}"
@@ -202,6 +214,49 @@ def require_pinned_recorder(repo_root: Path) -> tuple[SubmoduleRevision, BuildId
     return skelarm, build
 
 
+def _acquisition_rate(scenario: ManualScenarioConfig, recording: RecordingConfig) -> float:
+    """The recorder's sampling rate: the recording configuration's ``sample_rate_hz``, else ``1 / timing.dt`` (v1).
+
+    Raises
+    ------
+    RecordingError
+        If the rate is not a whole number of milliseconds per tick, the task's
+        training grid is coarser than the rate, or the task's acquisition rules
+        expect another rate.
+    """
+    if recording.sample_rate_hz is None:
+        tick_ms = 1000.0 * scenario.timing.dt
+        if abs(tick_ms - round(tick_ms)) > _TICK_TOLERANCE:
+            msg = (
+                f"timing.dt {scenario.timing.dt} s is not a whole number of milliseconds; the recorder cannot sample it"
+            )
+            raise RecordingError(msg)
+        rate = 1000.0 / round(tick_ms)
+    else:
+        rate = recording.sample_rate_hz
+        tick_ms = 1000.0 / rate
+        if round(tick_ms) < 1 or abs(tick_ms - round(tick_ms)) > _TICK_TOLERANCE:
+            msg = (
+                f"sample_rate_hz {rate:g} gives a {tick_ms:.4g} ms period, not a whole number of milliseconds; "
+                "the recorder cannot sample it"
+            )
+            raise RecordingError(msg)
+        if scenario.timing.dt > 1.0 / rate + _PERIOD_TOLERANCE_S:
+            msg = (
+                f"the task's training grid timing.dt {scenario.timing.dt} s is coarser than the acquisition period "
+                f"{1.0 / rate} s; the grid must be at least as fine as the acquisition rate"
+            )
+            raise RecordingError(msg)
+    expected = scenario.acquisition_period_s
+    if abs(1.0 / rate - expected) > _PERIOD_TOLERANCE_S:
+        msg = (
+            f"the recorder would sample at {rate:g} Hz but the task's acquisition rules expect {1.0 / expected:g} Hz; "
+            "pair the recording configuration with the task configuration of the same acquisition rate"
+        )
+        raise RecordingError(msg)
+    return rate
+
+
 def resolve_recorder_session(
     scenario_file: Path,
     recording_file: Path,
@@ -218,7 +273,8 @@ def resolve_recorder_session(
     RecordingError
         If the protocols differ, the session or purpose is invalid, the output
         root is not an existing absolute directory outside the repository, or
-        the task period is not a whole number of milliseconds.
+        the acquisition rate cannot be sampled, is finer than the training grid,
+        or differs from the task's acquisition rules.
     """
     require_pinned_recorder(repo_root)
     scenario = load_manual_scenario(scenario_file)
@@ -233,17 +289,14 @@ def resolve_recorder_session(
         msg = f"purpose must be one of {list(_PURPOSES)}, got {purpose!r}"
         raise RecordingError(msg)
     _check_output_root(output_root, repo_root)
-    tick_ms = 1000.0 * scenario.timing.dt
-    if abs(tick_ms - round(tick_ms)) > _TICK_TOLERANCE:
-        msg = f"timing.dt {scenario.timing.dt} s is not a whole number of milliseconds; the recorder cannot sample it"
-        raise RecordingError(msg)
+    rate = _acquisition_rate(scenario, recording)
     return RecorderSession(
         protocol=scenario.protocol,
         purpose=purpose,
         session=session,
         mode=recording.mode,
         ik_method=recording.ik_method,
-        sample_rate_hz=1000.0 / round(tick_ms),
+        sample_rate_hz=rate,
         duration_s=recording.timeout_s,
         output_base=output_root / purpose / session / recording.output_name,
         multi_take=True,

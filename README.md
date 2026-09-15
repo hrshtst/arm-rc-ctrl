@@ -156,7 +156,22 @@ records takes with the pinned `skelarm` recorder and validates them offline:
 the acquisition rules; `task_1a.toml` is untouched), and
 `configs/preprocessing/manual_v1.toml` derives full-recording datasets on the task
 grid with the hold-anchored zero-phase filter (the recorded reset hold stays exact;
-the residual start shift is measured and bounded, never snapped).
+the residual start shift is measured and bounded, never snapped). After the first
+practice pilot, the v2 files (plan section 10, I10–I13; the v1 files are unchanged)
+separate acquisition from the training grid: `configs/tasks/task_1a_manual_v2.toml`
+keeps the same task and the 0.01 s training grid of every comparison arm but
+declares 50 Hz acquisition with rules in actual time (`min_duration_s` and a
+`max_sample_gap_s` of three acquisition periods, provisional until the second
+practice pilot), and a take whose recorder declares another sample period is
+rejected. `configs/preprocessing/manual_v2.toml` reconstructs each take from its
+actual timestamps onto the grid by linear interpolation and smooths it with the
+same zero-phase filter applied to the deviation from the first sample, extended
+by its point reflection about that sample and by the repeated final value (5 s
+each): the first sample stays at the reset posture up to roundoff without a
+stationary hold and without a velocity or acceleration spike, pre-roll
+fluctuations right after it are kept, derivatives come from the smoothed
+trajectory, the final dwell remains one actual second on the grid, and processed
+records carry manual schema 2.
 `scripts/validate_manual_takes.py --scenario … --config … --session … --batch N
 --manifest … --takes reach_001.sklog.npz …` imports every saved attempt unchanged
 (raw take records), measures it against the rules (exact reset start, no sample
@@ -184,12 +199,16 @@ separate session and never enter a manifest.
 configs/recording/task_1a_manual_v1.toml --session … --purpose {practice,study}
 --output-root …` starts the pinned recorder in-process from those configurations
 and verifies it before anything is recorded: the exact reset posture (no degree
-round trip), the joint limits, the target marker, the 100 Hz tick, IK guidance,
+round trip), the joint limits, the target marker, the sampling tick, IK guidance,
 both trail overlays, the 30 s per-take timeout, and numbered outputs. Takes and a
 portable `session.json` (configurations by digest, the pinned recorder commit, the
 resolved options) go to `<output-root>/<purpose>/<session>/`, an absolute directory
 outside the repository; a session's settings never change, and `--dry-run` prints
-them without writing anything.
+them without writing anything. With `configs/recording/task_1a_manual_v1.toml` the
+sampling rate follows the task period (100 Hz); `configs/recording/task_1a_manual_v2.toml`
+sets 50 Hz (a 20 ms tick), and the launcher refuses a rate that is not a whole
+number of milliseconds, is faster than the task's training grid, or differs from
+the task's acquisition rules; `session.json` records the rate.
 
 ## Requirements
 
