@@ -204,7 +204,9 @@ both trail overlays, the 30 s per-take timeout, and numbered outputs. Takes and 
 portable `session.json` (configurations by digest, the pinned recorder commit, the
 resolved options) go to `<output-root>/<purpose>/<session>/`, an absolute directory
 outside the repository; a session's settings never change, and `--dry-run` prints
-them without writing anything. With `configs/recording/task_1a_manual_v1.toml` the
+them without writing anything. With the v2 recording configuration the launcher also selects the
+last-saved-trail display, so only the most recently saved take is drawn behind the
+current trail, verifies it on the recorder window, and records it in `session.json`. With `configs/recording/task_1a_manual_v1.toml` the
 sampling rate follows the task period (100 Hz); `configs/recording/task_1a_manual_v2.toml`
 sets 50 Hz (a 20 ms tick), and the launcher refuses a rate that is not a whole
 number of milliseconds, is faster than the task's training grid, or differs from

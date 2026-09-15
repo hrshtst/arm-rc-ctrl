@@ -243,12 +243,12 @@ def test_session_settings_record_the_verified_build(tmp_path: Path) -> None:
 
 
 def test_v2_recording_takes_the_acquisition_rate_from_its_configuration(tmp_path: Path) -> None:
-    """50 Hz comes from the recording file while the task keeps its 0.01 s grid; the other options are v1's."""
+    """50 Hz comes from the recording file; the task keeps its 0.01 s grid; only rate and display differ from v1."""
     v1 = load_recording_config(RECORDING)
     v2 = load_recording_config(RECORDING_V2)
     assert v1.sample_rate_hz is None
     assert v2.sample_rate_hz == 50.0
-    assert replace(v2, sample_rate_hz=None) == v1
+    assert replace(v2, sample_rate_hz=None, past_trail_history=None) == v1
     session = _resolve(tmp_path, scenario=SCENARIO_V2, recording=RECORDING_V2)
     assert session.sample_rate_hz == 50.0
     assert load_manual_scenario(SCENARIO_V2).timing.dt == 0.01
@@ -291,3 +291,38 @@ def test_acquisition_rates_the_recorder_grid_or_rules_cannot_use_are_refused(
     variant.write_text(text.replace("sample_rate_hz = 50.0", "sample_rate_hz = 0.0"), encoding="utf-8")
     with pytest.raises(ConfigError, match="sample_rate_hz"):
         load_recording_config(variant)
+
+
+def test_v2_recording_shows_only_the_last_saved_trail(qapp: object, tmp_path: Path) -> None:  # noqa: ARG001
+    """I12: the v2 recording configuration selects the last-saved-trail display and the launcher verifies it."""
+    assert load_recording_config(RECORDING_V2).past_trail_history == "last"
+    assert load_recording_config(RECORDING).past_trail_history is None
+    session = _resolve(tmp_path, scenario=SCENARIO_V2, recording=RECORDING_V2)
+    assert session.past_trail_history == "last"
+    window = create_recorder_window(session, load_manual_scenario(SCENARIO_V2), run_timer=False)
+    assert window.past_trail_history == "last"
+    assert window.close()
+    data = json.loads(write_session_settings(session, repo_root=REPO_ROOT).read_text(encoding="utf-8"))
+    assert data["options"]["past_trail_history"] == "last"
+
+
+def test_v1_sessions_keep_the_full_history_and_their_settings_layout(qapp: object, tmp_path: Path) -> None:  # noqa: ARG001
+    """Without the setting the recorder keeps its full-history display and session.json keeps the v1 layout."""
+    session = _resolve(tmp_path)
+    assert session.past_trail_history is None
+    window = create_recorder_window(session, load_manual_scenario(SCENARIO), run_timer=False)
+    assert window.past_trail_history == "all"
+    assert window.close()
+    data = json.loads(write_session_settings(session, repo_root=REPO_ROOT).read_text(encoding="utf-8"))
+    assert "past_trail_history" not in data["options"]
+
+
+def test_an_unknown_trail_history_is_refused(tmp_path: Path) -> None:
+    """The display-history setting accepts only the recorder's modes."""
+    bad = tmp_path / "bad.toml"
+    text = RECORDING_V2.read_text(encoding="utf-8").replace(
+        'past_trail_history = "last"', 'past_trail_history = "some"'
+    )
+    bad.write_text(text, "utf-8")
+    with pytest.raises(ConfigError, match="past_trail_history"):
+        load_recording_config(bad)

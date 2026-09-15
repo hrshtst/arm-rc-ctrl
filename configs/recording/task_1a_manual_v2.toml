@@ -13,6 +13,9 @@ timeout_s = 30.0
 # Visual guidance (D1): the current take's tip trail and the faint saved trails of this session.
 show_tip_trail = true
 show_past_trails = true
+# Draw only the most recently saved take's trail behind the current trail (I12); every saved
+# take and its history are kept, and each take records the saved take that was drawn.
+past_trail_history = "last"
 # Base of the numbered take files (reach_001.sklog.npz, reach_002.sklog.npz, ...).
 output_name = "reach.sklog.npz"
 # Acquisition rate (Hz, I13): a whole 20 ms recorder tick; the training grid stays at 0.01 s.

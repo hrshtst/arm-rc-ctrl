@@ -99,6 +99,11 @@ class RecordingConfig:
     """Base of the numbered take files, e.g. ``reach.sklog.npz`` -> ``reach_001.sklog.npz``."""
     sample_rate_hz: float | None = None
     """Acquisition rate (v2, I13); without it the rate follows the task period ``timing.dt`` (v1)."""
+    past_trail_history: Literal["all", "last"] | None = None
+    """Faint-trail history drawn by the recorder (v2, I12): ``last`` draws only the most recently saved take.
+
+    Without it the recorder keeps its full-history display (v1).
+    """
 
     def __post_init__(self) -> None:
         """Validate the protocol, the timeout, the acquisition rate, and the output base name."""
@@ -137,6 +142,7 @@ class RecorderSession:
     start_on_grab: bool
     show_tip_trail: bool
     show_past_trails: bool
+    past_trail_history: str | None
     initial_q: tuple[float, ...]
     target: tuple[float, ...]
     tolerance: float
@@ -303,6 +309,7 @@ def resolve_recorder_session(
         start_on_grab=False,
         show_tip_trail=recording.show_tip_trail,
         show_past_trails=recording.show_past_trails,
+        past_trail_history=recording.past_trail_history,
         initial_q=scenario.task.initial_q,
         target=scenario.task.target,
         tolerance=scenario.task.tolerance,
@@ -369,6 +376,7 @@ def create_recorder_window(  # noqa: ANN201  # the pinned tool's RecorderWindow 
         start_on_grab=session.start_on_grab,
         show_tip_trail=session.show_tip_trail,
         show_past_trails=session.show_past_trails,
+        past_trail_history=session.past_trail_history or "all",
         method=session.ik_method,
         task=task,
         run_timer=run_timer,
@@ -379,7 +387,16 @@ def create_recorder_window(  # noqa: ANN201  # the pinned tool's RecorderWindow 
     if not np.array_equal(window.canvas.target, np.asarray(session.target, dtype=np.float64)):
         msg = "the recorder's target marker differs from the configured target"
         raise RecordingError(msg)
+    expected_history = session.past_trail_history or "all"
+    if window.past_trail_history != expected_history:
+        msg = f"the recorder draws the {window.past_trail_history!r} saved-trail history, not {expected_history!r}"
+        raise RecordingError(msg)
     return window
+
+
+def _history_option(session: RecorderSession) -> dict[str, str]:
+    """The display-history option for ``session.json``; absent for v1 sessions so their settings layout is unchanged."""
+    return {} if session.past_trail_history is None else {"past_trail_history": session.past_trail_history}
 
 
 def session_settings(session: RecorderSession, *, repo_root: Path) -> dict[str, object]:
@@ -408,6 +425,7 @@ def session_settings(session: RecorderSession, *, repo_root: Path) -> dict[str, 
             "show_tip_trail": session.show_tip_trail,
             "show_past_trails": session.show_past_trails,
             "output_name": session.output_base.name,
+            **_history_option(session),
         },
         "task": {"initial_q": list(session.initial_q), "target": list(session.target), "tolerance": session.tolerance},
     }
