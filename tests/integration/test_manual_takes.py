@@ -348,3 +348,15 @@ def test_registration_can_be_deferred_and_is_idempotent(workspace: Workspace, tm
     assert load_record(result.record_file, ManualTakeRecord) == result.record
     assert register_manual_records(workspace.records_root, [result.record]) == [result.record_file]
     assert load_catalog(workspace.records_root / "data" / "catalog.toml").find(result.record.artifact.artifact_id)
+
+
+def test_an_archive_with_inconsistent_rows_is_refused_as_malformed(workspace: Workspace, tmp_path: Path) -> None:
+    """Rows that disagree with the timestamps are refused before the state-log loader can fail on them."""
+    log_file = _log(workspace.scenario, tmp_path / "rows.sklog.npz")
+    with np.load(log_file, allow_pickle=False) as archive:
+        arrays = {name: archive[name] for name in archive.files}
+    arrays["tip"] = arrays["tip"][:-3]
+    np.savez_compressed(log_file, **arrays)
+    with pytest.raises(ManualTakeError, match="rows"):
+        _import(workspace, log_file)
+    assert not (workspace.records_root / "data").exists()

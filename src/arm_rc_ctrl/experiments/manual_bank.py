@@ -11,7 +11,11 @@ first ``required`` accepted takes in acquisition order become the bank
 (``D01`` .. ``D10``). A shortfall asks for another batch; there is no attempt
 cap. Batches are versioned: a batch number is validated once and never edited,
 and a batch's Git-tracked records are registered only after all of its takes
-were processed, so a confirmatory run never trips over its own outputs. Once
+were processed, so a confirmatory run never trips over its own outputs.
+Everything a batch publishes (reports, records, manifest) is first staged as a
+journal in the external store; if publication fails part-way, rerunning the
+batch completes that journal without validating again, and no other batch
+starts while one is pending. Once
 the bank is complete its assignments are locked: later batches may only add
 later attempts, which stay retained but unassigned. Practice payloads never
 enter a manifest.
@@ -30,10 +34,11 @@ import hashlib
 import json
 import re
 import sys
+import tomllib
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
 
 import numpy as np
 
@@ -52,9 +57,10 @@ from arm_rc_ctrl.data.manual import (
     register_manual_records,
 )
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
-from arm_rc_ctrl.provenance import sha256_file
-from arm_rc_ctrl.repo import repository_root
-from arm_rc_ctrl.storage import StorageError, open_storage
+from arm_rc_ctrl.data.records import record_path, to_toml
+from arm_rc_ctrl.provenance import DirtyWorktreeError, sha256_file
+from arm_rc_ctrl.repo import git_output, repository_root
+from arm_rc_ctrl.storage import ArtifactUri, StorageError, open_storage
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -67,6 +73,9 @@ __all__ = [
     "DEFAULT_REQUIRED",
     "BankManifest",
     "BatchReport",
+    "JournalFile",
+    "JournalRecord",
+    "PublicationJournal",
     "TakeMeasurements",
     "TakeVerdict",
     "attempt_number",
@@ -77,6 +86,7 @@ __all__ = [
 ]
 
 BANK_SCHEMA_VERSION = 1
+JOURNAL_SCHEMA_VERSION = 1
 DEFAULT_REQUIRED = 10
 _ATTEMPT_RE = re.compile(r"^.+?_(?P<number>\d+)(?:\.[A-Za-z0-9]+)+$")
 
@@ -235,13 +245,20 @@ def _assign(takes: tuple[TakeVerdict, ...], required: int) -> tuple[TakeVerdict,
     return tuple(replace(t, assignment=labels.get(t.attempt) if t.accepted else None) for t in ordered)
 
 
-def write_bank_manifest(path: Path, manifest: BankManifest) -> None:
-    """Write the manifest atomically as portable JSON (no machine paths)."""
+def _manifest_text(manifest: BankManifest) -> str:
+    return json.dumps(to_mapping(manifest), indent=2, sort_keys=True) + "\n"
+
+
+def _write_text_atomic(path: Path, text: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    text = json.dumps(to_mapping(manifest), indent=2, sort_keys=True) + "\n"
     temporary = path.with_name(path.name + ".tmp")
     temporary.write_text(text, encoding="utf-8")
     temporary.replace(path)
+
+
+def write_bank_manifest(path: Path, manifest: BankManifest) -> None:
+    """Write the manifest atomically as portable JSON (no machine paths)."""
+    _write_text_atomic(path, _manifest_text(manifest))
 
 
 def load_bank_manifest(path: Path) -> BankManifest:
@@ -507,6 +524,56 @@ def _render_markdown(report: BatchReport, manifest: BankManifest) -> str:
     return "\n".join(lines) + "\n"
 
 
+@dataclass(frozen=True)
+class JournalFile:
+    """A report file a batch publishes into the checkout (path relative to the records root)."""
+
+    path: str
+    text: str
+
+
+@dataclass(frozen=True)
+class JournalRecord:
+    """A Git-tracked record a batch registers, kept as its TOML text."""
+
+    kind: Literal["raw", "processed"]
+    toml: str
+
+
+@dataclass(frozen=True)
+class PublicationJournal:
+    """Everything one batch publishes into the checkout, staged in the external store before any of it is written.
+
+    A batch computes its verdicts, writes this journal, and then applies it. If
+    applying fails part-way, rerunning the batch completes the same journal
+    instead of validating again, so the records keep the provenance of the first
+    run and the verdicts never change.
+    """
+
+    journal_schema_version: int
+    session: str
+    batch: int
+    manifest_path: str
+    base_manifest_sha256: str | None
+    """Digest of the manifest before the batch (``None`` when the batch creates it)."""
+    final_manifest_sha256: str
+    attempts: tuple[int, ...]
+    payload_sha256s: tuple[str, ...]
+    """Digests of the submitted files, in attempt order."""
+    files: tuple[JournalFile, ...]
+    records: tuple[JournalRecord, ...]
+    manifest_text: str
+
+    def __post_init__(self) -> None:
+        """Validate the schema version and the submission lists."""
+        if self.journal_schema_version != JOURNAL_SCHEMA_VERSION:
+            msg = f"unsupported journal_schema_version {self.journal_schema_version}; expected {JOURNAL_SCHEMA_VERSION}"
+            raise ValueError(msg)
+        if len(self.attempts) != len(self.payload_sha256s) or list(self.attempts) != sorted(set(self.attempts)):
+            msg = "journal attempts must be unique, ordered, and paired with their payload digests"
+            raise ValueError(msg)
+
+
 def validate_batch(
     take_files: Sequence[Path],
     *,
@@ -525,12 +592,19 @@ def validate_batch(
 ) -> BatchReport:
     """Validate one batch of saved takes, update the bank manifest, and write the batch report.
 
+    A batch whose publication failed part-way is completed from its journal when
+    it is rerun with the same takes; without ``exploratory`` the worktree may then
+    hold only that journal's own outputs.
+
     Raises
     ------
     ValueError
         If a file is not a numbered recorder output, an attempt repeats, the
-        batch number was validated before, or the manifest binds another
-        scenario, derivation config, session, or bank size.
+        batch number was recorded before, another batch is pending publication,
+        or the manifest binds another scenario, derivation config, session, or
+        bank size.
+    DirtyWorktreeError
+        If a confirmatory run finds changes unrelated to its pending batch.
     """
     if batch < 1 or required < 1:
         msg = f"batch and required must be positive, got {batch} and {required}"
@@ -538,6 +612,23 @@ def validate_batch(
     context = _Context(
         scenario_file, config_file, store, records_root, session, batch, license_label, access, exploratory, now
     )
+    manifest_path = _relative(manifest_file, records_root, "bank manifest")
+    key = hashlib.sha256(f"{manifest_path}\n{session}".encode()).hexdigest()[:16]
+    for journal_file in _pending_journals(store, key):
+        journal = _load_journal(journal_file)
+        if _file_sha256(manifest_file) == journal.final_manifest_sha256:
+            journal_file.unlink()  # published completely earlier; only the journal's removal was missed
+            continue
+        if journal.batch != batch:
+            msg = (
+                f"batch {journal.batch} is pending publication (it failed part-way); rerun batch {journal.batch} "
+                f"with the same takes before validating batch {batch}"
+            )
+            raise ValueError(msg)
+        _check_resume(journal, take_files, context)
+        if not exploratory:
+            _require_only_journal_changes(records_root, journal)
+        return _apply_journal(journal, journal_file, records_root=records_root, manifest_file=manifest_file)
     manifest = _load_or_create_manifest(manifest_file, context, required)
     numbered = _check_submission(take_files, manifest)
     seen_payloads, seen_trajectories = _seen_digests(manifest.takes)
@@ -549,13 +640,49 @@ def validate_batch(
         pending.extend(records)
         _remember(verdict, seen_payloads, seen_trajectories)
     stamp = (now or datetime.now(tz=UTC)).replace(microsecond=0).isoformat()
+    base_sha256 = _file_sha256(manifest_file)
     manifest = replace(manifest, takes=_assign((*manifest.takes, *verdicts), required), updated_at=stamp)
+    journal = _build_journal(manifest, verdicts, pending, context, manifest_file, base_sha256, stamp)
+    journal_file = store.path(
+        ArtifactUri("reports", ("manual_bank", "pending", f"{key}-batch-{batch:03d}.json")), mode="write"
+    )
+    _write_text_atomic(journal_file, json.dumps(to_mapping(journal), indent=2, sort_keys=True) + "\n")
+    return _apply_journal(journal, journal_file, records_root=records_root, manifest_file=manifest_file)
+
+
+def _file_sha256(path: Path) -> str | None:
+    return sha256_file(path) if path.is_file() else None
+
+
+def _pending_journals(store: StorageRoot, key: str) -> list[Path]:
+    directory = store.root / "reports" / "manual_bank" / "pending"
+    return sorted(directory.glob(f"{key}-batch-*.json")) if directory.is_dir() else []
+
+
+def _load_journal(path: Path) -> PublicationJournal:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ConfigError(str(path), f"not valid JSON: {exc}") from exc
+    if not isinstance(data, dict):
+        raise ConfigError(str(path), "the journal must be a JSON object")
+    return from_mapping(cast("dict[str, Any]", data), PublicationJournal)
+
+
+def _record_from_journal(item: JournalRecord) -> ManualTakeRecord | ManualDatasetRecord:
+    data = tomllib.loads(item.toml)
+    if item.kind == "raw":
+        return from_mapping(data, ManualTakeRecord)
+    return from_mapping(data, ManualDatasetRecord)
+
+
+def _batch_report(manifest: BankManifest, batch: int, manifest_file: Path) -> BatchReport:
     stem = manifest_file.with_suffix("").name
-    report = BatchReport(
+    return BatchReport(
         batch=batch,
         verdicts=tuple(t for t in manifest.takes if t.batch == batch),
         accepted_total=len(manifest.accepted_attempts),
-        required=required,
+        required=manifest.required,
         shortfall=manifest.shortfall,
         complete=manifest.complete,
         next_action=_next_action(manifest),
@@ -563,8 +690,111 @@ def validate_batch(
         report_json=manifest_file.with_name(f"{stem}_batch_{batch:03d}.json"),
         report_markdown=manifest_file.with_name(f"{stem}_batch_{batch:03d}.md"),
     )
-    _publish(report, manifest, pending, records_root=records_root, session=session, stamp=stamp)
-    return report
+
+
+def _build_journal(
+    manifest: BankManifest,
+    verdicts: list[TakeVerdict],
+    pending: _Records,
+    context: _Context,
+    manifest_file: Path,
+    base_sha256: str | None,
+    stamp: str,
+) -> PublicationJournal:
+    report = _batch_report(manifest, context.batch, manifest_file)
+    payload = {
+        "batch": report.batch,
+        "session": context.session,
+        "verdicts": [to_mapping(v) for v in report.verdicts],
+        "accepted_total": report.accepted_total,
+        "required": report.required,
+        "shortfall": report.shortfall,
+        "complete": report.complete,
+        "next_action": report.next_action,
+        "updated_at": stamp,
+    }
+    manifest_text = _manifest_text(manifest)
+    root = context.records_root
+    return PublicationJournal(
+        journal_schema_version=JOURNAL_SCHEMA_VERSION,
+        session=context.session,
+        batch=context.batch,
+        manifest_path=_relative(manifest_file, root, "bank manifest"),
+        base_manifest_sha256=base_sha256,
+        final_manifest_sha256=hashlib.sha256(manifest_text.encode("utf-8")).hexdigest(),
+        attempts=tuple(v.attempt for v in verdicts),
+        payload_sha256s=tuple(cast("str", v.payload_sha256) for v in verdicts),
+        files=(
+            JournalFile(
+                _relative(report.report_json, root, "batch report"),
+                json.dumps(payload, indent=2, sort_keys=True) + "\n",
+            ),
+            JournalFile(_relative(report.report_markdown, root, "batch report"), _render_markdown(report, manifest)),
+        ),
+        records=tuple(
+            JournalRecord("raw" if isinstance(r, ManualTakeRecord) else "processed", to_toml(r)) for r in pending
+        ),
+        manifest_text=manifest_text,
+    )
+
+
+def _check_resume(journal: PublicationJournal, take_files: Sequence[Path], context: _Context) -> None:
+    """A retry must submit the same files under the same scenario and derivation config as the pending batch."""
+    staged = from_mapping(cast("dict[str, Any]", json.loads(journal.manifest_text)), BankManifest)
+    if (staged.scenario_sha256, staged.derive_config_sha256) != (
+        sha256_file(context.scenario_file),
+        sha256_file(context.config_file),
+    ):
+        msg = f"batch {journal.batch} is pending under another scenario or derivation config; rerun it unchanged"
+        raise ValueError(msg)
+    missing = [str(path) for path in take_files if not path.is_file()]
+    if missing:
+        msg = f"take file not found: {', '.join(missing)}"
+        raise ValueError(msg)
+    submitted = sorted((attempt_number(path), sha256_file(path)) for path in take_files)
+    if submitted != list(zip(journal.attempts, journal.payload_sha256s, strict=True)):
+        msg = (
+            f"batch {journal.batch} is pending publication with attempts {list(journal.attempts)}; "
+            "rerun it with the same takes"
+        )
+        raise ValueError(msg)
+
+
+def _require_only_journal_changes(records_root: Path, journal: PublicationJournal) -> None:
+    """Refuse a confirmatory completion when the worktree holds anything but the pending batch's own outputs."""
+    allowed = {item.path for item in journal.files}
+    allowed |= {journal.manifest_path, f"{journal.manifest_path}.tmp", "data/catalog.toml"}
+    allowed |= {
+        record_path(records_root, _record_from_journal(item).artifact).relative_to(records_root).as_posix()
+        for item in journal.records
+    }
+    status = git_output("status", "--porcelain", "--untracked-files=all", cwd=records_root)
+    dirty = {line[3:] if len(line) > 2 and line[2] == " " else line[2:] for line in status.splitlines() if line.strip()}  # noqa: PLR2004
+    unrelated = sorted(dirty - allowed)
+    if unrelated:
+        msg = (
+            f"the worktree has changes unrelated to pending batch {journal.batch}: {', '.join(unrelated[:5])}; "
+            "commit or stash them, or rerun with --exploratory"
+        )
+        raise DirtyWorktreeError(msg)
+
+
+def _apply_journal(
+    journal: PublicationJournal, journal_file: Path, *, records_root: Path, manifest_file: Path
+) -> BatchReport:
+    """Write the reports, register the records, write the manifest, and drop the journal; safe to repeat."""
+    if _file_sha256(manifest_file) not in (journal.base_manifest_sha256, journal.final_manifest_sha256):
+        msg = f"{manifest_file} changed since batch {journal.batch} was staged; restore it before completing the batch"
+        raise ValueError(msg)
+    for item in journal.files:
+        target = records_root / item.path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(item.text, encoding="utf-8")
+    register_manual_records(records_root, [_record_from_journal(item) for item in journal.records])
+    _write_text_atomic(manifest_file, journal.manifest_text)
+    journal_file.unlink()
+    manifest = from_mapping(cast("dict[str, Any]", json.loads(journal.manifest_text)), BankManifest)
+    return _batch_report(manifest, journal.batch, manifest_file)
 
 
 def _check_submission(take_files: Sequence[Path], manifest: BankManifest) -> list[tuple[int, Path]]:
@@ -608,33 +838,6 @@ def _remember(verdict: TakeVerdict, payloads: dict[str, TakeVerdict], trajectori
         payloads.setdefault(verdict.payload_sha256, verdict)
     if verdict.q_sha256 is not None:
         trajectories.setdefault(verdict.q_sha256, verdict)
-
-
-def _publish(
-    report: BatchReport, manifest: BankManifest, pending: _Records, *, records_root: Path, session: str, stamp: str
-) -> None:
-    """Write the reports, then the Git-tracked records, then the manifest.
-
-    Until the manifest names the batch it is not recorded, so a failure anywhere
-    before leaves the batch retryable, and the retry finds the same payloads
-    (resumed) and rebuilds the same verdicts.
-    """
-    payload = {
-        "batch": report.batch,
-        "session": session,
-        "verdicts": [to_mapping(v) for v in report.verdicts],
-        "accepted_total": report.accepted_total,
-        "required": report.required,
-        "shortfall": report.shortfall,
-        "complete": report.complete,
-        "next_action": report.next_action,
-        "updated_at": stamp,
-    }
-    report.manifest_file.parent.mkdir(parents=True, exist_ok=True)
-    report.report_json.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    report.report_markdown.write_text(_render_markdown(report, manifest), encoding="utf-8")
-    register_manual_records(records_root, pending)
-    write_bank_manifest(report.manifest_file, manifest)
 
 
 def build_parser() -> argparse.ArgumentParser:

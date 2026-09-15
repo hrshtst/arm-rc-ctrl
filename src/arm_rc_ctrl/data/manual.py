@@ -132,6 +132,8 @@ MANUAL_PHASE_CODES: dict[str, int] = {"hold": 0, "move": 1, "dwell": 2}
 """Descriptive annotations of a full recording; every sample enters training regardless of its phase."""
 MANUAL_RAW_UNITS: dict[str, str] = {"t": "s", "q": "rad", "tip": "m", "nominal_time": "s"}
 _REQUIRED_CHANNELS = frozenset({"q", "tip", "nominal_time"})
+_ARCHIVE_META = "__meta__"
+_ARCHIVE_TIME = "time"
 _REQUIRED_CLOCK = "wall-clock"
 _SESSION_RE = re.compile(r"^[a-z0-9][a-z0-9-]{2,31}$")
 _TIME_TOLERANCE_S = 1e-9
@@ -667,6 +669,38 @@ def _read_arrays(
     return times, q, tip, nominal
 
 
+def _check_archive(log_file: Path) -> None:
+    """Refuse an archive that is not a state log: metadata, a 1-D time axis, and one row per timestamp in every channel.
+
+    The skelarm loader assumes this structure and fails with arbitrary errors
+    otherwise, so the check runs first and names what is wrong.
+
+    Raises
+    ------
+    ManualTakeError
+        If the file is not a readable archive or its members disagree.
+    """
+    try:
+        with np.load(log_file, allow_pickle=False) as archive:
+            names = set(archive.files)
+            if _ARCHIVE_META not in names or _ARCHIVE_TIME not in names:
+                msg = f"{log_file.name} lacks the {_ARCHIVE_META!r} or {_ARCHIVE_TIME!r} member of a state log"
+                raise ManualTakeError(msg)
+            time_axis = archive[_ARCHIVE_TIME]
+            if time_axis.ndim != 1:
+                msg = f"{log_file.name}: {_ARCHIVE_TIME!r} must be one-dimensional, got shape {time_axis.shape}"
+                raise ManualTakeError(msg)
+            rows = int(time_axis.shape[0])
+            for name in sorted(names - {_ARCHIVE_META, _ARCHIVE_TIME}):
+                shape = archive[name].shape
+                if not shape or int(shape[0]) != rows:
+                    msg = f"{log_file.name}: channel {name!r} has shape {shape} but {_ARCHIVE_TIME!r} has {rows} rows"
+                    raise ManualTakeError(msg)
+    except (ValueError, OSError, EOFError, BadZipFile) as exc:
+        msg = f"cannot read {log_file.name} as a recorder log: {exc}"
+        raise ManualTakeError(msg) from exc
+
+
 def _sampling(times: NDArray[np.float64]) -> Sampling:
     return Sampling(period_s=float(np.median(np.diff(times))), clock="wall", units=dict(MANUAL_RAW_UNITS))
 
@@ -767,10 +801,11 @@ def import_manual_take(
         If the same bytes are already registered as another session or attempt.
     """
     config = load_manual_scenario(scenario_file)
+    _check_archive(log_file)
     try:
         log = StateLog.load(log_file)
         payload_schema = read_log_schema_version(log_file)
-    except (ValueError, KeyError, OSError, BadZipFile) as exc:
+    except (ValueError, KeyError, IndexError, TypeError, OSError, EOFError, BadZipFile) as exc:
         msg = f"cannot read {log_file.name} as a recorder log: {exc}"
         raise ManualTakeError(msg) from exc
     times, q, _tip, _nominal = _read_arrays(log, config.dof)

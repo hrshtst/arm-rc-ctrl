@@ -167,10 +167,14 @@ a versioned bank manifest: the first ten accepted takes by attempt number
 (acquisition order, whatever batch they arrive in) become `D01`–`D10`, rejected
 takes stay retained with their reasons, a byte-identical copy of an earlier take
 is rejected without a record of its own and names the original, and an
-unreadable file is a per-take `malformed` rejection that never aborts the batch.
-A batch writes its reports, then its Git-tracked records, then the manifest, so
-a failed batch stays retryable and a run without `--exploratory` never trips
-over its own records; a batch number is recorded once and never edited, and a
+unreadable file or an archive whose channels disagree with its timestamps is a
+per-take `malformed` rejection that never aborts the batch. A batch registers
+its Git-tracked records only after all of its takes, so a run without
+`--exploratory` never trips over its own records, and it stages everything it
+publishes (reports, records, manifest) as a journal in the external store
+first: if publication fails part-way, rerunning the batch with the same takes
+completes the journal without validating again (without `--exploratory` only
+the journal's own outputs may be dirty), and no other batch starts meanwhile; a batch number is recorded once and never edited, and a
 complete bank locks its assignments (later batches may only add later
 attempts). The manifest is loaded strictly (types, unknown keys, and
 assignment consistency). The command exits 2 while the bank still needs takes

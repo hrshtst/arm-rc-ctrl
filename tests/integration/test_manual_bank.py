@@ -11,6 +11,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from arm_rc_ctrl import provenance
@@ -369,3 +370,57 @@ def test_manifest_loading_is_strict_and_checks_consistency(workspace: Workspace)
         load_bank_manifest(workspace.manifest)
     write(data)
     assert load_bank_manifest(workspace.manifest).batches == (1,)
+
+
+# ----------------------------------------------------------------------------------------------
+# Review round 2 (2026-09-15)
+# ----------------------------------------------------------------------------------------------
+
+
+def test_a_partial_publication_resumes_without_exploratory_and_refuses_unrelated_edits(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A batch whose Markdown report failed after its JSON report completes on retry from its journal."""
+    _make_clean_worktree(workspace, monkeypatch)
+    original = Path.write_text
+
+    def failing(path: Path, *args: object, **kwargs: object) -> int:
+        if path.name.endswith("_batch_001.md"):
+            msg = "disk full while writing the Markdown report"
+            raise OSError(msg)
+        return original(path, *args, **kwargs)  # type: ignore[arg-type]
+
+    with monkeypatch.context() as context:
+        context.setattr(Path, "write_text", failing)
+        with pytest.raises(OSError, match="Markdown"):
+            _validate(workspace, 1, [1, 2], exploratory=False)
+    assert not workspace.manifest.exists()
+    assert workspace.manifest.with_name("task_bank_v1_batch_001.json").exists()
+    with pytest.raises(ValueError, match="pending publication"):
+        _validate(workspace, 2, [4], exploratory=False)
+    with pytest.raises(ValueError, match="same takes"):
+        _validate(workspace, 1, [1], exploratory=False)
+    unrelated = workspace.records_root / "notes.txt"
+    unrelated.write_text("unrelated", encoding="utf-8")
+    with pytest.raises(DirtyWorktreeError, match=r"notes\.txt"):
+        _validate(workspace, 1, [1, 2], exploratory=False)
+    unrelated.unlink()
+    report = _validate(workspace, 1, [1, 2], exploratory=False)
+    assert [v.accepted for v in report.verdicts] == [True, True]
+    assert report.report_markdown.exists()
+    assert load_bank_manifest(workspace.manifest).batches == (1,)
+    assert not list((workspace.store.root / "reports" / "manual_bank" / "pending").glob("*.json"))
+    with pytest.raises(ValueError, match="batch 1"):
+        _validate(workspace, 1, [1, 2], exploratory=False)
+
+
+def test_mismatched_channel_lengths_are_a_per_take_rejection(workspace: Workspace) -> None:
+    """An archive whose joint rows disagree with its timestamps is malformed; the batch goes on."""
+    bad = workspace.takes / "reach_002.sklog.npz"
+    with np.load(bad, allow_pickle=False) as archive:
+        arrays = {name: archive[name] for name in archive.files}
+    arrays["q"] = arrays["q"][:-1]
+    np.savez_compressed(bad, **arrays)
+    report = _validate(workspace, 1, [1, 2, 4])
+    assert [v.accepted for v in report.verdicts] == [True, False, True]
+    assert any("malformed" in reason and "rows" in reason for reason in report.verdicts[1].reasons)
