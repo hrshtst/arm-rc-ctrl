@@ -1,8 +1,8 @@
 # Reservoir-Computing Robot-Arm Controller: Implementation Plan
 
-**Status:** Implemented through M3R; task 1-a repeated-demonstration pilot approved
+**Status:** Implemented through M3REP; task 1-a manual-demonstration experiment approved
 
-**Last updated:** 2026-09-09
+**Last updated:** 2026-09-15
 
 **Companion task ledger:** [TASKS.md](TASKS.md)
 
@@ -26,9 +26,14 @@ learning from one demonstration of a 2-DOF, single-target reaching motion
 (task 1-a). The completed `task_1a_recovery_v1` experiment tested whether
 state-conditioned augmentation reduces the initial command gap while preserving
 target convergence; its accepted negative result selected no recovery model.
-The next approved pilot, `task_1a_repetition_v1`, isolates episode-count and
+The completed `task_1a_repetition_v1` pilot isolated episode-count and
 ridge-scaling effects using exact repeated demonstrations and paired absolute
-and residual readouts. Later stages are gated by evidence from these milestones.
+and residual readouts; M3REP-GATE records its closure on 2026-09-10. The next
+approved experiment, `task_1a_manual_v1`, compares one versus ten manually
+recorded reaches from the same fixed posture to the same target, with exact
+copies and contractive synthetic episodes as controls. The owner approved its
+plan and roadmap/task registration on 2026-09-15. Later stages are gated by
+evidence from these milestones.
 
 Scientific completion does not require the RC method to outperform every
 baseline. A negative or inconclusive result is valid when the experiment is
@@ -280,6 +285,75 @@ inactive readouts remain missing. M3REP tasks in `TASKS.md` govern test-first
 implementation, timing smoke check, full execution, reproduction, and owner
 review. No 500-trial search, model freeze, confirmatory suite, or hardware
 operation is authorized by this pilot approval.
+
+#### Approved manual-demonstration follow-up
+
+The owner approved
+[`task_1a_manual_v1`](experiments/task_1a_manual_demonstration/plan.md), including
+D1–D7 and the final recorder controls, on 2026-09-15. This remains task 1-a:
+ten human-guided IK recordings of the simulated 2-DOF arm share the exact
+reset posture and target. Full recordings retain stationary pre-roll and
+natural transient paths/durations. Saving does not require an online
+experiment-specific quality check. Validate batches offline and repeat
+collection until ten takes pass, with no total attempt cap. The 30 s
+per-recording timeout is separate. Discard practice files/history before
+study collection; retain all saved study takes, including rejected ones.
+
+Extend the existing `skelarm` recorder upstream where appropriate: Space
+starts, S saves, Shift+S saves and prepares the next take, Q closes with an
+unsaved-take warning, and F is removed. R discards only unsaved data/trails,
+resets posture/velocity, and leaves recording paused; saved files/trails
+survive. S then R must produce the same state as Shift+S, including next-take
+numbering. Add CLI base filenames, numbered outputs without save dialogs or
+plots, and optional current/faint saved tip trails. Integrate reviewed
+upstream changes through a separate pin update and dependency rebuild.
+
+At each of six inherited ESN configurations, train all ten singleton models,
+one all-ten model, ten singleton-copy controls, and ten models with nine
+contractive additions to a singleton: 186 models total. Use absolute next
+position, separate episode resets/warm-up, and equal total loss weight per
+episode despite unequal lengths. The weighted ridge objective fixes effective
+regularization; verify copy equivalence before interpreting results. Synthetic
+episodes preserve each parent's initial hold and final dwell with versioned
+envelopes. Whole-bank copies, fixed-alpha diagnostics, additional held-out
+human recordings, new tuning, and a confirmatory study are deferred.
+
+Use both frozen trackers and 65 development scenarios, with a common 30 s
+evaluation horizon: at most 24,180 RC runs and 3,900 replay runs. Success
+requires bounded motion and at least 1 s continuous final target dwell within
+1 cm at joint speeds no greater than 0.05 rad/s. The starting velocity bound
+is 6 rad/s per joint; any stricter acquisition-pilot bound is frozen before
+study collection and used consistently. Force cases apply a 12 N, 0.2 s pulse
+after 0.5 s qualifying target dwell and require recovery afterward. Abort
+individual unsafe runs and attempt subsequent scenarios from fresh resets.
+Version the new timing, weighting, and evaluation contracts rather than
+reusing historical config identities or assuming cropped-dataset semantics.
+
+The developer delivers validated machine-readable evidence, reproducible
+plotting/animation assets or tools, and a reproduction audit. The reporting
+assistant working with the owner interprets that evidence and authors the
+human-facing report; a developer-written narrative does not satisfy this
+deliverable. DOC-007, UP-008–009, and M3MAN tasks in `TASKS.md` govern the work.
+Existing task 1-a evidence and the separate, unapproved task 1-b proposal remain
+unchanged. The present update registers the approved work; implementation and
+recording have not begun.
+
+Implementation clarifications I1–I9, recorded in the experiment plan's
+Section 9 on 2026-09-15 after the implementability review, qualify that
+registration. The 30 s horizon projects to roughly 12 hours of serial
+simulation and 24–25 GB of run data at the previous pilot's rates, so bounded
+process-based parallel execution with a serial-versus-parallel equivalence
+check is explicit scope. The recorder's acquisition clock is defined upstream
+and verified in the acquisition pilot before 100 Hz is claimed. The weighted
+ridge fit uses an explicit ones column with the library's implicit bias
+disabled; a new recipe schema version preserves historical semantics;
+completion is judged against the configured horizon; the experiment receives
+its own task and evaluation configuration identities; M3MAN-003 delivers a
+thin recorder launcher with a tested adapter; the input transform copies the
+historical scripted-data centers and scales; and augmentation seeds carry a
+stable parent identifier. The inherited zero-phase filter measurably shifts a
+held start, so the boundary-preserving preprocessing requirement stays with a
+reproducing test.
 
 ### 5.5 Desired derivatives and low-level tracking
 
@@ -819,6 +893,26 @@ model is not required. If the timing smoke check invalidates the provisional
 budget, obtain a revised budget decision before full execution. Broader
 search and confirmatory work require separate approval.
 
+### Phase 3MAN — task 1-a manual demonstrations
+
+Implement the approved manual-demonstration plan through UP-008–009 and
+M3MAN-001–012. Begin with the upstream recorder work, integrate its pin
+separately, and establish the full-recording dataset and batch-validation
+path. Complete acquisition readiness and freeze resolved settings before the
+owner records study takes. Collect until ten qualify; train the fixed paired
+panel only after its data, weighting, augmentation, and numerical controls
+are validated. A timing smoke check that benchmarks serial against bounded parallel
+execution precedes the full 186-model evaluation; the projected serial cost is
+about 12 hours and 24–25 GB of run data (I1).
+
+**Gate:** Every prescribed model/run is accounted for with verified provenance,
+failures, and raw metrics; quality gates and clean-checkout reproduction pass;
+the developer's machine-readable handoff supports the reporting assistant's
+human-readable interpretation, which the owner reviews. Practice payloads
+need not be retained, but saved study data and failed experiment runs must be.
+No favorable scientific result or deployed model is required. New tuning,
+extra held-out human recordings, and confirmatory studies remain deferred.
+
 ### Phase 4 — broader planar tasks
 
 Proceed through task 1-b, multiple targets, periodic curves, and 4-DOF scaling.
@@ -914,6 +1008,11 @@ procedure.
    known limitations, and unresolved research questions.
 
 For upstream work:
+
+Create a dedicated branch in the owning upstream repository before making
+implementation changes, so those changes can be submitted as a PR later.
+Record the branch name and base revision with the task evidence; document
+dependencies when stacking branches for separate PRs.
 
 1. Reproduce the missing generic capability in the owning library.
 2. Create a dedicated branch in that library.
