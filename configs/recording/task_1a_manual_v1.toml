@@ -1,0 +1,15 @@
+# Recorder session settings of the manual-demonstration protocol
+# (docs/experiments/task_1a_manual_demonstration/plan.md section 2.1, D1, D2, clarification I7).
+# The task configuration (configs/tasks/task_1a_manual_v1.toml) supplies the robot, the reset
+# posture, the target, and the sampling period; this file holds only the recorder's options.
+protocol = "task_1a_manual_v1"
+# IK guidance (D1): the tip follows the cursor through inverse kinematics.
+mode = "ik"
+ik_method = "lm_sugihara"
+# Per-take recording timeout (D2); a reached timeout saves the take and keeps the window open.
+timeout_s = 30.0
+# Visual guidance (D1): the current take's tip trail and the faint saved trails of this session.
+show_tip_trail = true
+show_past_trails = true
+# Base of the numbered take files (reach_001.sklog.npz, reach_002.sklog.npz, ...).
+output_name = "reach.sklog.npz"

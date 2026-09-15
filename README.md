@@ -180,6 +180,16 @@ attempts). The manifest is loaded strictly (types, unknown keys, and
 assignment consistency). The command exits 2 while the bank still needs takes
 (it names how many) and 0 once it is complete. Practice takes belong to a
 separate session and never enter a manifest.
+`scripts/record_demo.py --scenario configs/tasks/task_1a_manual_v1.toml --recording
+configs/recording/task_1a_manual_v1.toml --session … --purpose {practice,study}
+--output-root …` starts the pinned recorder in-process from those configurations
+and verifies it before anything is recorded: the exact reset posture (no degree
+round trip), the joint limits, the target marker, the 100 Hz tick, IK guidance,
+both trail overlays, the 30 s per-take timeout, and numbered outputs. Takes and a
+portable `session.json` (configurations by digest, the pinned recorder commit, the
+resolved options) go to `<output-root>/<purpose>/<session>/`, an absolute directory
+outside the repository; a session's settings never change, and `--dry-run` prints
+them without writing anything.
 
 ## Requirements
 
