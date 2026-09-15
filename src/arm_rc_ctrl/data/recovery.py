@@ -33,7 +33,7 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Final, Literal
+from typing import TYPE_CHECKING, Final, Literal
 
 import numpy as np
 from numpy.typing import NDArray
@@ -60,6 +60,9 @@ from arm_rc_ctrl.data.samples import ARRAY_NAMES, PHASE_DWELL, PHASE_MOVE, PHASE
 from arm_rc_ctrl.data.validate import DatasetValidationError, JointLimits, ValidationSpec, dataset_problems
 from arm_rc_ctrl.provenance import sha256_file
 from arm_rc_ctrl.validation import SHA256_HEX_LENGTH, is_hex, require_finite
+
+if TYPE_CHECKING:
+    from arm_rc_ctrl.data.manual import ManualDatasetRecord
 
 __all__ = [
     "RECOVERY_DATASET_SCHEMA_VERSION",
@@ -474,18 +477,24 @@ class RecoveryDatasetRecord:
             raise ValueError(msg)
 
 
-def load_processed_record(path: Path) -> ProcessedDatasetRecord | RecoveryDatasetRecord:
-    """Load a processed-kind record under whichever processed schema it satisfies (M3 first, then recovery).
+def load_processed_record(path: Path) -> ProcessedDatasetRecord | RecoveryDatasetRecord | ManualDatasetRecord:
+    """Load a processed-kind record under whichever processed schema it satisfies (M3, recovery, then manual).
 
     Raises
     ------
     ConfigError
-        If the file satisfies neither schema (the recovery schema's error is reported).
+        If the file satisfies no schema (the manual schema's error is reported).
     """
+    from arm_rc_ctrl.data.manual import ManualDatasetRecord  # the manual module builds on this one
+
     try:
         return load_record(path, ProcessedDatasetRecord)
     except ConfigError:
+        pass
+    try:
         return load_record(path, RecoveryDatasetRecord)
+    except ConfigError:
+        return load_record(path, ManualDatasetRecord)
 
 
 # --- task-time phase annotation ---------------------------------------------------------

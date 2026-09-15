@@ -93,6 +93,17 @@ serialization must stay byte-stable.
   `tip`/`dtip`/`ddtip (N, task_dim)`, `task_code (N, task_code_dim)` — all
   float64 — and `phase (N,)` int64. `origin.sources` must name the raw
   demonstration(s) the dataset was derived from.
+- **Manual takes (`task_1a_manual_v1`):** `arm_rc_ctrl.data.manual.ManualTakeRecord`
+  (kind `raw`, `manual_schema_version`) binds one untouched recorder take: its
+  session and attempt number, the wall-clock sampling declaration, the first
+  logged posture, and the recorder's `[extra.acquisition]` / `[extra.display]`
+  tables. `ManualDatasetRecord` (kind `processed`) describes the full-recording
+  dataset of an accepted take on the task grid with descriptive `hold` / `move` /
+  `dwell` annotations, the measured continuous final dwell and its predicate,
+  the reset-start check, the hold-anchored smoothing check, the raw timing, and
+  a motion summary; no normalization is fitted.
+  `arm_rc_ctrl.data.recovery.load_processed_record` dispatches the M3,
+  recovery, and manual processed schemas.
 - **Catalog:** `data/catalog.toml` lists every record (`artifact_id`, `kind`,
   record path, `uri`, `sha256`, `created_at`). It is append-only: entries are
   never changed or removed.
@@ -105,6 +116,14 @@ magnitude response is squared and there is no phase shift) column by column;
 `method = "none"` disables it. Non-finite input, a cutoff at or above Nyquist,
 and signals too short for the edge padding are errors. The configuration's
 `label`/`parameters()` feed the processed record's `[preprocessing]`.
+
+`arm_rc_ctrl.data.manual.smooth_hold_anchored(values, sample_rate_hz, config,
+reset=…, margin_samples=…)` is the variant used for manual takes: it filters the
+deviation from the recorded reset posture with zero extension, starting one
+margin before the first departure, so the recorded hold is returned bitwise.
+When the hold is shorter than the margin the filter starts at the first sample
+and the resulting `start_shift_rad` is the zero-phase filter's onset leakage,
+reported and bounded by the derivation configuration rather than snapped away.
 
 `arm_rc_ctrl.data.resampling.resample(t, values, ResamplingConfig)` moves a
 signal onto the uniform grid `t[0] + k * period` (endpoint included within a

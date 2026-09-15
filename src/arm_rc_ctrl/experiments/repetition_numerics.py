@@ -60,7 +60,8 @@ import numpy as np
 from arm_rc_ctrl.config import from_mapping, to_mapping
 from arm_rc_ctrl.data.arrays import array_digest
 from arm_rc_ctrl.data.derivatives import DerivativeConfig
-from arm_rc_ctrl.data.records import verify_payload
+from arm_rc_ctrl.data.manual import ManualDatasetRecord
+from arm_rc_ctrl.data.records import ProcessedDatasetRecord, verify_payload
 from arm_rc_ctrl.data.recovery import RecoveryDatasetRecord, load_processed_record, task_intervals_from_phases
 from arm_rc_ctrl.data.samples import load_samples
 from arm_rc_ctrl.execution import (
@@ -259,12 +260,33 @@ class PanelContext:
         return cls(manifest, sha256_file(manifest_file), inputs, dataset, payload)
 
 
+def require_recipe_dataset(
+    record: ProcessedDatasetRecord | RecoveryDatasetRecord | ManualDatasetRecord,
+) -> ProcessedDatasetRecord | RecoveryDatasetRecord:
+    """Narrow a processed record to the schemas the repetition recipes bind.
+
+    Raises
+    ------
+    TypeError
+        For a manual-take dataset: those are bound by the manual recipe contract
+        (M3MAN-005), never by a repetition recipe.
+    """
+    if isinstance(record, ManualDatasetRecord):
+        msg = (
+            f"{record.artifact.artifact_id} is a manual-take dataset (take {record.take} of session "
+            f"{record.session!r}); repetition recipes bind M3 or recovery datasets only, the manual recipe "
+            "contract is M3MAN-005"
+        )
+        raise TypeError(msg)
+    return record
+
+
 def load_recipe_samples(recipe: ModelRecipe, store: StorageRoot, *, root: Path) -> dict[str, SampleSet]:
     """Resolve the recipe's dataset through its Git record (M3 or recovery schema) and the digest-verified payload."""
     samples: dict[str, SampleSet] = {}
     normalizations: dict[str, Normalization] = {}
     for source in recipe.datasets:
-        record = load_processed_record(root / source.record)
+        record = require_recipe_dataset(load_processed_record(root / source.record))
         recipe.check_dataset_record(source, record)
         loaded = load_samples(verify_payload(store, record.artifact))
         record.check_samples(loaded)

@@ -149,6 +149,25 @@ and `scripts/export_run_sklog.py` take `--task-clock` to shift a run's log onto
 the task clock (warm-up negative, activation at 0 s) without changing the run record,
 and look a run up in the configured store when it has no pointer record under
 `data/records/runs` (pilot runs are referenced by their evidence manifests only).
+The manual-demonstration experiment (`docs/experiments/task_1a_manual_demonstration/plan.md`)
+records takes with the pinned `skelarm` recorder and validates them offline:
+`configs/tasks/task_1a_manual_v1.toml` is the protocol's own task configuration
+(the task 1-a robot, limits, and target with the continuous final-dwell rule and
+the acquisition rules; `task_1a.toml` is untouched), and
+`configs/preprocessing/manual_v1.toml` derives full-recording datasets on the task
+grid with the hold-anchored zero-phase filter (the recorded reset hold stays exact;
+the residual start shift is measured and bounded, never snapped).
+`scripts/validate_manual_takes.py --scenario … --config … --session … --batch N
+--manifest … --takes reach_001.sklog.npz …` imports every saved attempt unchanged
+(raw take records), measures it against the rules (exact reset start, no sample
+gaps, raw increment and processed speeds within the bound, limits, workspace,
+one second of uninterrupted final dwell inside 1 cm at joint speeds no greater
+than 0.05 rad/s), derives a processed dataset for each accepted take, and keeps
+a versioned bank manifest: the first ten accepted takes in acquisition order
+become `D01`–`D10`, rejected and duplicate takes stay retained with their
+reasons, a batch number is validated once and never edited, and the command
+exits 2 while the bank still needs takes (it names how many) and 0 once it is
+complete. Practice takes belong to a separate session and never enter a manifest.
 
 ## Requirements
 

@@ -26,11 +26,13 @@ __all__ = [
     "ScenarioConfig",
     "TaskConfig",
     "TimingConfig",
+    "build_robot_skeleton",
     "build_skeleton",
     "endpoint_positions",
     "joint_limits",
     "joint_target",
     "load_scenario",
+    "robot_endpoint_positions",
 ]
 
 _PLANE = 2
@@ -227,8 +229,8 @@ def joint_limits(config: ScenarioConfig) -> JointLimits:
     )
 
 
-def build_skeleton(config: ScenarioConfig, q: NDArray[np.float64] | None = None) -> Skeleton:
-    """Construct the ``skelarm`` skeleton posed at ``q`` (default: the task's initial posture)."""
+def build_robot_skeleton(robot: RobotConfig, q: NDArray[np.float64]) -> Skeleton:
+    """Construct the ``skelarm`` skeleton of ``robot`` posed at ``q`` with zero velocity."""
     props = [
         LinkProp(
             length=link.length,
@@ -239,35 +241,47 @@ def build_skeleton(config: ScenarioConfig, q: NDArray[np.float64] | None = None)
             qmin=link.q_min,
             qmax=link.q_max,
         )
-        for link in config.robot.links
+        for link in robot.links
     ]
-    skeleton = Skeleton(props, base_length=config.robot.base_length)
-    posture = np.asarray(config.task.initial_q if q is None else q, dtype=np.float64)
-    if posture.shape != (config.dof,):
-        msg = f"q must have shape ({config.dof},), got {posture.shape}"
+    skeleton = Skeleton(props, base_length=robot.base_length)
+    posture = np.asarray(q, dtype=np.float64)
+    if posture.shape != (robot.dof,):
+        msg = f"q must have shape ({robot.dof},), got {posture.shape}"
         raise ValueError(msg)
     skeleton.q = posture
-    skeleton.dq = np.zeros(config.dof, dtype=np.float64)
+    skeleton.dq = np.zeros(robot.dof, dtype=np.float64)
     return skeleton
 
 
-def endpoint_positions(config: ScenarioConfig, q: NDArray[np.float64]) -> NDArray[np.float64]:
+def build_skeleton(config: ScenarioConfig, q: NDArray[np.float64] | None = None) -> Skeleton:
+    """Construct the ``skelarm`` skeleton posed at ``q`` (default: the task's initial posture)."""
+    return build_robot_skeleton(config.robot, np.asarray(config.task.initial_q if q is None else q, dtype=np.float64))
+
+
+def robot_endpoint_positions(robot: RobotConfig, q: NDArray[np.float64]) -> NDArray[np.float64]:
     """Endpoint ``(x, y)`` for each row of ``q`` (shape ``(N, dof)``) via ``skelarm`` forward kinematics."""
     joints = np.asarray(q, dtype=np.float64)
-    if joints.ndim != 2 or joints.shape[1] != config.dof:  # noqa: PLR2004
-        msg = f"q must have shape (N, {config.dof}), got {joints.shape}"
+    if joints.ndim != 2 or joints.shape[1] != robot.dof:  # noqa: PLR2004
+        msg = f"q must have shape (N, {robot.dof}), got {joints.shape}"
         raise ValueError(msg)
     if not np.all(np.isfinite(joints)):
         msg = "q contains non-finite values"
         raise ValueError(msg)
-    skeleton = build_skeleton(config)
     out = np.empty((joints.shape[0], _PLANE), dtype=np.float64)
+    if joints.shape[0] == 0:
+        return out
+    skeleton = build_robot_skeleton(robot, joints[0])
     for i, row in enumerate(joints):
         skeleton.q = row
         compute_forward_kinematics(skeleton)
         tip = skeleton.links[-1]
         out[i] = (tip.xe, tip.ye)
     return out
+
+
+def endpoint_positions(config: ScenarioConfig, q: NDArray[np.float64]) -> NDArray[np.float64]:
+    """Endpoint ``(x, y)`` for each row of ``q`` (shape ``(N, dof)``) via ``skelarm`` forward kinematics."""
+    return robot_endpoint_positions(config.robot, q)
 
 
 def joint_target(config: ScenarioConfig, *, elbow_up: bool = True) -> tuple[float, ...]:

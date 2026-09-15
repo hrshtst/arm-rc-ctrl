@@ -1,0 +1,46 @@
+# Manual-protocol counterpart of planar_2dof_fixture.toml: the same fixture arm with the
+# continuous dwell rule (0.1 s at 10 ms = 11 samples) and permissive limits for synthetic takes.
+name = "manual-fixture"
+protocol = "fixture_manual_v1"
+
+[robot]
+name = "planar-2dof-fixture"
+base_length = 0.0
+gravity = [0.0, 0.0]
+
+[[robot.links]]
+length = 0.30
+mass = 1.0
+inertia = 0.0075
+com = [0.15, 0.0]
+q_min = -3.0
+q_max = 3.0
+
+[[robot.links]]
+length = 0.25
+mass = 0.6
+inertia = 0.0031
+com = [0.125, 0.0]
+q_min = -3.0
+q_max = 3.0
+
+[limits]
+velocity = [20.0, 20.0]
+torque = [10.0, 5.0]
+endpoint_radius = 0.55
+
+[task]
+initial_q = [0.3, 0.6]
+target = [0.2996, 0.4482]
+tolerance = 0.004
+dwell_min_duration_s = 0.1
+dwell_max_velocity = 0.05
+
+[timing]
+dt = 0.01
+
+[acquisition]
+start_tolerance_rad = 1e-12
+max_sample_gap_s = 0.03
+velocity_bound_rad_s = 20.0
+min_frames = 21

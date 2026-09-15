@@ -1,0 +1,64 @@
+# Task 1-a manual-demonstration protocol (docs/experiments/task_1a_manual_demonstration/plan.md,
+# clarification I6): the same horizontal, gravity-free planar 2-DOF arm, start posture,
+# endpoint target, tolerance, and limits as configs/tasks/task_1a.toml, but with the
+# protocol's continuous final-dwell rule instead of the historical occupancy rule, no
+# prescribed prime/move/dwell intervals (recordings keep their full length and pre-roll),
+# and the offline acquisition rules the acquisition pilot freezes (M3MAN-003). The
+# historical task_1a.toml is unchanged: committed datasets are digest-bound to it.
+name = "task-1a-manual"
+protocol = "task_1a_manual_v1"
+
+[robot]
+name = "planar-2dof"
+base_length = 0.0
+gravity = [0.0, 0.0]
+
+[[robot.links]]
+length = 0.30
+mass = 1.0
+inertia = 0.0075
+com = [0.15, 0.0]
+q_min = -3.0
+q_max = 3.0
+
+[[robot.links]]
+length = 0.25
+mass = 0.6
+inertia = 0.0031
+com = [0.125, 0.0]
+q_min = -3.0
+q_max = 3.0
+
+[limits]
+# Joint velocity (rad/s) and torque (N*m) bounds applied to validation, metrics,
+# and controllers; joint position bounds live with each link above.
+velocity = [6.0, 6.0]
+torque = [10.0, 5.0]
+# Endpoint must stay within this radius of the base (m); the arm's reach is 0.55 m.
+endpoint_radius = 0.55
+
+[task]
+# Reset posture (rad) every take starts from; endpoint ~ (0.34, 0.31) m.
+initial_q = [0.2, 1.2]
+# Endpoint target (m) and the radius (m) of the target region.
+target = [0.10, 0.45]
+tolerance = 0.01
+# Continuous final dwell (D2): at least this long, uninterrupted, ending at the last
+# sample, with every sample inside the tolerance and every joint at most this fast.
+dwell_min_duration_s = 1.0
+dwell_max_velocity = 0.05
+
+[timing]
+# Training/control period (s); the recorder samples at 100 Hz and takes are resampled here.
+dt = 0.01
+
+[acquisition]
+# Offline rules applied to every saved take by the batch validation (plan section 2.2).
+# The first logged posture must equal the reset posture up to serialization only.
+start_tolerance_rad = 1e-12
+# A gap between raw frames above this is a missing interval and rejects the take.
+max_sample_gap_s = 0.03
+# Per-joint bound on raw increments and processed speeds (D3; the pilot may tighten it).
+velocity_bound_rad_s = 6.0
+# Fewest raw frames a take may hold (one second at 100 Hz is 101 samples).
+min_frames = 101

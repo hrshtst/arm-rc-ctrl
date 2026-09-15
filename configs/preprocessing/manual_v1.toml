@@ -1,0 +1,25 @@
+# Offline preprocessing of manual takes into full-recording datasets
+# (docs/experiments/task_1a_manual_demonstration/plan.md section 3, clarification I9).
+# Takes are resampled onto the task grid first, then smoothed with the hold-anchored
+# zero-phase filter: the filter acts on the deviation from the recorded reset posture,
+# starting one margin before the first departure, so the recorded hold stays exact;
+# the residual start shift is measured and must stay within the tolerance below.
+# No normalization is fitted here: the input transform is copied from the historical
+# scripted dataset (clarification I8).
+
+[smoothing]
+method = "butterworth"
+cutoff_hz = 5.0
+order = 4
+
+[resampling]
+interpolation = "linear"
+
+[derivatives]
+method = "central"
+
+[hold]
+# Samples before the first departure that stay exact; the filter starts this far ahead.
+margin_s = 1.0
+# Largest allowed deviation of the processed first sample from the reset posture.
+max_start_shift_rad = 1e-9

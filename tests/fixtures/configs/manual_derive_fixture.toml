@@ -1,0 +1,17 @@
+# Derivation settings for the synthetic manual takes of the integration tests: the
+# production filter with a short hold margin so half-second synthetic holds stay exact.
+
+[smoothing]
+method = "butterworth"
+cutoff_hz = 5.0
+order = 4
+
+[resampling]
+interpolation = "linear"
+
+[derivatives]
+method = "central"
+
+[hold]
+margin_s = 0.2
+max_start_shift_rad = 1e-9
