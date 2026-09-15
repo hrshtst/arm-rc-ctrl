@@ -292,8 +292,7 @@ The owner approved
 [`task_1a_manual_v1`](experiments/task_1a_manual_demonstration/plan.md), including
 D1–D7 and the final recorder controls, on 2026-09-15. This remains task 1-a:
 ten human-guided IK recordings of the simulated 2-DOF arm share the exact
-reset posture and target. Full recordings retain stationary pre-roll and
-natural transient paths/durations. Saving does not require an online
+reset posture and target. Full recordings retain the pre-roll from the first logged sample, including natural fluctuations, and natural transient paths/durations. Saving does not require an online
 experiment-specific quality check. Validate batches offline and repeat
 collection until ten takes pass, with no total attempt cap. The 30 s
 per-recording timeout is separate. Discard practice files/history before
@@ -313,9 +312,7 @@ one all-ten model, ten singleton-copy controls, and ten models with nine
 contractive additions to a singleton: 186 models total. Use absolute next
 position, separate episode resets/warm-up, and equal total loss weight per
 episode despite unequal lengths. The weighted ridge objective fixes effective
-regularization; verify copy equivalence before interpreting results. Synthetic
-episodes preserve each parent's initial hold and final dwell with versioned
-envelopes. Whole-bank copies, fixed-alpha diagnostics, additional held-out
+regularization; verify copy equivalence before interpreting results. Synthetic episodes keep each parent's exact first sample and final dwell with versioned envelopes that ramp in from the first sample. Whole-bank copies, fixed-alpha diagnostics, additional held-out
 human recordings, new tuning, and a confirmatory study are deferred.
 
 Use both frozen trackers and 65 development scenarios, with a common 30 s
@@ -352,8 +349,19 @@ its own task and evaluation configuration identities; M3MAN-003 delivers a
 thin recorder launcher with a tested adapter; the input transform copies the
 historical scripted-data centers and scales; and augmentation seeds carry a
 stable parent identifier. The inherited zero-phase filter measurably shifts a
-held start, so the boundary-preserving preprocessing requirement stays with a
-reproducing test.
+held start, so the boundary-preserving preprocessing requirement stays with a reproducing test.
+
+Pilot-1 revisions I10–I14, approved on 2026-09-15 and recorded in the experiment plan's Section 10, follow the first excluded practice
+pilot, in which movement began immediately after the first sample and sample
+gaps grew with the number of saved trails drawn. The first logged sample stays
+exactly at the reset posture while natural pre-roll fluctuations are kept and
+smoothed without depending on a stationary hold or introducing a derivative spike at the first sample; the recorder shows only the
+current trail and the most recently saved trail; takes are recorded at 50 Hz with
+actual timestamps and reconstructed onto the 100 Hz training grid shared by every comparison arm, with
+gap and frame checks from the acquisition period and a final dwell of one actual
+second; and the contractive envelope ramps in from the first sample. A second
+short practice session verifies timing and preprocessing before the settings are
+frozen.
 
 ### 5.5 Desired derivatives and low-level tracking
 
@@ -898,8 +906,7 @@ search and confirmatory work require separate approval.
 Implement the approved manual-demonstration plan through UP-008–009 and
 M3MAN-001–012. Begin with the upstream recorder work, integrate its pin
 separately, and establish the full-recording dataset and batch-validation
-path. Complete acquisition readiness and freeze resolved settings before the
-owner records study takes. Collect until ten qualify; train the fixed paired
+path. Complete acquisition readiness and freeze resolved settings before the owner records study takes. A second practice session verifies the pilot-1 revisions (I10–I14) before that freeze. Collect until ten qualify; train the fixed paired
 panel only after its data, weighting, augmentation, and numerical controls
 are validated. A timing smoke check that benchmarks serial against bounded parallel
 execution precedes the full 186-model evaluation; the projected serial cost is

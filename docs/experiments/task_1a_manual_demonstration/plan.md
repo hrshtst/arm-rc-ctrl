@@ -7,7 +7,7 @@
 - **Status:** APPROVED on 2026-09-15, including D1–D7, the final recorder
   controls, and report ownership. Implementation clarifications I1–I9 were
   recorded on 2026-09-15 after the implementability review (Section 9).
-  Recording, implementation, and experiment execution have not started.
+  The upstream recorder work, the dataset contract and batch validation, and the recorder launcher are implemented, and the first excluded practice pilot was recorded on 2026-09-15. Pilot-1 revisions I10–I14 (Section 10) were approved on 2026-09-15 with implementation clarifications; no study take has been recorded.
 - **Registration:** At the owner's explicit request on 2026-09-15, registered
   in [PLAN.md](../../PLAN.md) and [TASKS.md](../../TASKS.md) under DOC-007,
   UP-008–009, M3MAN-001–012, and M3MAN-GATE. Start with UP-008; the ledger
@@ -24,7 +24,7 @@ and settle at the same fixed target for a specified minimum duration?
 
 The revised task emphasizes bounded, realistic movement and sustained target
 dwell. The operator chooses when to move, how long the reach takes, and the
-intermediate path. Retain the initial stationary recording interval; neither
+intermediate path. Retain the full recording from its first logged sample, including any natural pre-roll fluctuations (I10); neither
 motion-onset cropping nor prescribed move/dwell clock windows are required.
 The hypothesis is that varied transients leading to a common target equilibrium
 can improve robustness. This is an expectation to test, not an assumed result.
@@ -56,11 +56,11 @@ Use the robot and target from
 | --- | --- |
 | Initial joint posture | `q_start = [0.2, 1.2]` rad, reset before every take |
 | Endpoint target | `[0.10, 0.45]` m, same elbow branch on every take |
-| Sampling / training period | 100 Hz / 0.01 s target; the recorder's acquisition clock is defined under UP-008 and verified in the acquisition pilot before the 100 Hz claim is accepted (I2); retain the raw timestamps as recorded |
+| Acquisition / training period | 50 Hz acquisition with the actual timestamps retained (I13); every comparison arm uses the frozen 0.01 s (100 Hz) training/control grid, reconstructed from the actual timestamps (support for finer grids does not change this experiment's grid); the second practice pilot verifies the realized acquisition timing (I2, I13) |
 | Recording/task start | First logged sample at the exact reset posture, before accepting manual movement |
-| Acquisition pre-roll | Retained in full; move when ready, with no prescribed hold duration |
+| Acquisition pre-roll | Retained in full; move when ready. No stationary interval is required: natural fluctuations immediately after the first logged sample are part of the demonstration, subject to the usual motion limits (I10) |
 | Movement duration/path | Operator-chosen, subject to validity and velocity limits; no route corridor or prescribed pace |
-| Target dwell | Approved offline acceptance rule: at least 1.0 s continuously inside 1 cm with joint speeds at most 0.05 rad/s; checked after collection, never a condition for saving in the recorder |
+| Target dwell | Approved offline acceptance rule: at least 1.0 s continuously inside 1 cm with joint speeds at most 0.05 rad/s; checked after collection, never a condition for saving in the recorder; the duration is one actual second regardless of the acquisition rate (I13) |
 | Accepted sources | Ten separately performed takes, `D01` through `D10`, in acceptance order |
 | Operator/session | One operator, same interface and settings; record session and take order |
 
@@ -119,7 +119,7 @@ below and replace automatic save-on-close with an unsaved-take warning.
 | REC-3 | Keyboard save and save-next | **S** stops and saves the take while keeping it visible; **Shift+S** invokes Save and next take. Neither requires Ctrl. Remove Finish/F, use **Q** to close with an unsaved-take warning, and **R** to discard/reset as specified below. Provide matching buttons and visible shortcut labels. If the take is already saved, save-next advances without writing it again. |
 | REC-4 | CLI filename and uninterrupted saving | Keep `--output` for an exact single-take filename; with a proposed `--multi-take` option, treat it as the base for numbered files. For example, `--output reach.sklog.npz --multi-take` produces `reach_001.sklog.npz`, `reach_002.sklog.npz`, etc. Save directly without a filename dialog or a plot/diagram window appearing on each save. |
 | REC-5 | Current tip locus | A proposed `--show-tip-trail` option displays the current take's accumulated robot-tip path during recording. Draw the logged/FK tip positions, not the cursor path. R discards an unsaved trail; a saved trail remains in the past-trajectory history after reset. |
-| REC-6 | Faint past trajectories | A separate proposed `--show-past-trails` option retains completed, saved takes' tip paths in the same session, drawn with transparent, faint line colors behind the current take. Preserve them across resets to help the operator follow prior paths; distinguish the current path clearly and allow either overlay to be hidden independently. |
+| REC-6 | Faint past trajectories | A separate proposed `--show-past-trails` option retains completed, saved takes' tip paths in the same session, drawn with transparent, faint line colors behind the current take. Preserve them across resets to help the operator follow prior paths; distinguish the current path clearly and allow either overlay to be hidden independently. A display-history option limits the faint overlay to the most recently saved take (I12); the study uses the current trail plus the last saved trail, and every saved recording and its provenance are kept. |
 
 The keyboard workflow is **Space → guide and dwell → Shift+S → Space**
 for consecutive takes, or **S** to save and inspect the current take.
@@ -140,8 +140,7 @@ recorded, and how display refresh relates to sampling. Changing the GUI timer
 to 10 ms alone does not guarantee genuine 100 Hz acquisition. The recorder
 must never fabricate intermediate measurements by assigning several
 timestamps to one pose update. The acquisition pilot verifies the realized
-sample spacing and pose-update rate before the 100 Hz setting in Section 2 is
-accepted.
+sample spacing and pose-update rate before the acquisition rate in Section 2 is accepted. Pilot 1 (2026-09-15) recorded at 100 Hz and found sample gaps of 40–63 ms that grew with the number of saved trails drawn, consistent with increasing trail-rendering cost although that cause is not established; acquisition therefore moves to 50 Hz with the last-saved-trail display (I12, I13), and the second practice pilot verifies the timing.
 
 The recorder captures and saves demonstrations; experiment acceptance belongs
 to the offline validation pipeline in `arm-rc-ctrl`. Do not hard-code this
@@ -166,7 +165,7 @@ The recorder controls are:
 
 | Key | Action | Result |
 | --- | --- | --- |
-| Space | Start | Start a new recording from the ready/reset posture, including stationary samples |
+| Space | Start | Start a new recording from the ready/reset posture, including its pre-roll samples |
 | S | Save | Keep the window open with the saved take visible; no reset |
 | Shift+S | Save and next take | Keep the window open, reset the arm, and prepare a new take |
 | R | Reset; discard only if unsaved | Discard an unsaved take and its trail, or preserve a saved take and its trail; reset posture and velocity and wait without recording for Space |
@@ -263,7 +262,7 @@ have already been made.
 Perform a short acquisition pilot, excluded from the ten study takes, to
 check start reset, logger timing, target display, and IK branch continuity.
 Use the explicit-start workflow above: press Space at the reset posture,
-verify that stationary samples are being logged, then move when ready. Do not
+then move when ready; no stationary interval is required after the first logged sample (I10). Do not
 manufacture a missing first sample afterward. Move naturally toward the
 displayed target, optionally following the faint past traces, and hold still
 there for a comfortable interval before pressing S or Shift+S. Holding for
@@ -299,13 +298,11 @@ or the allowed velocity during movement. Freeze the acquisition predicate
 after review and the acquisition pilot, before collecting the study bank:
 
 - Every recording begins at the exact simulator reset posture `q_start` with
-  zero velocity. Task time zero is recording start, even if movement begins
-  later. Verify the first logged state against the reset state using only
+  zero velocity. Task time zero is recording start, even if movement begins later. Movement may begin immediately after the first sample; natural fluctuations are kept and checked against the usual limits (I10). Verify the first logged state against the reset state using only
   justified numerical serialization tolerance, not a physical start-offset
   allowance. No 0.005 rad cropping tolerance is needed.
 - Retain the same IK branch, continuous joint paths, finite timestamps and
-  samples, and the task's position/velocity/workspace limits. Reject jumps,
-  missing intervals, or invalid data rather than clipping or filling them.
+  samples, and the task's position/velocity/workspace limits. Reject jumps, missing intervals, or invalid data rather than clipping or filling them. Frame-count and gap limits are expressed in actual time from the acquisition period, not from the training grid (I13).
 - Reject unrealistic joint velocities, including IK jumps. D3 approves the
   canonical 6 rad/s per-joint bound for validation and evaluation; a stricter
   common bound may be established from the acquisition pilot before study
@@ -314,8 +311,7 @@ after review and the acquisition pilot, before collecting the study bank:
   against their actual time differences as well as processed derivatives;
   passing a kinematic speed check alone does not prove dynamic trackability.
 - The final uninterrupted target dwell must last at least 1.0 s, with every
-  sample inside 1 cm and every joint speed at most 0.05 rad/s. At 100 Hz,
-  this requires 101 consecutive samples spanning 1.0 s. Compute these
+  sample inside 1 cm and every joint speed at most 0.05 rad/s. The duration is one actual second regardless of the acquisition rate: it is evaluated on the reconstructed training grid, where one second at 100 Hz is 101 consecutive samples, and the raw recording must cover it without a gap beyond the frozen limit (I13). Compute these
   measurements offline from the saved data. Record endpoint and final-posture
   dispersion; identical target does not mean identical final samples.
 - Record joint-displacement overlays, velocity profiles, movement/hold
@@ -332,8 +328,7 @@ permit replacing a recording. Avoid selecting the ten “best” RC teachers.
 
 ## 3. Preprocessing and dataset lock
 
-Preserve raw logs unchanged and retain the entire recorded episode, including
-the initial stationary interval. Task time zero is the first recorded reset
+Preserve raw logs unchanged and retain the entire recorded episode, including the pre-roll from the first logged sample. Task time zero is the first recorded reset
 state. Movement onset may be annotated for descriptive plots, but it neither
 changes the clock nor determines which samples enter training. No human
 motion-onset confirmation is required to define this task.
@@ -344,7 +339,7 @@ Its cropped move/dwell-only dataset contract cannot be reused unchanged.
 Provide an explicit full-recording, variable-duration dataset/recipe contract,
 while retaining reusable import, validation, and preprocessing components.
 
-Resample through the existing validated pipeline onto the 0.01 s task grid.
+Reconstruct each take from its actual timestamps onto the frozen 0.01 s training grid shared by every comparison arm (I13); interpolation supplies intermediate reference values but recovers no motion that was not sampled, and derivatives come from the smoothed reconstructed trajectory.
 Apply one smoothing and derivative policy to all takes, fixed from the
 acquisition pilot without examining learned-controller outcomes. Derive
 velocity from the processed joint positions when absent from the IK log;
@@ -359,12 +354,11 @@ not preserve the first sample of a hold-then-reach signal: a check on
 2026-09-15 with the existing smoothing function measured a start shift of
 about 9.5e-5 rad after a 0.1 s hold and 8.3e-10 rad after a 1 s hold. The
 requirement stands, and M3MAN-002 includes a reproducing test of that shift
-beside the boundary-preserving method (I9).
+beside the boundary-preserving method (I9). Pilot 1 showed natural movement starting 0.01–0.36 s after the first sample, so the hold-anchored method, which needs a stationary interval longer than its margin, is superseded: the smoothing must keep the first sample exactly at the reset posture, without introducing a velocity or acceleration spike there, while smoothing the trajectory that follows, without depending on a stationary hold, and must keep the recorded pre-roll fluctuations rather than replacing them with a constant posture (I11). The second practice pilot verifies it.
 Offline teacher preprocessing may use future context; online feedback and
 generated-reference derivative estimation remain causal.
 
-Episode durations and row counts may differ. For episode i, retain its
-recorded hold, transient movement, and final dwell; let `L_i` be its number
+Episode durations and row counts may differ. For episode i, retain its full recording from the first sample, including any pre-roll fluctuations, the transient movement, and the final dwell; let `L_i` be its number
 of next-step loss rows. All these rows enter training. Do not time-warp,
 average, translate, or pad trajectories to a common length. Do not append
 invented stationary training tails. Store the measured final-dwell interval
@@ -455,7 +449,7 @@ Use absolute output for v1 to keep the data-source comparison focused;
 residual-output replication is a later decision.
 
 Model warm-up remains separate from the recorded pre-roll: warm-up has no
-loss rows, while the recorded stationary interval does. At evaluation the
+loss rows, while the recorded pre-roll does. At evaluation the
 model may learn a waiting period or may fail to depart from the start; record
 departure latency and non-departure as outcomes. Do not solve a failure by
 silently cropping the hold or adding a time/onset input. Varied waiting and
@@ -490,8 +484,7 @@ Adapt the existing recovery generator separately around each full recorded
 manual parent, with proposed inherited settings `sigma = 0.05 rad`,
 `phi = 0.99`, `gamma = 1`, the target-distance contraction envelope, and the
 terminal taper anchored to that parent's measured final-dwell onset, becoming
-zero throughout its final dwell. Preserve the parent's duration and recorded
-hold; no canonical three-second move boundary is used. Freeze any required
+zero throughout its final dwell. Preserve the parent's duration and recorded pre-roll; no canonical three-second move boundary is used. Freeze any required
 hold-to-movement annotation and taper rules as augmentation metadata only;
 they do not crop or retime the parent. Recompute
 derivatives and validate complete augmented episodes at the original task
@@ -508,10 +501,8 @@ latent draws and the result is independent of worker scheduling and task
 ordering; the inherited generator has no parent term (I8).
 
 For this approved fixed-start study, implement a versioned boundary envelope
-that keeps perturbation zero through the recorded initial hold, ramps it in
-smoothly during movement, and tapers it to zero before final dwell. All
-synthetic episodes then share the exact parent's fixed start and stationary
-intervals. This changes the inherited generator's possible initial-posture
+that is zero at the first sample and ramps in smoothly over a frozen duration from task time zero (a recording may have no stationary initial interval, I14), and tapers it to zero before final dwell. All
+synthetic episodes then share the exact parent's fixed first sample and final dwell. This changes the inherited generator's possible initial-posture
 perturbation and must be tested and recorded explicitly. Freeze taper durations
 from the acquisition pilot; a parent with insufficient transition support
 produces a reported augmentation failure rather than altered timing. Report
@@ -578,7 +569,7 @@ not storage.
 The nominal task starts at the exact configured `q_start` with zero velocity,
 matching recording start. Both RC and replay hold the actual evaluation
 posture through negative-time model warm-up and activate at task time zero.
-Replay starts at recording sample zero and includes the recorded initial hold;
+Replay starts at recording sample zero and includes the recorded pre-roll;
 RC receives measured state feedback and generates its own departure and reach.
 There is no imposed movement-onset time or matched transient timing.
 
@@ -641,8 +632,7 @@ as development diagnostics, without describing them as a new held-out test.
 Create a new manifest/config for the revised horizon, dwell rule, and force
 timing; historical scenario identities and replay caches cannot be reused.
 
-With natural movement durations, a pulse at task time 1 s could hit the
-initial hold, movement, or target dwell. Use **target-dwell-triggered
+With natural movement durations, a pulse at task time 1 s could hit the pre-roll, movement, or target dwell. Use **target-dwell-triggered
 pulses** for the four force and 20 combined cases: apply the inherited 12 N,
 0.2 s pulse once, immediately after actual motion first satisfies the target
 position/speed predicate continuously for 0.5 s. Apply this same event rule
@@ -712,7 +702,7 @@ recordings and the separate confirmatory study are deferred follow-up work.
    pilot (I2); deliver the task launcher and adapter (I7). Test a ten-take session with stationary keyboard start,
    keyboard save/next, Q with an unsaved-take warning, R discard/reset with
    recording paused, removal of F, CLI filenames without save dialogs/plots,
-   current/past trails, exact reset, and import. Freeze the boundary-preserving filter,
+   current/past trails, exact reset, and import. After the second practice pilot, freeze the acquisition rate and training grid, the boundary-preserving filter,
    velocity bound, offline dwell predicate, overlay policy, generous timeouts,
    and acceptance settings. Verify that experiment-specific acceptance never
    blocks saving and advancing in the recorder.
@@ -720,7 +710,7 @@ recordings and the separate confirmatory study are deferred follow-up work.
    accepted takes. The developer produces a machine-readable quality report
    with per-take measurements, acceptance/rejection reasons, and reproducible
    raw/processed plotting data/assets; lock the bank before model evaluation.
-4. **Training and controls:** test retained initial holds and exact start,
+4. **Training and controls:** test the retained pre-roll and exact start,
    unequal episode lengths and loss weights (including bias), reset and
    boundary handling, derivatives, source isolation, multiplicities, ridge
    scaling, augmentation envelopes, and strict manifest/schema validation.
@@ -808,8 +798,8 @@ approved simply because they appear in this draft.
 
 | ID | Status | Decision and clarification |
 | --- | --- | --- |
-| D1 | Approved | IK mouse guidance with current and faint past-tip overlays. Discard practice files and clear pilot display history before study take 1, then accumulate study-take trails normally. Retain the acquisition-readiness summary/settings, not practice payloads. |
-| D2 | Approved | Save all takes without experiment-specific acceptance checks in the recorder. Batch validation afterward requires at least 1 s continuously inside 1 cm with joint speeds at most 0.05 rad/s. Repeat collection/validation until ten takes pass, with no total attempt cap. Recording/evaluation timeouts are 30 s; the per-take timeout does not limit the number of takes. |
+| D1 | Approved | IK mouse guidance with current and faint past-tip overlays. Pilot-1 revision (approved 2026-09-15, I12): the faint overlay shows only the most recently saved take. Discard practice files and clear pilot display history before study take 1, then accumulate study-take trails normally. Retain the acquisition-readiness summary/settings, not practice payloads. |
+| D2 | Approved | Save all takes without experiment-specific acceptance checks in the recorder. Batch validation afterward requires at least 1 s continuously inside 1 cm with joint speeds at most 0.05 rad/s. Repeat collection/validation until ten takes pass, with no total attempt cap. Recording/evaluation timeouts are 30 s; the per-take timeout does not limit the number of takes. Pilot-1 revision (approved 2026-09-15, I13): acquisition at 50 Hz; the dwell stays one actual second. |
 | D3 | Approved | Start from 6 rad/s per joint for recording validation and evaluation; use a stricter common bound if the acquisition pilot supports it, fixed and recorded before study collection. |
 | D4 | Approved | All ten singleton choices plus all-ten, ten-copy controls, and nine contractive additions per singleton; defer optional whole-bank copies and fixed-alpha diagnostics unless requested. |
 | D5 | Approved | Equal total loss weight per episode; six inherited ESN configurations, absolute output, no new search: 186 models, at most 24,180 RC evaluations plus 3,900 replay runs. |
@@ -820,10 +810,8 @@ Filtering/boundary handling, overlay opacity/colors, and augmentation taper
 details can be resolved through the excluded acquisition pilot and recorded
 before the study bank; they need not all be chosen by the owner now. Proposed
 contractive settings are nine additions per parent, `sigma = 0.05 rad`,
-`phi = 0.99`, and `gamma = 1`, with fixed-start/hold-preserving envelopes as
-described above. Any change to the agreed comparison scope or numerical limits
-must be reflected in this plan before execution. No data have yet been
-collected, and this plan makes no claim that manual diversity or synthetic
+`phi = 0.99`, and `gamma = 1`, with envelopes that are zero at the first sample, ramp in over a duration frozen before study collection, and taper to zero before the final dwell (I14), as described above. Any change to the agreed comparison scope or numerical limits
+must be reflected in this plan before execution. No study data have yet been collected, and this plan makes no claim that manual diversity or synthetic
 contraction will improve performance.
 
 ## 9. Implementation clarifications (2026-09-15)
@@ -836,11 +824,38 @@ and the ledger rows fold them into their acceptance criteria.
 | ID | Topic | Clarification | Section | Tasks |
 | --- | --- | --- | --- | --- |
 | I1 | Execution budget | Roughly 12 h serial and 24–25 GB of run data at the previous pilot's one-configuration rates; a planning estimate, not an upper bound. Horizon and telemetry unchanged; bounded process-based parallel execution with a serial-versus-parallel equivalence check is explicit scope. | 5 | M3MAN-008, M3MAN-009 |
-| I2 | Acquisition clock | The pinned recorder updates the pose once per 20 ms tick and repeats it at every elapsed sample boundary. UP-008 defines the acquisition clock and never assigns several timestamps to one update; the acquisition pilot verifies the realized rate before 100 Hz is claimed. | 2, 2.1 | UP-008, M3MAN-003 |
+| I2 | Acquisition clock | The pinned recorder updates the pose once per 20 ms tick and repeats it at every elapsed sample boundary. UP-008 defines the acquisition clock and never assigns several timestamps to one update; the acquisition pilot verifies the realized rate before 100 Hz is claimed; I13 revises the acquisition rate to 50 Hz. | 2, 2.1 | UP-008, M3MAN-003 |
 | I3 | Weighted ridge | Disable the library's implicit bias, append an explicit ones column, scale the whole row and target by the square root of the weight, append an unscaled one at inference, cover every prediction path, keep the implicit-bias path for historical recipes. | 4 | M3MAN-005 |
 | I4 | Recipe contract | A new recipe schema version preserving the old semantics: variable row counts, hold rows in the loss, separate warm-up, source multiplicities, row weights, augmentation parents, transform provenance, complete fit identities. | 4 | M3MAN-005 |
 | I5 | Horizon check | Completion is judged against the configured horizon, not the demonstration length; horizon field and completeness checks land together; aborted runs keep partial metrics and terminal evidence. | 6 | M3MAN-008 |
 | I6 | Configuration identities | Own task and evaluation configurations copying the robot, limits, and target; `task_1a.toml` and its historical semantics unchanged. | 2 | M3MAN-002, M3MAN-008 |
 | I7 | Recorder launcher | Thin `scripts/record_demo.py` plus a tested adapter in `src/` built on the existing scenario conversion, verifying posture, units, limits, target, sampling, and output settings. | 2 | M3MAN-003 |
 | I8 | Transform and seeds | The input transform copies the historical scripted-data centers and scales, digest-bound; augmentation streams are seeded with a stable parent identifier, independent of scheduling. | 4 | M3MAN-003, M3MAN-005, M3MAN-006 |
-| I9 | Boundary preservation | The inherited zero-phase filter shifts a held start (about 9.5e-5 rad after 0.1 s, 8.3e-10 rad after 1 s); the boundary-preserving requirement stays with a reproducing test. | 3 | M3MAN-002 |
+| I9 | Boundary preservation | The inherited zero-phase filter shifts a held start (about 9.5e-5 rad after 0.1 s, 8.3e-10 rad after 1 s); the boundary-preserving requirement stays with a reproducing test. Its hold-anchored method is superseded by I11 (Section 10). | 3 | M3MAN-002 |
+
+## 10. Pilot-1 revisions (approved 2026-09-15)
+
+The first excluded practice pilot (2026-09-15, ten saved takes at 100 Hz with
+both trail overlays) was assessed in a throwaway store under the draft rules,
+and no take would have been accepted. Movement began 0.01–0.36 s after the
+first logged sample, so every take failed the hold-anchored smoothing margin of
+I9. Nine takes had sample gaps of 40–63 ms against the 30 ms limit, and late
+ticks rose from 3 to about 180 as the number of saved trails drawn grew from
+zero to nine; an offscreen repaint benchmark on the recorded tip paths grew by
+about 1 ms per saved trail. That pattern is consistent with increasing
+trail-rendering cost, but the cause is not established. Everything else met the
+draft rules: a median sample interval of 10.0 ms, raw joint speeds of at most
+2.3 rad/s, final dwells of 1.2–5.5 s, and takes of 11–17 s. The operator
+reported that the tip followed the cursor, the faint trails stayed visible after
+ten takes, and the 30 s timeout is worth keeping as margin. The revisions below
+fit the experiment's purpose better than requiring unusually precise human
+operation. A second short practice session verifies timing and preprocessing
+before M3MAN-003 freezes the settings. The owner approved I10–I14 on 2026-09-15; the implementation clarifications about the first-sample derivatives and the training grid are recorded in I11 and I13.
+
+| ID | Topic | Revision | Sections | Tasks |
+| --- | --- | --- | --- | --- |
+| I10 | Natural pre-roll | The first logged sample stays exactly at the reset posture; natural movement may begin immediately afterward. Pre-roll fluctuations are part of the demonstration and are checked against the usual motion limits; no stationary initial interval is required. | 2, 2.2, 3, 4, 6 | M3MAN-013 |
+| I11 | Smoothing without a stationary hold | Preprocessing preserves the first sample exactly while smoothing the subsequent trajectory, without depending on a stationary hold, and keeps the recorded pre-roll fluctuations instead of replacing them with a constant posture, and it introduces no velocity or acceleration spike at the first sample. It supersedes the hold-anchored margin method of I9; the I9 reproduction of the inherited filter's start shift stays. | 3 | M3MAN-013 |
+| I12 | Last saved trail | A recorder display option shows only the most recently saved trail behind the current trail. The study uses the current trail plus the last saved trail; every saved recording and its provenance are kept, and each take records which saved take was visible. | 2.1, 8 (D1) | UP-010, M3MAN-014 |
+| I13 | Acquisition rate | Takes are recorded at 50 Hz with their actual timestamps, separately from the training/control grid; this experiment keeps the 0.01 s (100 Hz) grid for every comparison arm, and support for finer grids does not change it. Each take is reconstructed from its actual timestamps onto that grid; interpolation supplies intermediate reference values but recovers no unsampled motion, and derivatives come from the smoothed trajectory. Frame-count and gap checks are expressed from the acquisition period; the final dwell remains one actual second regardless of the acquisition rate. | 2, 2.1, 2.2, 3, 8 (D2) | M3MAN-013, M3MAN-014 |
+| I14 | Contractive envelope | Without a guaranteed stationary initial interval, the contractive envelope is zero at the first sample and ramps in smoothly over a duration frozen before study collection, instead of staying zero through a recorded hold; the terminal taper before the final dwell is unchanged. | 4 | M3MAN-006 |
