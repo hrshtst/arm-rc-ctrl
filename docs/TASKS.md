@@ -252,8 +252,9 @@ model freeze, confirmatory execution, hardware, or the task 1-b draft.
 
 The owner approved the [manual-demonstration plan](experiments/task_1a_manual_demonstration/plan.md)
 on 2026-09-15 and requested registration here. Start with UP-008 and UP-009;
-integrate upstream work through M3MAN-001. All implementation/evidence tasks
-below are `TODO`. This experiment keeps one fixed start and target, unlike
+integrate upstream work through M3MAN-001. UP-008, UP-009, and M3MAN-001 are
+`DONE` (2026-09-15); the remaining implementation/evidence tasks are `TODO`
+until their rows say otherwise. This experiment keeps one fixed start and target, unlike
 the task 1-b proposal; it does not close REP-001 or reopen prior evidence.
 The developer owns machine-readable outputs and reproduction. M3MAN-012 is
 owned by the reporting assistant collaborating with the owner, not the developer.
