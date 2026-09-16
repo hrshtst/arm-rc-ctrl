@@ -28,6 +28,7 @@ if TYPE_CHECKING:
 __all__ = [
     "EpisodeStates",
     "FitReport",
+    "TrainingBatch",
     "harvest_episode",
     "harvest_states",
     "one_step_rmse",
@@ -91,7 +92,34 @@ def harvest_episode(model: EsnModel, episode: Episode) -> EpisodeStates:
     return EpisodeStates(episode.source, states, np.asarray(episode.targets), np.asarray(episode.loss_rows))
 
 
-def training_rows(model: EsnModel, episodes: Sequence[Episode]) -> tuple[NDArray[np.float64], NDArray[np.float64]]:
+@dataclass(frozen=True)
+class TrainingBatch:
+    """The stacked loss rows of every episode, with the rows each episode contributed."""
+
+    states: NDArray[np.float64]
+    """``(sum L_i, n_neurons)`` loss-row states, episode blocks in training order."""
+    targets: NDArray[np.float64]
+    """``(sum L_i, dof)`` targets aligned with the states."""
+    loss_rows: tuple[int, ...]
+    """``L_i`` per episode, in training order; the stacked blocks follow this order."""
+
+    def row_weights(self, reference_rows: int) -> tuple[NDArray[np.float64], tuple[float, ...]]:
+        """Equal-episode weights: ``w_i = reference_rows / L_i`` per episode and the per-row vector they expand to.
+
+        Every episode then carries the same total loss weight regardless of
+        its length (manual plan section 4): a take twice as long contributes
+        rows of half the weight, not twice the influence.
+        """
+        if reference_rows < 1:
+            msg = f"weight_reference_rows must be >= 1, got {reference_rows}"
+            raise ValueError(msg)
+        per_episode = tuple(reference_rows / rows for rows in self.loss_rows)
+        counts = np.asarray(self.loss_rows, dtype=np.int64)
+        rows = np.repeat(np.asarray(per_episode, dtype=np.float64), counts)
+        return rows, per_episode
+
+
+def training_rows(model: EsnModel, episodes: Sequence[Episode]) -> TrainingBatch:
     """Harvest every episode (each from a reset) and stack the loss rows into one ridge problem."""
     if not episodes:
         msg = "at least one episode is required"
@@ -99,7 +127,7 @@ def training_rows(model: EsnModel, episodes: Sequence[Episode]) -> tuple[NDArray
     harvested = [harvest_episode(model, episode) for episode in episodes]
     states = np.vstack([h.training_states for h in harvested])
     targets = np.vstack([h.training_targets for h in harvested])
-    return states, targets
+    return TrainingBatch(states, targets, tuple(int(h.training_states.shape[0]) for h in harvested))
 
 
 def predict_episode(model: EsnModel, episode: Episode) -> NDArray[np.float64]:
@@ -140,9 +168,13 @@ class FitReport:
     constant_rmse: float
     """RMSE of predicting the mean loss-row target everywhere; the readout must beat it to be useful."""
     max_abs_error: float
+    episode_loss_rows: tuple[int, ...] | None = None
+    """Loss rows of each episode (weighted fits only; ``None`` for the historical unweighted stack)."""
+    episode_weights: tuple[float, ...] | None = None
+    """The loss weight each episode was fitted with (weighted fits only)."""
 
     def __post_init__(self) -> None:
-        """Counts and errors are finite and consistent."""
+        """Counts and errors are finite and consistent, and recorded weighting covers every episode."""
         values = (*self.rmse_per_joint, self.rmse, self.constant_rmse, self.max_abs_error)
         if not self.episodes or self.loss_rows < 1 or self.washout_rows < 0:
             msg = "a fit report needs at least one episode and one loss row"
@@ -150,16 +182,47 @@ class FitReport:
         if any(not math.isfinite(v) or v < 0 for v in values):
             msg = "fit errors must be finite and non-negative"
             raise ValueError(msg)
+        self._check_weighting()
+
+    def _check_weighting(self) -> None:
+        counts, weights = self.episode_loss_rows, self.episode_weights
+        if (counts is None) != (weights is None):
+            msg = "episode_loss_rows and episode_weights are recorded together"
+            raise ValueError(msg)
+        if counts is None or weights is None:
+            return
+        if len(counts) != len(self.episodes) or len(weights) != len(self.episodes):
+            msg = "a weighted fit report needs one loss-row count and one weight per episode"
+            raise ValueError(msg)
+        if any(rows < 1 for rows in counts):
+            msg = f"episode loss rows must be positive, got {counts}"
+            raise ValueError(msg)
+        if any(not math.isfinite(w) or w <= 0 for w in weights):
+            msg = f"episode weights must be finite and positive, got {weights}"
+            raise ValueError(msg)
 
 
-def train_readout(model: EsnModel, episodes: Sequence[Episode]) -> FitReport:
+def train_readout(
+    model: EsnModel, episodes: Sequence[Episode], *, weight_reference_rows: int | None = None
+) -> FitReport:
     """Fit the readout on the loss rows of every episode and evaluate the teacher-forced prediction.
 
     Deterministic: the same model configuration and episodes give bitwise identical
     readouts and reports (see ``tests/unit/test_training.py``).
+
+    Without ``weight_reference_rows`` every loss row carries weight one, which
+    is the historical stacked fit. With it, each episode is weighted
+    ``weight_reference_rows / L_i`` so episodes of unequal length carry equal
+    total loss weight (manual plan section 4); the weights need the readout's
+    explicit-bias layout and are recorded in the report.
     """
-    states, targets = training_rows(model, episodes)
-    model.fit_readout(states, targets)
+    batch = training_rows(model, episodes)
+    per_episode: tuple[float, ...] | None = None
+    if weight_reference_rows is None:
+        model.fit_readout(batch.states, batch.targets)
+    else:
+        row_weights, per_episode = batch.row_weights(weight_reference_rows)
+        model.fit_readout(batch.states, batch.targets, weights=row_weights)
     predictions = [predict_episode(model, episode) for episode in episodes]
     all_prediction = np.vstack(predictions)
     all_targets = np.vstack([episode.targets for episode in episodes])
@@ -176,4 +239,6 @@ def train_readout(model: EsnModel, episodes: Sequence[Episode]) -> FitReport:
         rmse=aggregate,
         constant_rmse=constant_rmse,
         max_abs_error=float(np.abs(all_prediction[all_rows] - all_targets[all_rows]).max()),
+        episode_loss_rows=None if per_episode is None else batch.loss_rows,
+        episode_weights=per_episode,
     )

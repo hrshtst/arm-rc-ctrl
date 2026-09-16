@@ -26,6 +26,7 @@ from typing import TYPE_CHECKING
 import tomli_w
 
 from arm_rc_ctrl.config import to_mapping
+from arm_rc_ctrl.data.records import to_toml
 from arm_rc_ctrl.experiments.closed_loop import EstimatorSpec, NominalConfig
 from arm_rc_ctrl.experiments.esn_search import load_esn_search, protocol_digest
 from arm_rc_ctrl.experiments.esn_study import load_report
@@ -101,7 +102,8 @@ def render_model_toml(report: EsnStudyReport, protocol: EsnSearchProtocol, *, na
         f"# Input transform and readout solver stay as in {protocol.model.name}; "
         f"tracker {report.tracker} is not tuned.\n"
     )
-    return header + note + tomli_w.dumps(to_mapping(config))
+    # to_toml drops unset optional keys (TOML has no null), so a configuration that leaves one out renders as before.
+    return header + note + to_toml(config)
 
 
 def render_evaluation_toml(

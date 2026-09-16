@@ -13,6 +13,7 @@ from arm_rc_ctrl.controllers.estimator import CausalDerivativeEstimator, Estimat
 from arm_rc_ctrl.data.records import Normalization, ProcessedDatasetRecord, load_record, verify_payload
 from arm_rc_ctrl.data.samples import load_samples
 from arm_rc_ctrl.rc.generator import RcTargetGenerator
+from arm_rc_ctrl.rc.recipe import WEIGHTED_SCHEMA_VERSION
 from arm_rc_ctrl.repo import repository_root
 
 if TYPE_CHECKING:
@@ -22,11 +23,21 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from arm_rc_ctrl.data.samples import SampleSet
-    from arm_rc_ctrl.rc.recipe import ModelRecipe
+    from arm_rc_ctrl.rc.recipe import DatasetRecord, ModelRecipe
     from arm_rc_ctrl.scenario import ScenarioConfig
     from arm_rc_ctrl.storage import StorageRoot
 
 __all__ = ["generator_from_recipe", "load_training_samples"]
+
+
+def _dataset_record(path: Path, *, manual: bool) -> DatasetRecord:
+    """Load one processed-kind record; only schema 3 recipes dispatch across the recovery and manual schemas."""
+    if not manual:
+        return load_record(path, ProcessedDatasetRecord)
+    # Imported lazily: the manual schema pulls in skelarm, which historical recipes must never require.
+    from arm_rc_ctrl.data.recovery import load_processed_record
+
+    return load_processed_record(path)
 
 
 def load_training_samples(
@@ -37,19 +48,25 @@ def load_training_samples(
     Every record must carry the recipe's artifact identity, joint and task-code
     widths, and preprocessing; the recipe's input transform must re-derive from
     the recorded normalization it claims to come from; every payload must match
-    its record.
+    its record. A schema 3 recipe takes those statistics from its bound
+    ``transform_source``, which is not one of its training datasets (I8).
     """
     root = repository_root() if records_root is None else records_root
+    manual = recipe.schema_version == WEIGHTED_SCHEMA_VERSION
     samples: dict[str, SampleSet] = {}
     normalizations: dict[str, Normalization] = {}
     for source in recipe.datasets:
-        record = load_record(root / source.record, ProcessedDatasetRecord)
+        record = _dataset_record(root / source.record, manual=manual)
         recipe.check_dataset_record(source, record)
         loaded = load_samples(verify_payload(store, record.artifact))
         record.check_samples(loaded)
         samples[source.artifact_id] = loaded
         if record.normalization is not None:
             normalizations[source.artifact_id] = record.normalization
+    transform_source = recipe.transform_source
+    if transform_source is not None:
+        frozen = _dataset_record(root / transform_source.record, manual=False)
+        normalizations[transform_source.artifact_id] = recipe.check_transform_record(frozen)
     recipe.check_transform_source(normalizations)
     return samples
 

@@ -148,6 +148,7 @@ def test_config_round_trips_through_toml(tmp_path: Path) -> None:
         "solver": "cholesky",
         "include_bias": True,
         "tolerance": 1e-10,
+        "explicit_bias": None,  # absent means the historical implicit bias; stored records strip it
     }
     file.write_text(file.read_text() + "washout = 3\n")
     with pytest.raises(ConfigError):
@@ -183,3 +184,45 @@ def test_readout_weights_are_the_solver_layout_and_a_copy() -> None:
     assert np.allclose(model.readout(state), state @ weights[:-1] + weights[-1], atol=1e-12, rtol=0.0)
     weights[:] = 0.0
     assert np.allclose(model.readout(state), model.readout_weights()[:-1].T @ state + model.readout_weights()[-1])
+
+
+EXPLICIT_BIAS = EsnConfig(
+    reservoir=CONFIG.reservoir, readout=ReadoutConfig(alpha=1e-3, include_bias=False, explicit_bias=True)
+)
+
+
+def test_explicit_bias_requires_the_library_bias_to_be_disabled() -> None:
+    """A configuration that would fit two bias terms is refused, naming both keys (M3MAN-005, I3)."""
+    with pytest.raises(ValueError, match=r"readout\.explicit_bias requires readout\.include_bias"):
+        ReadoutConfig(alpha=1e-3, include_bias=True, explicit_bias=True)
+    assert ReadoutConfig(alpha=1e-3).explicit_bias is None  # the historical implicit-bias layout is the default
+
+
+def test_explicit_bias_prediction_paths_agree() -> None:
+    """Batch prediction equals stepping bitwise, and the extracted weights reproduce the readout with the bias last."""
+    model = EsnModel(EXPLICIT_BIAS, input_dim=3, output_dim=2)
+    states = _harvest(model, X)
+    model.fit_readout(states[15:], Y[15:])
+    weights = model.readout_weights()
+    assert weights.shape == (41, 2)  # n_neurons + 1 with include_bias False and explicit_bias True
+    batch = model.predict_sequence(X)
+    model.reset()
+    online = np.vstack([model.step(row) for row in X])
+    assert np.array_equal(online, batch)  # the explicit-bias batch path is reset + advance + readout
+    model.reset()
+    state = model.advance(X[0])
+    assert np.allclose(model.readout(state), state @ weights[:-1] + weights[-1], atol=1e-12, rtol=0.0)
+    residual = batch[15:] - Y[15:]
+    assert np.sqrt(np.mean(residual**2)) < np.std(Y)
+
+
+def test_explicit_bias_widths_and_weight_use_are_validated() -> None:
+    """The state width is checked against the raw harvest, and row weights are refused on the implicit layout."""
+    model = EsnModel(EXPLICIT_BIAS, input_dim=3, output_dim=2)
+    with pytest.raises(ValueError, match=r"states must have shape \(M, 40\)"):
+        model.fit_readout(np.zeros((5, 41)), np.zeros((5, 2)))
+    implicit = EsnModel(CONFIG, input_dim=3, output_dim=2)
+    with pytest.raises(ValueError, match=r"per-sample weights require readout\.explicit_bias"):
+        implicit.fit_readout(np.zeros((5, 40)), np.zeros((5, 2)), weights=np.ones(5))
+    implicit.fit_readout(np.zeros((5, 40)), np.zeros((5, 2)))
+    assert implicit.readout_weights().shape == (41, 2)  # the historical implicit bias row is still last

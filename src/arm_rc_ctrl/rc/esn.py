@@ -11,6 +11,16 @@ time with :meth:`EsnModel.advance`; the readout is fitted on harvested states
 with :meth:`EsnModel.fit_readout`, which reproduces ``rclib``'s single-sequence
 ``fit`` bit for bit while allowing explicit per-episode resets.
 
+M3MAN-005 (clarification I3) adds the *explicit-bias* layout beside it: with
+``readout.explicit_bias`` the library's implicit bias is disabled and this
+repository appends a ones column to every fitted feature row instead, which is
+what makes per-row weights possible (the whole row, its bias entry, and its
+target are scaled together). Every prediction path — :meth:`EsnModel.readout`,
+:meth:`EsnModel.step`, :meth:`EsnModel.predict_sequence`, and
+:meth:`EsnModel.readout_weights` — uses that layout, with the bias row last as
+before. The implicit-bias path is untouched and stays the one historical
+recipes are refitted through.
+
 UP-005: the pinned ``rclib`` seeds its reservoir weights but scales them with a
 power iteration started from ``Eigen::Random()``, which draws from the C
 library's ``rand()`` and is never re-seeded, so a second reservoir built in the
@@ -76,9 +86,13 @@ class ReadoutConfig:
     solver: Solver = "cholesky"
     include_bias: bool = True
     tolerance: float = 1e-10
+    explicit_bias: bool | None = None
+    """Fit an explicit ones column instead of ``rclib``'s implicit bias (M3MAN-005, clarification I3); requires
+    ``include_bias = false``. ``None`` is the historical implicit-bias layout; it is stripped from stored
+    recipes, so schema 1 and 2 records keep their serialization and their content-addressed identity."""
 
     def __post_init__(self) -> None:
-        """Regularization is non-negative and the solver is one ``rclib`` offers."""
+        """Regularization is non-negative, the solver is one ``rclib`` offers, and the bias layout is unambiguous."""
         require_finite((self.alpha, self.tolerance), "readout")
         if self.alpha < 0:
             msg = "readout.alpha must be non-negative"
@@ -88,6 +102,12 @@ class ReadoutConfig:
             raise ValueError(msg)
         if self.tolerance <= 0:
             msg = "readout.tolerance must be positive"
+            raise ValueError(msg)
+        if self.explicit_bias and self.include_bias:
+            msg = (
+                "readout.explicit_bias requires readout.include_bias = false: the explicit ones column replaces "
+                "rclib's implicit bias, and keeping both would fit two bias terms"
+            )
             raise ValueError(msg)
 
 
@@ -209,8 +229,47 @@ class EsnModel:
         row = _vector(u, "input", self._input_dim)[None, :]
         return np.array(self._reservoir.advance(row), dtype=np.float64).reshape(-1)
 
-    def fit_readout(self, states: NDArray[np.float64], targets: NDArray[np.float64]) -> None:
-        """Fit the ridge readout on harvested reservoir states (rows) and their targets."""
+    @property
+    def explicit_bias(self) -> bool:
+        """Whether the readout carries an explicit ones column instead of ``rclib``'s implicit bias (I3)."""
+        return bool(self._config.readout.explicit_bias)
+
+    def _features(self, states: NDArray[np.float64]) -> NDArray[np.float64]:
+        """The feature rows the readout is fitted and evaluated on: the states, plus an unscaled ones column."""
+        if not self.explicit_bias:
+            return states
+        return np.hstack([states, np.ones((states.shape[0], 1), dtype=np.float64)])
+
+    def _row_scale(self, weights: NDArray[np.float64], rows: int) -> NDArray[np.float64]:
+        """``sqrt(weights)`` as a column, validated; refused without the explicit-bias layout."""
+        if not self.explicit_bias:
+            msg = (
+                "per-sample weights require readout.explicit_bias: rclib's implicit bias row cannot be scaled "
+                "together with the features it belongs to"
+            )
+            raise ValueError(msg)
+        w = np.asarray(weights, dtype=np.float64)
+        if w.shape != (rows,):
+            msg = f"weights must have shape ({rows},), got {w.shape}"
+            raise ValueError(msg)
+        if not np.all(np.isfinite(w)) or not np.all(w > 0):
+            msg = "weights must be finite and positive"
+            raise ValueError(msg)
+        return np.sqrt(w)[:, None]
+
+    def fit_readout(
+        self, states: NDArray[np.float64], targets: NDArray[np.float64], *, weights: NDArray[np.float64] | None = None
+    ) -> None:
+        """Fit the ridge readout on harvested reservoir states (rows), their targets, and optional row weights.
+
+        ``weights`` holds one positive weight per row and needs the
+        explicit-bias layout: row ``k``, its ones entry, and target row ``k``
+        are all multiplied by ``sqrt(weights[k])``, which turns the weighted
+        least-squares problem into the plain one ``rclib`` solves while the
+        ridge penalty stays on the unscaled coefficients (manual plan section
+        4, clarification I3). The state width is always checked against the
+        raw ``(M, n_neurons)`` harvest, never against the appended column.
+        """
         x = np.asarray(states, dtype=np.float64)
         y = np.asarray(targets, dtype=np.float64)
         if x.ndim != 2 or x.shape[1] != self.n_neurons:  # noqa: PLR2004
@@ -222,7 +281,12 @@ class EsnModel:
         if x.shape[0] < 1 or not (np.all(np.isfinite(x)) and np.all(np.isfinite(y))):
             msg = "states and targets must be non-empty and finite"
             raise ValueError(msg)
-        self._readout.fit(np.ascontiguousarray(x), np.ascontiguousarray(y))
+        features = self._features(x)
+        if weights is not None:
+            scale = self._row_scale(weights, x.shape[0])
+            features = features * scale
+            y = y * scale
+        self._readout.fit(np.ascontiguousarray(features), np.ascontiguousarray(y))
         self._fitted = True
 
     def fit_sequence(self, inputs: NDArray[np.float64], targets: NDArray[np.float64], *, washout_len: int) -> None:
@@ -251,7 +315,7 @@ class EsnModel:
         if not self._fitted:
             msg = "the readout has not been fitted"
             raise RuntimeError(msg)
-        rows = self.n_neurons + (1 if self._config.readout.include_bias else 0)
+        rows = self.n_neurons + (1 if (self._config.readout.include_bias or self.explicit_bias) else 0)
         weights = np.array(self._readout.getWeights(), dtype=np.float64)
         if weights.shape != (rows, self._output_dim):
             msg = f"rclib returned readout weights of shape {weights.shape}, expected ({rows}, {self._output_dim})"
@@ -259,19 +323,25 @@ class EsnModel:
         return weights
 
     def readout(self, state: NDArray[np.float64]) -> NDArray[np.float64]:
-        """Evaluate the fitted readout on one reservoir state."""
+        """Evaluate the fitted readout on one reservoir state (appending the unscaled one under explicit bias)."""
         if not self._fitted:
             msg = "the readout has not been fitted"
             raise RuntimeError(msg)
         row = _vector(state, "state", self.n_neurons)[None, :]
-        return np.array(self._readout.predict(row), dtype=np.float64).reshape(-1)
+        return np.array(self._readout.predict(self._features(row)), dtype=np.float64).reshape(-1)
 
     def step(self, u: NDArray[np.float64]) -> NDArray[np.float64]:
         """Advance with one input and read out the prediction (``rclib``'s online prediction)."""
         return self.readout(self.advance(u))
 
     def predict_sequence(self, inputs: NDArray[np.float64]) -> NDArray[np.float64]:
-        """Reset, then predict a whole input sequence teacher-forced (``rclib``'s batch ``predict``)."""
+        """Reset, then predict a whole input sequence teacher-forced (``rclib``'s batch ``predict``).
+
+        Under the explicit-bias layout ``rclib``'s batch predict cannot know
+        about the appended ones column, so the batch path is stepped here
+        instead: reset, advance each row, read out. That is the same
+        arithmetic as :meth:`step` and therefore bitwise identical to it.
+        """
         if not self._fitted:
             msg = "the readout has not been fitted"
             raise RuntimeError(msg)
@@ -279,6 +349,12 @@ class EsnModel:
         if x.ndim != 2 or x.shape[1] != self._input_dim:  # noqa: PLR2004
             msg = f"inputs must have shape (M, {self._input_dim}), got {x.shape}"
             raise ValueError(msg)
+        if self.explicit_bias:
+            stepped = np.empty((x.shape[0], self._output_dim), dtype=np.float64)
+            self.reset()
+            for index, row in enumerate(x):
+                stepped[index] = self.step(row)
+            return stepped
         raw = cast("Sequence[Sequence[float]]", self._model.predict(x, reset_state_before_predict=True))
         prediction = np.array(raw, dtype=np.float64).reshape(x.shape[0], self._output_dim)
         return prediction

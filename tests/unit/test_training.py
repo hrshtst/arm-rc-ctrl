@@ -63,11 +63,12 @@ def test_training_rows_stack_only_loss_rows_across_episodes() -> None:
     """Washout rows are dropped per episode; the remaining rows keep their episode order and targets."""
     model = _model()
     a, b = _episode("a", 12, 4), _episode("b", 9, 2)
-    states, targets = training_rows(model, [a, b])
-    assert states.shape == (8 + 7, 30)
-    assert np.array_equal(targets, np.vstack([a.targets[4:], b.targets[2:]]))
-    assert np.array_equal(states[:8], harvest_states(_model(), a.inputs)[4:])
-    assert np.array_equal(states[8:], harvest_states(_model(), b.inputs)[2:])
+    batch = training_rows(model, [a, b])
+    assert batch.states.shape == (8 + 7, 30)
+    assert batch.loss_rows == (8, 7)
+    assert np.array_equal(batch.targets, np.vstack([a.targets[4:], b.targets[2:]]))
+    assert np.array_equal(batch.states[:8], harvest_states(_model(), a.inputs)[4:])
+    assert np.array_equal(batch.states[8:], harvest_states(_model(), b.inputs)[2:])
     with pytest.raises(ValueError, match="at least one episode"):
         training_rows(model, [])
 

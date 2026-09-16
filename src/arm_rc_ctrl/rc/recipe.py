@@ -17,7 +17,19 @@ and limits the training episodes were validated against, and permits the
 exact-repetition construction (``additional_repeats`` literal copies of the
 single source episode, each harvested from a reset reservoir into one stacked
 ridge fit) with an explicit base ridge parameter and the rule that derives the
-solver's parameter from it. Every new field defaults to ``None`` and is
+solver's parameter from it.
+
+Schema 3 (M3MAN-005; manual plan section 4 and clarifications I3, I4, and I8)
+is the manual-demonstration form: episodes of *variable* length whose recorded
+pre-roll stays inside the loss, equal total loss weight per episode
+(``episode_weighting``, ``weight_reference_rows``), exact copies expressed as
+per-source multiplicities instead of duplicated payloads (``source_counts``),
+the explicit-bias readout the weighting needs, and an input transform copied
+from a dataset that is deliberately *not* among the training sources
+(``transform_source``), so a singleton recipe receives no statistics from the
+other takes.
+
+Every new field defaults to ``None`` and is
 stripped from the stored TOML and the recipe identity, so schema 1 records keep
 their serialization and hashes.
 """
@@ -54,16 +66,22 @@ if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
     from pathlib import Path
 
+    from arm_rc_ctrl.data.manual import ManualDatasetRecord
     from arm_rc_ctrl.data.samples import SampleSet
     from arm_rc_ctrl.scenario import ScenarioConfig
+
+    # Any processed-kind record a recipe trains from; the manual schema records no normalization by design (I8).
+    type DatasetRecord = ProcessedDatasetRecord | RecoveryDatasetRecord | ManualDatasetRecord
 
 __all__ = [
     "APPROVED_ADDITIONAL_REPEATS",
     "BINDING_SCHEMA_VERSION",
     "DERIVATIVE_METHODS",
+    "EQUAL_EPISODE_WEIGHTING",
     "RECIPE_SCHEMA_VERSION",
     "REGULARIZATION_RULES",
     "SUPPORTED_RECIPE_SCHEMAS",
+    "WEIGHTED_SCHEMA_VERSION",
     "AugmentationTrainingSpec",
     "DatasetSource",
     "FitTolerance",
@@ -84,7 +102,12 @@ RECIPE_SCHEMA_VERSION: Final = 1
 """The frozen schema of every recipe written before M3REP-002 (and of legacy commands that keep writing it)."""
 BINDING_SCHEMA_VERSION: Final = 2
 """The schema that binds training validation and permits repetition and ridge rules (M3REP-002, C2)."""
-SUPPORTED_RECIPE_SCHEMAS: Final = (RECIPE_SCHEMA_VERSION, BINDING_SCHEMA_VERSION)
+WEIGHTED_SCHEMA_VERSION: Final = 3
+"""The schema of the manual-demonstration arms: equal-episode weighting, source multiplicities, the explicit-bias
+readout, and a transform copied from outside the training sources (M3MAN-005; I3, I4, I8)."""
+EQUAL_EPISODE_WEIGHTING: Final = "equal_episode"
+"""The only episode-weighting rule: every episode carries the same total loss weight whatever its length."""
+SUPPORTED_RECIPE_SCHEMAS: Final = (RECIPE_SCHEMA_VERSION, BINDING_SCHEMA_VERSION, WEIGHTED_SCHEMA_VERSION)
 APPROVED_ADDITIONAL_REPEATS: Final[frozenset[int]] = frozenset({16, 32, 64})
 """Approved exact-copy counts (repetition plan section 4): 17, 33, or 65 episodes in total."""
 REGULARIZATION_RULES: Final = ("base", "count_scaled", "count_divided")
@@ -300,10 +323,18 @@ class TrainingSpec:
     regularization_count: int | None = None
     """The episode count the rule refers to; defaults to the recipe's own episode count (S-effective fits one
     episode at ``alpha_0 / K`` and therefore states ``K`` explicitly)."""
+    episode_weighting: str | None = None
+    """Schema 3 only: ``equal_episode``, the rule giving every episode the same total loss weight (I4)."""
+    weight_reference_rows: int | None = None
+    """Schema 3 only: the row-count reference ``R`` of the per-row weight ``R / L_i`` (historically 400)."""
+    source_counts: tuple[int, ...] | None = None
+    """Schema 3 only: how many episodes each dataset contributes, aligned 1:1 with the recipe's datasets.
+    A count above one is that many exact copies of the source episode; payloads are never duplicated."""
 
     def __post_init__(self) -> None:
         """Only the implemented representations are accepted."""
         _check_repetition(self)
+        _check_weighting(self)
         if self.input_channels != INPUT_CHANNELS or self.target not in ("next_q", "increment_q"):
             msg = (
                 f"unsupported training spec {self!r}; supported: input_channels {INPUT_CHANNELS}, "
@@ -331,7 +362,9 @@ class TrainingSpec:
 
     @property
     def episode_count(self) -> int:
-        """Episodes one source dataset contributes: the original plus its copies or synthetic episodes."""
+        """Episodes the training stacks: the source multiplicities, or one source plus its copies or synthetics."""
+        if self.source_counts is not None:
+            return sum(self.source_counts)
         if self.additional_repeats is not None:
             return 1 + self.additional_repeats
         if self.augmentation is not None:
@@ -347,6 +380,43 @@ class TrainingSpec:
     def uses_binding_features(self) -> bool:
         """Whether the spec uses constructions only schema 2 recipes may carry."""
         return self.additional_repeats is not None or self.base_alpha is not None
+
+    @property
+    def uses_weighted_features(self) -> bool:
+        """Whether the spec uses constructions only schema 3 recipes may carry."""
+        return (
+            self.episode_weighting is not None
+            or self.weight_reference_rows is not None
+            or self.source_counts is not None
+        )
+
+
+def _check_weighting(spec: TrainingSpec) -> None:
+    weighting, reference, counts = spec.episode_weighting, spec.weight_reference_rows, spec.source_counts
+    declared = [field for field in (weighting, reference, counts) if field is not None]
+    if not declared:
+        return
+    if len(declared) != 3:  # noqa: PLR2004 - the three weighting fields are one construction
+        msg = "episode_weighting, weight_reference_rows, and source_counts are recorded together"
+        raise ValueError(msg)
+    if weighting != EQUAL_EPISODE_WEIGHTING:
+        msg = f"episode_weighting must be {EQUAL_EPISODE_WEIGHTING!r}, got {weighting!r}"
+        raise ValueError(msg)
+    if reference is None or reference < 1:
+        msg = f"weight_reference_rows must be >= 1, got {reference!r}"
+        raise ValueError(msg)
+    if not counts or any(count < 1 for count in counts):
+        msg = f"source_counts must give every dataset at least one episode, got {counts!r}"
+        raise ValueError(msg)
+    if spec.washout != "warmup_hold":
+        msg = "equal-episode weighting requires the 'warmup_hold' washout (manual plan section 4)"
+        raise ValueError(msg)
+    if spec.additional_repeats is not None or spec.augmentation is not None:
+        msg = (
+            "equal-episode weighting expresses copies as source_counts; additional_repeats and augmentation are "
+            "the separate repetition and varied-data constructions"
+        )
+        raise ValueError(msg)
 
 
 def _check_repetition(spec: TrainingSpec) -> None:
@@ -410,7 +480,10 @@ class ModelRecipe:
     tolerance: FitTolerance = field(default_factory=FitTolerance)
     schema_version: int = field(default=RECIPE_SCHEMA_VERSION)
     validation: TrainingValidation | None = None
-    """Schema 2 only: the scenario file and limits the training episodes were validated against (C2)."""
+    """Schema 2 and 3: the scenario file and limits the training episodes were validated against (C2)."""
+    transform_source: DatasetSource | None = None
+    """Schema 3 only: the dataset the frozen input transform was copied from, digest-bound and deliberately outside
+    ``datasets`` (I8), so a singleton recipe receives no statistics from the other takes."""
 
     def __post_init__(self) -> None:
         """Consistency between datasets, fit report, normalization, widths, schema, and the ridge rule."""
@@ -432,10 +505,12 @@ class ModelRecipe:
         if len(self.fit.rmse_per_joint) != self.dof:
             msg = f"fit.rmse_per_joint has {len(self.fit.rmse_per_joint)} joints, expected {self.dof}"
             raise ValueError(msg)
-        unknown = sorted(set(self.transform.derived_from) - set(ids))
-        if unknown:
-            msg = f"transform.derived_from names datasets outside the recipe: {unknown}"
-            raise ValueError(msg)
+        if self.schema_version != WEIGHTED_SCHEMA_VERSION:
+            # Schema 3 copies its transform from the bound transform_source instead (checked in _check_schema).
+            unknown = sorted(set(self.transform.derived_from) - set(ids))
+            if unknown:
+                msg = f"transform.derived_from names datasets outside the recipe: {unknown}"
+                raise ValueError(msg)
         self.encoder()  # validates the transform against the widths
 
     @property
@@ -467,10 +542,15 @@ class ModelRecipe:
         """The input encoder the episodes and the runtime generator share."""
         return InputEncoder(self.transform, self.dof, self.task_code_dim)
 
-    def check_dataset_record(
-        self, source: DatasetSource, record: ProcessedDatasetRecord | RecoveryDatasetRecord
-    ) -> None:
-        """Fail unless ``record`` is the dataset the recipe names and was processed the way the recipe expects."""
+    def check_dataset_record(self, source: DatasetSource, record: DatasetRecord) -> None:
+        """Fail unless ``record`` is the dataset the recipe names and was processed the way the recipe expects.
+
+        Schema 1 and 2 recipes derive their input transform from a training
+        dataset and therefore require its recorded normalization. Schema 3
+        copies the transform from its ``transform_source`` instead, so a
+        manual take, which records no normalization by design (I8), is
+        accepted as training data.
+        """
         artifact = record.artifact
         if artifact.artifact_id != source.artifact_id or artifact.payload.sha256 != source.payload_sha256:
             msg = (
@@ -487,12 +567,34 @@ class ModelRecipe:
         if record.preprocessing != self.preprocessing:
             msg = f"dataset {source.artifact_id} was preprocessed differently from the recipe's preprocessing"
             raise ValueError(msg)
-        if record.normalization is None:
+        if record.normalization is None and self.schema_version != WEIGHTED_SCHEMA_VERSION:
             msg = f"dataset {source.artifact_id} records no normalization statistics"
             raise ValueError(msg)
 
+    def check_transform_record(self, record: DatasetRecord) -> Normalization:
+        """The statistics of the digest-bound transform source (schema 3); fail unless ``record`` is that dataset."""
+        source = self.transform_source
+        if source is None:
+            msg = f"recipe {self.name!r} names no transform source; its transform derives from its training datasets"
+            raise ValueError(msg)
+        artifact = record.artifact
+        if artifact.artifact_id != source.artifact_id or artifact.payload.sha256 != source.payload_sha256:
+            msg = (
+                f"record {source.record} describes {artifact.artifact_id} ({artifact.payload.sha256[:12]}), "
+                f"not the transform source {source.artifact_id} ({source.payload_sha256[:12]})"
+            )
+            raise ValueError(msg)
+        if record.normalization is None:
+            msg = f"the transform source {source.artifact_id} records no normalization statistics"
+            raise ValueError(msg)
+        return record.normalization
+
     def check_transform_source(self, normalizations: Mapping[str, Normalization]) -> None:
-        """Fail unless the transform re-derives exactly from the recorded statistics it claims to come from."""
+        """Fail unless the transform re-derives exactly from the recorded statistics it claims to come from.
+
+        For schema 3 those statistics belong to ``transform_source``, which is
+        not a training dataset; the re-derivation is bitwise either way.
+        """
         if len(self.transform.derived_from) != 1:
             msg = f"the transform must derive from exactly one dataset, got {self.transform.derived_from}"
             raise ValueError(msg)
@@ -548,7 +650,11 @@ class ModelRecipe:
         """Rebuild and refit the model; fail unless the rclib pin matches and the fit report is reproduced."""
         self.require_rclib(installed)
         model = self.build_model()
-        report = train_readout(model, self.episodes(samples, scenario=scenario))
+        report = train_readout(
+            model,
+            self.episodes(samples, scenario=scenario),
+            weight_reference_rows=self.training.weight_reference_rows,
+        )
         mismatches = _compare_fit(report, self.fit, self.tolerance)
         if mismatches:
             msg = f"refit of recipe {self.name!r} does not reproduce its fit report: " + "; ".join(mismatches)
@@ -560,16 +666,25 @@ def _check_schema(recipe: ModelRecipe) -> None:
     if recipe.schema_version not in SUPPORTED_RECIPE_SCHEMAS:
         msg = f"unsupported recipe schema version {recipe.schema_version}"
         raise ValueError(msg)
-    binding = recipe.schema_version == BINDING_SCHEMA_VERSION
-    if binding and recipe.validation is None:
-        msg = f"schema {BINDING_SCHEMA_VERSION} recipes bind their training validation (C2); validation is missing"
+    weighted = recipe.schema_version == WEIGHTED_SCHEMA_VERSION
+    bound = recipe.schema_version in (BINDING_SCHEMA_VERSION, WEIGHTED_SCHEMA_VERSION)
+    if bound and recipe.validation is None:
+        msg = f"schema {recipe.schema_version} recipes bind their training validation (C2); validation is missing"
         raise ValueError(msg)
-    if not binding and recipe.validation is not None:
+    if not bound and recipe.validation is not None:
         msg = f"schema {RECIPE_SCHEMA_VERSION} recipes carry no training validation; write a schema 2 recipe"
         raise ValueError(msg)
-    if not binding and recipe.training.uses_binding_features:
+    if not bound and recipe.training.uses_binding_features:
         msg = f"exact repetition and ridge rules need a schema {BINDING_SCHEMA_VERSION} recipe"
         raise ValueError(msg)
+    if not weighted and (recipe.training.uses_weighted_features or recipe.transform_source is not None):
+        msg = (
+            "equal-episode weighting, source multiplicities, and a transform source outside the training data "
+            f"need a schema {WEIGHTED_SCHEMA_VERSION} recipe"
+        )
+        raise ValueError(msg)
+    if weighted:
+        _check_weighted_recipe(recipe)
     spec = recipe.training
     if spec.base_alpha is not None and spec.regularization_rule is not None:
         count = spec.regularization_count or spec.episode_count
@@ -580,6 +695,50 @@ def _check_schema(recipe: ModelRecipe) -> None:
                 f"{spec.regularization_rule} of base_alpha {spec.base_alpha!r} over {count} episodes"
             )
             raise ValueError(msg)
+
+
+def _check_weighted_recipe(recipe: ModelRecipe) -> None:
+    """The schema 3 construction: equal-episode weighting, aligned multiplicities, explicit bias, copied transform."""
+    spec = recipe.training
+    counts = spec.source_counts
+    if spec.episode_weighting != EQUAL_EPISODE_WEIGHTING or spec.weight_reference_rows is None or counts is None:
+        msg = (
+            f"schema {WEIGHTED_SCHEMA_VERSION} recipes record {EQUAL_EPISODE_WEIGHTING!r} weighting with its "
+            "weight_reference_rows and one source count per dataset"
+        )
+        raise ValueError(msg)
+    if len(counts) != len(recipe.datasets):
+        msg = f"source_counts {counts} must give one multiplicity per dataset, got {len(recipe.datasets)} datasets"
+        raise ValueError(msg)
+    if spec.base_alpha is None or spec.regularization_rule != "count_scaled":
+        msg = (
+            f"schema {WEIGHTED_SCHEMA_VERSION} recipes derive esn.readout.alpha as 'count_scaled' of base_alpha "
+            "over the episode count K (the weighted objective's regularization scale)"
+        )
+        raise ValueError(msg)
+    source = recipe.transform_source
+    if source is None:
+        msg = f"schema {WEIGHTED_SCHEMA_VERSION} recipes bind the dataset their input transform was copied from (I8)"
+        raise ValueError(msg)
+    if source.artifact_id in tuple(d.artifact_id for d in recipe.datasets):
+        msg = (
+            f"transform_source {source.artifact_id} is one of the training datasets; the frozen transform is copied "
+            "from a dataset outside them so a singleton receives no statistics from the other takes (I8)"
+        )
+        raise ValueError(msg)
+    if recipe.transform.derived_from != (source.artifact_id,):
+        msg = (
+            f"transform.derived_from {recipe.transform.derived_from} must name exactly the transform source "
+            f"{source.artifact_id}"
+        )
+        raise ValueError(msg)
+    readout = recipe.esn.readout
+    if not readout.explicit_bias or readout.include_bias:
+        msg = (
+            f"schema {WEIGHTED_SCHEMA_VERSION} recipes fit the explicit-bias readout: set esn.readout.explicit_bias "
+            "and leave esn.readout.include_bias false, so every weighted row scales with its bias entry (I3)"
+        )
+        raise ValueError(msg)
 
 
 def _compare_fit(actual: FitReport, expected: FitReport, tolerance: FitTolerance) -> list[str]:
@@ -609,6 +768,15 @@ def _compare_fit(actual: FitReport, expected: FitReport, tolerance: FitTolerance
 
 def expected_episode_labels(spec: TrainingSpec, ids: tuple[str, ...]) -> tuple[str, ...]:
     """The episode labels a recipe with ``spec`` trains on, in training order."""
+    if spec.source_counts is not None:
+        if len(ids) != len(spec.source_counts):
+            msg = f"source_counts {spec.source_counts} must give one multiplicity per dataset, got {list(ids)}"
+            raise ValueError(msg)
+        labels: list[str] = []
+        for artifact, count in zip(ids, spec.source_counts, strict=True):
+            labels.append(artifact)
+            labels.extend(f"{artifact}#copy-{index:03d}" for index in range(1, count))
+        return tuple(labels)
     if spec.additional_repeats is not None:
         if len(ids) != 1:
             msg = f"exact repetition uses exactly one dataset, got {list(ids)}"
@@ -639,6 +807,52 @@ def _derivatives(preprocessing: Preprocessing) -> DerivativeConfig:
     return derivative_config(preprocessing.derivative_method)
 
 
+def _weighted_episodes(
+    spec: TrainingSpec,
+    sources: Sequence[DatasetSource],
+    samples: Mapping[str, SampleSet],
+    encoder: InputEncoder,
+    *,
+    warmup: WarmupConfig,
+    period_s: float,
+) -> list[Episode]:
+    """One warm-up-prefixed episode per dataset plus its literal copies, in ``source_counts`` order.
+
+    The complete recording is teacher-forced: every recorded sample pairs with
+    its successor and enters the loss, including the pre-roll the manual
+    protocol keeps (I4, I10), so the descriptive phase annotation never decides
+    which rows train. A copy re-wraps the parent's own arrays under a copy
+    label: nothing is harvested twice and no payload is duplicated.
+    """
+    counts = cast("tuple[int, ...]", spec.source_counts)
+    episodes: list[Episode] = []
+    for source, count in zip(sources, counts, strict=True):
+        sample_set = samples[source.artifact_id]
+        original = build_task_episode_arrays(
+            sample_set.t,
+            sample_set.q,
+            sample_set.dq,
+            sample_set.task_code,
+            encoder,
+            source=source.artifact_id,
+            warmup=warmup,
+            period_s=period_s,
+            target=spec.target,
+        )
+        episodes.append(original)
+        episodes.extend(
+            Episode(
+                source=f"{source.artifact_id}#copy-{index:03d}",
+                t=original.t,
+                inputs=original.inputs,
+                targets=original.targets,
+                loss_rows=original.loss_rows,
+            )
+            for index in range(1, count)
+        )
+    return episodes
+
+
 def _build_episodes(
     spec: TrainingSpec,
     sources: Sequence[DatasetSource],
@@ -653,6 +867,8 @@ def _build_episodes(
         return [build_episode(samples[s.artifact_id], encoder, source=s.artifact_id) for s in sources]
     warmup = WarmupConfig(cast("float", spec.warmup_s))
     period = preprocessing.resample_period_s
+    if spec.source_counts is not None:
+        return _weighted_episodes(spec, sources, samples, encoder, warmup=warmup, period_s=period)
     episodes = [
         build_task_episode(
             samples[s.artifact_id],
@@ -727,11 +943,15 @@ def create_recipe(
     tolerance: FitTolerance | None = None,
     scenario: ScenarioConfig | None = None,
     validation: TrainingValidation | None = None,
+    transform_source: DatasetSource | None = None,
 ) -> tuple[ModelRecipe, EsnModel]:
     """Train the model on ``sources`` and return the recipe that reproduces it, plus the fitted model.
 
     Passing ``validation`` writes a schema 2 recipe bound to the scenario file
-    and limits it names; the given ``scenario`` must carry those limits.
+    and limits it names; the given ``scenario`` must carry those limits. An
+    equal-episode training spec or a ``transform_source`` writes a schema 3
+    recipe instead: the fit is weighted with the spec's reference row count and
+    the transform is bound to the dataset it was copied from.
     """
     spec = TrainingSpec() if training is None else training
     if validation is not None and scenario is not None:
@@ -743,7 +963,12 @@ def create_recipe(
         raise ValueError(msg)
     episodes = _build_episodes(spec, sources, samples, encoder, preprocessing, scenario=scenario)
     model = EsnModel(esn, input_dim=encoder.input_dim, output_dim=dof)
-    report = train_readout(model, episodes)
+    report = train_readout(model, episodes, weight_reference_rows=spec.weight_reference_rows)
+    schema_version = RECIPE_SCHEMA_VERSION
+    if spec.uses_weighted_features or transform_source is not None:
+        schema_version = WEIGHTED_SCHEMA_VERSION
+    elif validation is not None:
+        schema_version = BINDING_SCHEMA_VERSION
     recipe = ModelRecipe(
         name=name,
         esn=esn,
@@ -756,8 +981,9 @@ def create_recipe(
         rclib=RclibIdentity.current() if rclib is None else rclib,
         fit=report,
         tolerance=FitTolerance() if tolerance is None else tolerance,
-        schema_version=RECIPE_SCHEMA_VERSION if validation is None else BINDING_SCHEMA_VERSION,
+        schema_version=schema_version,
         validation=validation,
+        transform_source=transform_source,
     )
     return recipe, model
 

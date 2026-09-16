@@ -246,8 +246,8 @@ def test_schema_rules_keep_legacy_recipes_legacy() -> None:
         )
     bound, _ = _build(samples, plain, validation=_validation())
     assert bound.schema_version == 2
-    with pytest.raises(ValueError, match="unsupported recipe schema version 3"):
-        dataclasses.replace(bound, schema_version=3)
+    with pytest.raises(ValueError, match="unsupported recipe schema version 4"):
+        dataclasses.replace(bound, schema_version=4)
     ruled = TrainingSpec(
         washout="warmup_hold",
         warmup_s=0.25,
