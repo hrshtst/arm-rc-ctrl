@@ -23,7 +23,7 @@ from arm_rc_ctrl.experiments.recovery_pilot import (
     render_recovery_markdown,
 )
 from arm_rc_ctrl.experiments.tuning import load_protocol as load_tuning_protocol
-from arm_rc_ctrl.rc.augment import SEED_NAMESPACE
+from arm_rc_ctrl.rc.augment import MANUAL_SEED_NAMESPACE, MANUAL_SEED_WORD, SEED_NAMESPACE
 from arm_rc_ctrl.rc.warmup import APPROVED_WARMUPS_S
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import load_scenario
@@ -40,6 +40,8 @@ PILOT_MARKDOWN = EXPERIMENT / "recovery_pilot_v1.md"
 RECOVERY_DATASET = "processed-20260903-ce343c8ce6a5"
 
 M3_CONFIRMATORY_SEEDS = frozenset({20260901, 20260902, 20260903, 20260904, 20260905})
+DATE_SEED_RANGE = (20000101, 29991231)
+"""Every ``YYYYMMDD``-shaped seed lies in this range; no allocated namespace word may."""
 M3_DEVELOPMENT_FILES = (
     REPO_ROOT / "configs" / "evaluations" / "task_1a_robustness_dev_v1.toml",
     REPO_ROOT / "configs" / "evaluations" / "task_1a_robustness_dev_v2.toml",
@@ -141,12 +143,17 @@ def test_allocation_is_m3_shaped_for_both_splits() -> None:
 
 
 def test_seed_namespaces_are_mutually_disjoint() -> None:
-    """Augmentation, recovery development, and recovery confirmatory namespaces never overlap M3 or each other."""
+    """Augmentation, manual augmentation, recovery development, and confirmatory namespaces never overlap."""
     confirmatory = set(load_confirmatory(CONFIRMATORY).seeds)
     development = set(load_development_robustness(DEVELOPMENT).seeds)
     assert not confirmatory & development
     assert not (confirmatory | development) & M3_CONFIRMATORY_SEEDS
-    assert SEED_NAMESPACE not in confirmatory | development
+    namespaces = {SEED_NAMESPACE, MANUAL_SEED_WORD}
+    assert len(namespaces) == 2
+    assert not namespaces & (confirmatory | development | M3_CONFIRMATORY_SEEDS)
+    # A namespace is never a date: it must not collide with any YYYYMMDD-shaped seed.
+    assert not any(DATE_SEED_RANGE[0] <= word <= DATE_SEED_RANGE[1] for word in namespaces)
+    assert MANUAL_SEED_NAMESPACE == "task_1a_manual_v1/contractive/v1"
     m3_development: set[int] = set()
     for file in M3_DEVELOPMENT_FILES:
         m3_development |= set(load_development_robustness(file).seeds)
@@ -155,6 +162,7 @@ def test_seed_namespaces_are_mutually_disjoint() -> None:
     for file in M3_ESN_FILES:
         m3_development.add(load_esn_search(file).sampler.seed)
     assert not (confirmatory | development) & m3_development
+    assert not namespaces & m3_development
 
 
 def test_no_confirmatory_control_run_exists() -> None:

@@ -33,6 +33,7 @@ __all__ = [
     "joint_target",
     "load_scenario",
     "robot_endpoint_positions",
+    "robot_joint_limits",
 ]
 
 _PLANE = 2
@@ -220,13 +221,18 @@ def load_scenario(path: Path) -> ScenarioConfig:
     return load_config(path, ScenarioConfig)
 
 
+def robot_joint_limits(robot: RobotConfig, limits: LimitsConfig) -> JointLimits:
+    """Position and speed limits of an arm, independent of which task schema declared them."""
+    return JointLimits(
+        lower=tuple(link.q_min for link in robot.links),
+        upper=tuple(link.q_max for link in robot.links),
+        speed=limits.velocity,
+    )
+
+
 def joint_limits(config: ScenarioConfig) -> JointLimits:
     """Position and speed limits for dataset validation."""
-    return JointLimits(
-        lower=tuple(link.q_min for link in config.robot.links),
-        upper=tuple(link.q_max for link in config.robot.links),
-        speed=config.limits.velocity,
-    )
+    return robot_joint_limits(config.robot, config.limits)
 
 
 def build_robot_skeleton(robot: RobotConfig, q: NDArray[np.float64]) -> Skeleton:

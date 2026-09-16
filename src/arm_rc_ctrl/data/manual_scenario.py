@@ -29,7 +29,13 @@ from skelarm import Skeleton
 
 from arm_rc_ctrl.config import load_config
 from arm_rc_ctrl.data.validate import JointLimits
-from arm_rc_ctrl.scenario import LimitsConfig, RobotConfig, build_robot_skeleton, robot_endpoint_positions
+from arm_rc_ctrl.scenario import (
+    LimitsConfig,
+    RobotConfig,
+    build_robot_skeleton,
+    robot_endpoint_positions,
+    robot_joint_limits,
+)
 from arm_rc_ctrl.validation import require_finite
 
 __all__ = [
@@ -249,11 +255,7 @@ def load_manual_scenario(path: Path) -> ManualScenarioConfig:
 
 def manual_joint_limits(config: ManualScenarioConfig) -> JointLimits:
     """Position and speed limits for dataset validation."""
-    return JointLimits(
-        lower=tuple(link.q_min for link in config.robot.links),
-        upper=tuple(link.q_max for link in config.robot.links),
-        speed=config.limits.velocity,
-    )
+    return robot_joint_limits(config.robot, config.limits)
 
 
 def manual_build_skeleton(config: ManualScenarioConfig, q: NDArray[np.float64] | None = None) -> Skeleton:
