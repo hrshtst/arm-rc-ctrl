@@ -19,8 +19,7 @@ from arm_rc_ctrl.data.manual_scenario import (
     manual_endpoint_positions,
     manual_joint_limits,
 )
-from arm_rc_ctrl.data.records import ProcessedDatasetRecord, load_record
-from arm_rc_ctrl.data.recovery import RecoveryDatasetRecord
+from arm_rc_ctrl.data.recovery import load_processed_record
 from arm_rc_ctrl.provenance import sha256_file
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import load_scenario
@@ -63,20 +62,25 @@ def test_manual_v1_declares_the_continuous_dwell_rule_and_no_fixed_intervals() -
 
 
 def test_task_1a_toml_is_untouched_by_the_new_configuration() -> None:
-    """The historical task file still loads with its old semantics and keeps the digest bound into the evidence."""
+    """The historical task file still loads with its old semantics and keeps the digest bound into the evidence.
+
+    Every committed processed record is read through the dispatcher, so a manual-take dataset (which binds a
+    versioned manual task file, never ``task_1a.toml``) neither breaks the sweep nor loosens the digest lock.
+    """
     legacy = load_scenario(TASK_1A)
     assert legacy.task.dwell_min_fraction == 0.9
     assert legacy.timing.intervals.prime == (0.0, 1.0)
     record_dir = REPO_ROOT / "data" / "records" / "processed"
     digests: set[str] = set()
+    other_tasks: set[str] = set()
     for path in sorted(record_dir.glob("processed-*.toml")):
-        try:
-            record = load_record(path, ProcessedDatasetRecord)
-        except ConfigError:
-            record = load_record(path, RecoveryDatasetRecord)
+        record = load_processed_record(path)
         if record.scenario.config_path == "configs/tasks/task_1a.toml":
             digests.add(record.scenario.config_sha256)
+        else:
+            other_tasks.add(record.scenario.config_path)
     assert digests == {sha256_file(TASK_1A)}
+    assert other_tasks <= {"configs/tasks/task_1a_manual_v1.toml", "configs/tasks/task_1a_manual_v2.toml"}
 
 
 def test_legacy_keys_and_inconsistent_rules_are_rejected() -> None:

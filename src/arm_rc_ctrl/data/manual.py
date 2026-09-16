@@ -36,7 +36,7 @@ from numpy.typing import NDArray
 from scipy.signal import butter, sosfiltfilt
 from skelarm import StateLog
 
-from arm_rc_ctrl.config import load_config, to_mapping
+from arm_rc_ctrl.config import ConfigError, load_config, to_mapping
 from arm_rc_ctrl.data.derivatives import DerivativeConfig, differentiate
 from arm_rc_ctrl.data.manual_scenario import (
     ManualScenarioConfig,
@@ -66,6 +66,7 @@ from arm_rc_ctrl.data.records import (
     Origin,
     Payload,
     Preprocessing,
+    RawDemonstrationRecord,
     Sampling,
     Scenario,
     array_specs,
@@ -131,6 +132,7 @@ __all__ = [
     "import_manual_take",
     "load_manual_derive_config",
     "load_manual_take",
+    "load_raw_record",
     "reconstruct_on_grid",
     "register_manual_records",
     "smooth_hold_anchored",
@@ -848,6 +850,20 @@ def load_manual_take(store: StorageRoot, record: ManualTakeRecord) -> ManualTake
         msg = "the log's acquisition metadata differs from the record"
         raise ManualTakeError(msg)
     return ManualTake(record, path, log, times, nominal, q, tip)
+
+
+def load_raw_record(path: Path) -> RawDemonstrationRecord | ManualTakeRecord:
+    """Load a raw-kind record under whichever raw schema it satisfies (scripted demonstration, then manual take).
+
+    Raises
+    ------
+    ConfigError
+        If the file satisfies no schema (the manual schema's error is reported).
+    """
+    try:
+        return load_record(path, RawDemonstrationRecord)
+    except ConfigError:
+        return load_record(path, ManualTakeRecord)
 
 
 @dataclass(frozen=True)

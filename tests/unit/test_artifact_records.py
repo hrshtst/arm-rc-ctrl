@@ -14,6 +14,7 @@ from typing import Any, cast
 import pytest
 
 from arm_rc_ctrl.config import ConfigError, from_mapping, to_mapping
+from arm_rc_ctrl.data.manual import ManualTakeRecord, load_raw_record
 from arm_rc_ctrl.data.records import (
     ArtifactRecord,
     Catalog,
@@ -442,19 +443,31 @@ def test_committed_catalog_is_valid_and_consistent_with_record_files() -> None:
     """data/catalog.toml loads and every listed record file exists with a matching ID."""
     catalog = load_catalog(catalog_path(REPO_ROOT))
     schemas: dict[str, type[object]] = {
-        "raw": RawDemonstrationRecord,
         "run": RunPointerRecord,
         "model": ArtifactRecord,
     }
     for entry in catalog.artifacts:
         record_file = REPO_ROOT / entry.record
         assert record_file.is_file(), entry
-        loaded = (
-            load_processed_record(record_file)
-            if entry.kind == "processed"
-            else load_record(record_file, schemas[entry.kind])
-        )
+        if entry.kind == "processed":
+            loaded: object = load_processed_record(record_file)
+        elif entry.kind == "raw":
+            loaded = load_raw_record(record_file)
+        else:
+            loaded = load_record(record_file, schemas[entry.kind])
         artifact = loaded if isinstance(loaded, ArtifactRecord) else cast("Any", loaded).artifact
         assert artifact.artifact_id == entry.artifact_id
         assert artifact.payload.uri == entry.uri
         assert artifact.payload.sha256 == entry.sha256
+
+
+def test_load_raw_record_dispatches_between_the_raw_schemas(tmp_path: Path) -> None:
+    """The raw helper returns whichever raw schema a file satisfies and rejects one satisfying neither."""
+    raw_dir = REPO_ROOT / "data" / "records" / "raw"
+    loaded = [load_raw_record(path) for path in sorted(raw_dir.glob("raw-*.toml"))]
+    assert any(isinstance(record, RawDemonstrationRecord) for record in loaded)
+    assert any(isinstance(record, ManualTakeRecord) for record in loaded)
+    neither = tmp_path / "neither.toml"
+    neither.write_text("x = 1\n", encoding="utf-8")
+    with pytest.raises(ConfigError):
+        load_raw_record(neither)

@@ -108,7 +108,10 @@ serialization must stay byte-stable.
   period the rules applied (`raw_timing.acquisition_period_s`). Both versions load
   and validate.
   `arm_rc_ctrl.data.recovery.load_processed_record` dispatches the M3,
-  recovery, and manual processed schemas. Raw take artifact IDs are content
+  recovery, and manual processed schemas, and
+  `arm_rc_ctrl.data.manual.load_raw_record` dispatches the two raw schemas
+  (scripted demonstration and manual take); read every record of a kind
+  through its dispatcher, because both kinds now hold more than one schema. Raw take artifact IDs are content
   addressed, so identical bytes can carry only one attempt's record: importing
   them as another session or attempt raises `DuplicatePayloadError` instead of
   lending that record, and a batch rejects such a copy with `duplicate_of`.
