@@ -69,6 +69,7 @@ Command line::
 from __future__ import annotations
 
 import argparse
+import importlib
 import json
 import math
 import sys
@@ -1262,6 +1263,19 @@ def render_study_markdown(manifest: StudyManifest) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _load_runtimes() -> None:
+    """Load the numerical runtimes before the execution environment is probed.
+
+    ``rclib`` links its own OpenMP runtime, and the probe records the library
+    and its thread count only once that runtime is loaded. A manifest frozen
+    without it would bind an environment no fit ever runs in, and would
+    disagree with the repository's canonical execution record; the numerics
+    would then refuse every fit as belonging to another environment (C10).
+    """
+    for name in ("numpy", "rclib"):
+        importlib.import_module(name)
+
+
 def _require_clean_worktree(root: Path, *, exploratory: bool) -> None:
     """Fail fast on a modified checkout before any payload is read (the provenance guard stays authoritative)."""
     if exploratory:
@@ -1300,6 +1314,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     exploratory = bool(args.exploratory)
     _require_clean_worktree(root, exploratory=exploratory)
     require_canonical()
+    _load_runtimes()
     panel_file, bank_file = Path(args.panel), Path(args.bank)
     scenario_file, preprocessing_file = Path(args.scenario), Path(args.preprocessing)
     seed_bank = int(args.seed_bank)
