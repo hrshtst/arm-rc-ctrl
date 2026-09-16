@@ -859,3 +859,23 @@ before M3MAN-003 freezes the settings. The owner approved I10–I14 on 2026-09-1
 | I12 | Last saved trail | A recorder display option shows only the most recently saved trail behind the current trail. The study uses the current trail plus the last saved trail; every saved recording and its provenance are kept, and each take records which saved take was visible. | 2.1, 8 (D1) | UP-010, M3MAN-014 |
 | I13 | Acquisition rate | Takes are recorded at 50 Hz with their actual timestamps, separately from the training/control grid; this experiment keeps the 0.01 s (100 Hz) grid for every comparison arm, and support for finer grids does not change it. Each take is reconstructed from its actual timestamps onto that grid; interpolation supplies intermediate reference values but recovers no unsampled motion, and derivatives come from the smoothed trajectory. Frame-count and gap checks are expressed from the acquisition period; the final dwell remains one actual second regardless of the acquisition rate. | 2, 2.1, 2.2, 3, 8 (D2) | M3MAN-013, M3MAN-014 |
 | I14 | Contractive envelope | Without a guaranteed stationary initial interval, the contractive envelope is zero at the first sample and ramps in smoothly over a duration frozen before study collection, instead of staying zero through a recorded hold; the terminal taper before the final dwell is unchanged. | 4 | M3MAN-006 |
+
+## 11. Frozen acquisition settings (2026-09-16)
+
+The owner froze the acquisition and preprocessing settings on 2026-09-16, closing
+M3MAN-003 before any study take. The values, the practice evidence behind them,
+and the operator note live in
+[`acquisition_readiness_v1.md`](acquisition_readiness_v1.md); the settings
+themselves are the versioned `task_1a_manual_v2`, `manual_v2`, and recording v2
+configurations, except the two that M3MAN-006 implements: the contractive
+envelope ramps in over 0.5 s from task time zero (I14) and the augmentation seed
+namespace is `task_1a_manual_v1/contractive/v1`.
+
+The second excluded practice session verified what the pilot-1 revisions
+changed: a median sample interval of 20.0 ms with the largest gap at 39.9 ms
+against the 60 ms limit, acquisition ticks no longer falling behind as takes
+accumulate, and a start shift of exactly 0.0 rad in every take. Seven of ten
+takes were accepted; the three rejections failed only the one-second dwell
+duration. The dwell tolerance stays at a 1 cm radius, since the closed-loop
+evaluation uses the same target region. Practice payloads remain disposable and
+are not retained.
