@@ -34,6 +34,7 @@ def test_committed_recipe_serialization_and_identity_are_unchanged(path: Path) -
     assert recipe.training.additional_repeats is None
     assert recipe.training.base_alpha is None
     assert recipe.training.regularization_rule is None
+    assert recipe.training.contractive is None
     assert header + to_toml(recipe) == text
     day = path.stem.split("-")[1]
     assert recipe_id(recipe, f"{day[:4]}-{day[4:6]}-{day[6:]}T00:00:00+00:00") == path.stem

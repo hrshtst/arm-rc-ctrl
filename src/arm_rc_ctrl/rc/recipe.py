@@ -27,7 +27,10 @@ per-source multiplicities instead of duplicated payloads (``source_counts``),
 the explicit-bias readout the weighting needs, and an input transform copied
 from a dataset that is deliberately *not* among the training sources
 (``transform_source``), so a singleton recipe receives no statistics from the
-other takes.
+other takes. Its ``contractive`` construction (M3MAN-007; manual plan section
+11) grows the frozen contractive bank of the recipe's single parent, so the
+synthetic arm stays refittable from the recorded dataset, the seed bank, and
+the parent's recorded dwell onset alone.
 
 Every new field defaults to ``None`` and is
 stripped from the stored TOML and the recipe identity, so schema 1 records keep
@@ -53,13 +56,22 @@ from arm_rc_ctrl.data.records import to_toml as records_to_toml
 from arm_rc_ctrl.data.recovery import RecoveryDatasetRecord, task_intervals_from_phases
 from arm_rc_ctrl.dependencies import submodule_revisions, submodule_version
 from arm_rc_ctrl.provenance import sha256_file
-from arm_rc_ctrl.rc.augment import AugmentationConfig, EpisodeArrays, generate_augmentation
+from arm_rc_ctrl.rc.augment import (
+    MANUAL_N_SYNTHETIC,
+    AugmentationConfig,
+    AugmentationError,
+    EpisodeArrays,
+    ManualAugmentationConfig,
+    TaskGeometry,
+    generate_augmentation,
+    generate_manual_augmentation,
+)
 from arm_rc_ctrl.rc.esn import EsnConfig, EsnModel
 from arm_rc_ctrl.rc.teacher_forcing import INPUT_CHANNELS, Episode, InputEncoder, InputTransform, build_episode
 from arm_rc_ctrl.rc.training import FitReport, train_readout
 from arm_rc_ctrl.rc.warmup import WarmupConfig, build_task_episode, build_task_episode_arrays
 from arm_rc_ctrl.repo import repository_root
-from arm_rc_ctrl.scenario import joint_limits
+from arm_rc_ctrl.scenario import ScenarioConfig, robot_joint_limits
 from arm_rc_ctrl.validation import COMMIT_HEX_LENGTH, SHA256_HEX_LENGTH, is_hex
 
 if TYPE_CHECKING:
@@ -68,7 +80,6 @@ if TYPE_CHECKING:
 
     from arm_rc_ctrl.data.manual import ManualDatasetRecord
     from arm_rc_ctrl.data.samples import SampleSet
-    from arm_rc_ctrl.scenario import ScenarioConfig
 
     # Any processed-kind record a recipe trains from; the manual schema records no normalization by design (I8).
     type DatasetRecord = ProcessedDatasetRecord | RecoveryDatasetRecord | ManualDatasetRecord
@@ -83,6 +94,7 @@ __all__ = [
     "SUPPORTED_RECIPE_SCHEMAS",
     "WEIGHTED_SCHEMA_VERSION",
     "AugmentationTrainingSpec",
+    "ContractiveTrainingSpec",
     "DatasetSource",
     "FitTolerance",
     "ModelRecipe",
@@ -222,6 +234,44 @@ class AugmentationTrainingSpec:
 
 
 @dataclass(frozen=True)
+class ContractiveTrainingSpec:
+    """The manual protocol's contractive bank of one parent (M3MAN-007; manual plan section 11, clarification I8).
+
+    Everything but the seed bank is frozen by
+    :class:`~arm_rc_ctrl.rc.augment.ManualAugmentationConfig`, so a recipe
+    records only what regeneration cannot take from the dataset it already
+    binds: the seed bank and the parent's recorded dwell onset
+    (``motion.dwell_start_s``), which places the envelope's terminal taper. The
+    grid is the recipe's own preprocessing period, and the parent is the
+    recipe's single dataset rather than a second name that could disagree with
+    it.
+    """
+
+    seed_bank: int
+    """Shared seed-bank identifier; banks are reused across reservoir configurations."""
+    dwell_start_s: float
+    """Onset of the parent's recorded final dwell on the task clock; the perturbation is zero before it."""
+
+    def __post_init__(self) -> None:
+        """The seed bank is a non-negative identifier and the dwell onset a positive, finite task time."""
+        if self.seed_bank < 0:
+            msg = f"contractive.seed_bank must be non-negative, got {self.seed_bank}"
+            raise ValueError(msg)
+        if not (math.isfinite(self.dwell_start_s) and self.dwell_start_s > 0):
+            msg = f"contractive.dwell_start_s must be positive and finite, got {self.dwell_start_s!r}"
+            raise ValueError(msg)
+
+    @property
+    def n_synthetic(self) -> int:
+        """Accepted synthetic episodes the frozen protocol grows from the parent."""
+        return MANUAL_N_SYNTHETIC
+
+    def config(self, parent: str) -> ManualAugmentationConfig:
+        """The frozen contractive configuration of ``parent`` in this seed bank."""
+        return ManualAugmentationConfig(parent=parent, seed_bank=self.seed_bank)
+
+
+@dataclass(frozen=True)
 class TrainingValidation:
     """The scenario file and limits the training episodes were validated against (schema 2; C2).
 
@@ -262,15 +312,23 @@ class TrainingValidation:
 
     @classmethod
     def from_scenario(
-        cls, scenario: ScenarioConfig, scenario_file: Path, *, root: Path | None = None
+        cls, scenario: TaskGeometry, scenario_file: Path, *, root: Path | None = None
     ) -> TrainingValidation:
-        """Bind the scenario file's digest and the limits the generator validates against."""
+        """Bind the scenario file's digest and the limits the generator validates against.
+
+        Either task schema is accepted (M3MAN-007): the validation reads the
+        robot and the shared limits, which the scripted
+        :class:`~arm_rc_ctrl.scenario.ScenarioConfig` and the manual
+        :class:`~arm_rc_ctrl.data.manual_scenario.ManualScenarioConfig` declare
+        with the same types; their differing task and timing sections are never
+        read here.
+        """
         base = (repository_root() if root is None else root).resolve()
         resolved = scenario_file.resolve()
         if not resolved.is_relative_to(base):
             msg = f"scenario file {scenario_file} lies outside the repository root {base}"
             raise ValueError(msg)
-        limits = joint_limits(scenario)
+        limits = robot_joint_limits(scenario.robot, scenario.limits)
         return cls(
             scenario_file=resolved.relative_to(base).as_posix(),
             scenario_sha256=sha256_file(resolved),
@@ -280,9 +338,9 @@ class TrainingValidation:
             endpoint_radius=float(scenario.limits.endpoint_radius),
         )
 
-    def check(self, scenario: ScenarioConfig) -> None:
-        """Fail unless ``scenario`` carries exactly the recorded training-validation limits."""
-        limits = joint_limits(scenario)
+    def check(self, scenario: TaskGeometry) -> None:
+        """Fail unless ``scenario`` (either task schema) carries exactly the recorded training-validation limits."""
+        limits = robot_joint_limits(scenario.robot, scenario.limits)
         current = (
             tuple(float(v) for v in scenario.limits.velocity),
             tuple(float(v) for v in limits.lower),
@@ -330,11 +388,16 @@ class TrainingSpec:
     source_counts: tuple[int, ...] | None = None
     """Schema 3 only: how many episodes each dataset contributes, aligned 1:1 with the recipe's datasets.
     A count above one is that many exact copies of the source episode; payloads are never duplicated."""
+    contractive: ContractiveTrainingSpec | None = None
+    """Schema 3 only: the manual protocol's contractive bank grown from the recipe's single parent (M3MAN-007).
+    Its nine synthetic episodes regenerate from the parent's recorded arrays, the seed bank, and the recorded
+    dwell onset, so the arm stays refittable from config plus dataset alone."""
 
     def __post_init__(self) -> None:
         """Only the implemented representations are accepted."""
         _check_repetition(self)
         _check_weighting(self)
+        _check_contractive(self)
         if self.input_channels != INPUT_CHANNELS or self.target not in ("next_q", "increment_q"):
             msg = (
                 f"unsupported training spec {self!r}; supported: input_channels {INPUT_CHANNELS}, "
@@ -364,7 +427,8 @@ class TrainingSpec:
     def episode_count(self) -> int:
         """Episodes the training stacks: the source multiplicities, or one source plus its copies or synthetics."""
         if self.source_counts is not None:
-            return sum(self.source_counts)
+            grown = 0 if self.contractive is None else self.contractive.n_synthetic
+            return sum(self.source_counts) + grown
         if self.additional_repeats is not None:
             return 1 + self.additional_repeats
         if self.augmentation is not None:
@@ -388,6 +452,7 @@ class TrainingSpec:
             self.episode_weighting is not None
             or self.weight_reference_rows is not None
             or self.source_counts is not None
+            or self.contractive is not None
         )
 
 
@@ -415,6 +480,25 @@ def _check_weighting(spec: TrainingSpec) -> None:
         msg = (
             "equal-episode weighting expresses copies as source_counts; additional_repeats and augmentation are "
             "the separate repetition and varied-data constructions"
+        )
+        raise ValueError(msg)
+
+
+def _check_contractive(spec: TrainingSpec) -> None:
+    """The contractive bank grows exactly one parent: one dataset at multiplicity one, plus its synthetics.
+
+    The weighting rules already exclude the repetition and inherited-augmentation
+    constructions, because the contractive spec is recorded with
+    ``source_counts``; what remains to state here is that the bank has a single
+    parent, so ``episode_count`` is ``1 + n_synthetic`` and the ridge rule gives
+    ``K alpha_0`` with no special case.
+    """
+    if spec.contractive is None:
+        return
+    if spec.source_counts != (1,):
+        msg = (
+            "the contractive bank grows one parent's demonstration: it needs exactly one dataset at multiplicity "
+            f"one (source_counts (1,)), got {spec.source_counts!r}; copies are the separate duplication control"
         )
         raise ValueError(msg)
 
@@ -614,11 +698,13 @@ class ModelRecipe:
         """Reconstruct the (unfitted) model from the hyperparameters and seeds."""
         return EsnModel(self.esn, input_dim=self.input_dim, output_dim=self.output_dim)
 
-    def episodes(self, samples: Mapping[str, SampleSet], *, scenario: ScenarioConfig | None = None) -> list[Episode]:
+    def episodes(self, samples: Mapping[str, SampleSet], *, scenario: TaskGeometry | None = None) -> list[Episode]:
         """Build the training episodes from the referenced datasets, in training order.
 
-        Augmented recipes regenerate their synthetic episodes deterministically
-        and need the ``scenario`` (envelope and validity limits).
+        Augmented and contractive recipes regenerate their synthetic episodes
+        deterministically and need the ``scenario`` (envelope and validity
+        limits); the contractive construction reads it through either task
+        schema, while the inherited augmentation requires the scripted one.
         """
         missing = [d.artifact_id for d in self.datasets if d.artifact_id not in samples]
         if missing:
@@ -645,7 +731,7 @@ class ModelRecipe:
         samples: Mapping[str, SampleSet],
         *,
         installed: RclibIdentity | None = None,
-        scenario: ScenarioConfig | None = None,
+        scenario: TaskGeometry | None = None,
     ) -> tuple[EsnModel, FitReport]:
         """Rebuild and refit the model; fail unless the rclib pin matches and the fit report is reproduced."""
         self.require_rclib(installed)
@@ -791,6 +877,10 @@ def expected_episode_labels(spec: TrainingSpec, ids: tuple[str, ...]) -> tuple[s
         for artifact, count in zip(ids, spec.source_counts, strict=True):
             labels.append(artifact)
             labels.extend(f"{artifact}#copy-{index:03d}" for index in range(1, count))
+        contractive = spec.contractive
+        if contractive is not None:
+            # The construction admits exactly one dataset, so the parent is ids[0] and its bank follows it.
+            labels.extend(f"{ids[0]}#contractive-{index:03d}" for index in range(1, contractive.n_synthetic + 1))
         return tuple(labels)
     if spec.additional_repeats is not None:
         if len(ids) != 1:
@@ -868,6 +958,72 @@ def _weighted_episodes(
     return episodes
 
 
+def _contractive_episodes(
+    spec: TrainingSpec,
+    source: DatasetSource,
+    samples: Mapping[str, SampleSet],
+    encoder: InputEncoder,
+    *,
+    warmup: WarmupConfig,
+    period_s: float,
+    derivatives: DerivativeConfig,
+    scenario: TaskGeometry | None,
+) -> list[Episode]:
+    """The parent's contractive bank, regenerated from its recorded arrays alone (manual plan section 11).
+
+    Every synthetic episode is built with the parent's own task clock and task
+    code, so the recorded pre-roll trains and the warm-up stays a separate
+    prefix, and the frozen envelope keeps the parent's first sample and final
+    dwell bitwise (M3MAN-006).
+
+    Raises
+    ------
+    ValueError
+        If the scenario is missing, or the bank cannot be grown; the error
+        names the parent and keeps the generator's own failure, with its
+        complete rejection accounting, as its cause. A short bank is never
+        returned silently.
+    """
+    contractive = cast("ContractiveTrainingSpec", spec.contractive)
+    if scenario is None:
+        msg = (
+            "contractive training needs the scenario (endpoint envelope and validity limits); "
+            "pass scenario=... to episodes()/refit()/create_recipe()"
+        )
+        raise ValueError(msg)
+    parent = samples[source.artifact_id]
+    try:
+        result = generate_manual_augmentation(
+            parent.t,
+            parent.q,
+            scenario,
+            contractive.config(source.artifact_id),
+            dwell_start_s=contractive.dwell_start_s,
+            period_s=period_s,
+            derivatives=derivatives,
+        )
+    except AugmentationError as exc:
+        msg = (
+            f"the contractive bank of parent {source.artifact_id} (seed bank {contractive.seed_bank}) could not be "
+            f"regenerated: {exc}"
+        )
+        raise ValueError(msg) from exc
+    return [
+        build_task_episode_arrays(
+            parent.t,
+            episode.arrays.q,
+            episode.arrays.dq,
+            parent.task_code,
+            encoder,
+            source=f"{source.artifact_id}#contractive-{episode.episode:03d}",
+            warmup=warmup,
+            period_s=period_s,
+            target=spec.target,
+        )
+        for episode in result.episodes
+    ]
+
+
 def _build_episodes(
     spec: TrainingSpec,
     sources: Sequence[DatasetSource],
@@ -875,7 +1031,7 @@ def _build_episodes(
     encoder: InputEncoder,
     preprocessing: Preprocessing,
     *,
-    scenario: ScenarioConfig | None = None,
+    scenario: TaskGeometry | None = None,
 ) -> list[Episode]:
     """Build the training episodes under the spec's washout policy (shared by training and refit)."""
     if spec.washout != "warmup_hold":
@@ -883,7 +1039,21 @@ def _build_episodes(
     warmup = WarmupConfig(cast("float", spec.warmup_s))
     period = preprocessing.resample_period_s
     if spec.source_counts is not None:
-        return _weighted_episodes(spec, sources, samples, encoder, warmup=warmup, period_s=period)
+        episodes = _weighted_episodes(spec, sources, samples, encoder, warmup=warmup, period_s=period)
+        if spec.contractive is not None:
+            episodes.extend(
+                _contractive_episodes(
+                    spec,
+                    sources[0],  # _check_contractive enforces exactly one dataset for the contractive construction
+                    samples,
+                    encoder,
+                    warmup=warmup,
+                    period_s=period,
+                    derivatives=_derivatives(preprocessing),
+                    scenario=scenario,
+                )
+            )
+        return episodes
     episodes = [
         build_task_episode(
             samples[s.artifact_id],
@@ -919,6 +1089,13 @@ def _build_episodes(
             "pass scenario=... to episodes()/refit()/create_recipe()"
         )
         raise ValueError(msg)
+    if not isinstance(scenario, ScenarioConfig):
+        msg = (
+            "the inherited augmentation regenerates from the scripted task schema, whose configured timing and "
+            f"intervals it reads; got {type(scenario).__name__}. The manual protocol's own construction is the "
+            "contractive bank."
+        )
+        raise TypeError(msg)
     (source,) = sources  # expected_episode_labels enforces exactly one dataset for augmented recipes
     sample_set = samples[source.artifact_id]
     task = task_intervals_from_phases(sample_set.t, sample_set.phase)
@@ -956,7 +1133,7 @@ def create_recipe(
     training: TrainingSpec | None = None,
     rclib: RclibIdentity | None = None,
     tolerance: FitTolerance | None = None,
-    scenario: ScenarioConfig | None = None,
+    scenario: TaskGeometry | None = None,
     validation: TrainingValidation | None = None,
     transform_source: DatasetSource | None = None,
 ) -> tuple[ModelRecipe, EsnModel]:

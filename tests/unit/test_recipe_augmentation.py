@@ -9,6 +9,7 @@ import numpy as np
 import pytest
 
 from arm_rc_ctrl.data.derivatives import DerivativeConfig, differentiate
+from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
 from arm_rc_ctrl.data.normalization import fit_normalization
 from arm_rc_ctrl.data.records import Preprocessing
 from arm_rc_ctrl.data.samples import SampleSet
@@ -173,3 +174,15 @@ def test_increment_target_requires_warmup_hold_and_refits_exactly() -> None:
     first = episodes[0]
     assert np.array_equal(first.targets[first.washout_len :], np.diff(samples.q, axis=0))
     assert np.array_equal(first.targets[: first.washout_len], np.zeros((first.washout_len, 2)))
+
+
+def test_the_inherited_augmentation_requires_the_scripted_task_schema() -> None:
+    """The recovery families regenerate from the scripted timing; the manual schema has its own construction."""
+    samples = _samples()
+    spec = TrainingSpec(washout="warmup_hold", warmup_s=0.25, augmentation=AUGMENTATION)
+    recipe, _model = _build(samples, spec=spec, scenario=SCENARIO)
+    manual = load_manual_scenario(
+        repository_root() / "tests" / "fixtures" / "configs" / "planar_2dof_manual_fixture.toml"
+    )
+    with pytest.raises(TypeError, match="scripted task schema"):
+        recipe.episodes({SOURCE_ID: samples}, scenario=manual)

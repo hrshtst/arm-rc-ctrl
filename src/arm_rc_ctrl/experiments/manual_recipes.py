@@ -10,10 +10,12 @@ with one arm over the locked demonstration bank:
 - ``S_i``: demonstration ``D_i`` once, at ``alpha_0``;
 - ``M10``: all ten demonstrations once each, at ``10 alpha_0``;
 - ``R10_i``: ten exact copies of ``D_i``, at ``10 alpha_0`` — the
-  episode-count and weight-matched duplication control.
+  episode-count and weight-matched duplication control;
+- ``C10_i``: ``D_i`` plus the nine contractive episodes grown from it
+  (M3MAN-006), also at ``10 alpha_0`` — the synthetic comparison at the same
+  episode count and total loss weight.
 
-``C10_i`` (the contractive arm) is built by the augmentation task and is not
-constructed here.
+``M100`` and the fixed-alpha diagnostics stay deferred (D4).
 
 Every arm shares one construction, frozen in :data:`MANUAL_ANCHOR`: each
 episode is a complete recording (its recorded pre-roll trains too), episodes
@@ -34,9 +36,11 @@ from typing import TYPE_CHECKING, Final, cast
 from arm_rc_ctrl.config import to_mapping
 from arm_rc_ctrl.data.records import load_record
 from arm_rc_ctrl.provenance import canonical_json, sha256_bytes
+from arm_rc_ctrl.rc.augment import MANUAL_N_SYNTHETIC
 from arm_rc_ctrl.rc.esn import EsnConfig
 from arm_rc_ctrl.rc.recipe import (
     EQUAL_EPISODE_WEIGHTING,
+    ContractiveTrainingSpec,
     DatasetSource,
     TrainingSpec,
     create_recipe,
@@ -51,18 +55,20 @@ if TYPE_CHECKING:
     from arm_rc_ctrl.data.records import Preprocessing
     from arm_rc_ctrl.data.samples import SampleSet
     from arm_rc_ctrl.experiments.manual_bank import BankManifest
+    from arm_rc_ctrl.rc.augment import TaskGeometry
     from arm_rc_ctrl.rc.esn import EsnModel, ReadoutConfig
     from arm_rc_ctrl.rc.recipe import ModelRecipe, TrainingValidation
     from arm_rc_ctrl.rc.teacher_forcing import InputTransform
-    from arm_rc_ctrl.scenario import ScenarioConfig
 
 __all__ = [
     "ARMS",
     "ASSIGNMENTS",
     "BANK_SIZE",
+    "CONTRACTIVE_ARM",
     "COPIES",
     "MANUAL_ANCHOR",
     "ROWS_REFERENCE",
+    "SYNTHETIC_EPISODES",
     "TRANSFORM_SOURCE",
     "ArmAccounting",
     "ManualAnchor",
@@ -78,13 +84,17 @@ __all__ = [
     "training_spec_for_arm",
 ]
 
-ARMS: Final = ("S", "M10", "R10")
-"""The arms this module builds (D4); the contractive arm ``C10`` is the augmentation task's."""
+ARMS: Final = ("S", "M10", "R10", "C10")
+"""The approved arms (D4); ``M100`` and the fixed-alpha diagnostics stay deferred."""
+CONTRACTIVE_ARM: Final = "C10"
+"""The arm whose episodes are one demonstration plus the contractive bank grown from it (M3MAN-006)."""
 BANK_SIZE: Final = 10
 """Accepted demonstrations in the locked bank, assigned ``D01`` .. ``D10``."""
 ASSIGNMENTS: Final = tuple(f"D{index:02d}" for index in range(1, BANK_SIZE + 1))
 COPIES: Final = 10
 """Episodes of the duplication control ``R10``: ten exact copies of one demonstration."""
+SYNTHETIC_EPISODES: Final = MANUAL_N_SYNTHETIC
+"""Contractive episodes ``C10`` adds to its parent; frozen by the manual augmentation protocol."""
 ROWS_REFERENCE: Final = 400
 """The historical row-count reference ``R`` of the weight ``R / L_i``; not a required length for new takes."""
 TRANSFORM_SOURCE: Final = DatasetSource(
@@ -136,11 +146,11 @@ MANUAL_ANCHOR: Final = ManualAnchor()
 
 @dataclass(frozen=True)
 class ManualArmSpec:
-    """One approved arm: a singleton, the all-ten model, or a ten-copy duplication control."""
+    """One approved arm: a singleton, the all-ten model, a ten-copy duplication control, or a contractive bank."""
 
     arm: str
     assignment: str | None = None
-    """``D01`` .. ``D10`` for ``S`` and ``R10``; ``None`` for ``M10``, which uses the whole bank."""
+    """``D01`` .. ``D10`` for ``S``, ``R10``, and ``C10``; ``None`` for ``M10``, which uses the whole bank."""
 
     def __post_init__(self) -> None:
         """Only the approved arm and assignment combinations exist."""
@@ -171,6 +181,11 @@ class ManualArmSpec:
         return COPIES if self.arm == "R10" else 1
 
     @property
+    def synthetic(self) -> int:
+        """Contractive episodes grown from the arm's parent; zero for every recorded-data arm."""
+        return SYNTHETIC_EPISODES if self.arm == CONTRACTIVE_ARM else 0
+
+    @property
     def source_counts(self) -> tuple[int, ...]:
         """The recipe's source multiplicities, aligned with :attr:`assignments`."""
         return tuple(self.copies_per_source for _ in self.assignments)
@@ -178,7 +193,7 @@ class ManualArmSpec:
     @property
     def count(self) -> int:
         """The episode count ``K`` the ridge parameter and the weighting refer to."""
-        return sum(self.source_counts)
+        return sum(self.source_counts) + self.synthetic
 
     @property
     def unique_sources(self) -> int:
@@ -187,21 +202,50 @@ class ManualArmSpec:
 
     @property
     def copies(self) -> int:
-        """Episodes that are exact copies of another episode of the same fit."""
-        return self.count - self.unique_sources
+        """Episodes that are exact copies of another episode of the same fit (never the synthetic ones)."""
+        return self.count - self.unique_sources - self.synthetic
 
 
 def manual_arms() -> tuple[ManualArmSpec, ...]:
-    """Every approved arm in report order: ten singletons, the all-ten model, and ten duplication controls."""
+    """Every approved arm in report order: singletons, the all-ten model, duplication controls, contractive banks."""
     singles = [ManualArmSpec("S", assignment) for assignment in ASSIGNMENTS]
     repeats = [ManualArmSpec("R10", assignment) for assignment in ASSIGNMENTS]
-    return (*singles, ManualArmSpec("M10"), *repeats)
+    banks = [ManualArmSpec(CONTRACTIVE_ARM, assignment) for assignment in ASSIGNMENTS]
+    return (*singles, ManualArmSpec("M10"), *repeats, *banks)
+
+
+def _contractive_for(arm: ManualArmSpec, contractive: ContractiveTrainingSpec | None) -> ContractiveTrainingSpec | None:
+    """The arm's contractive construction; the two arms and constructions must agree."""
+    if arm.arm == CONTRACTIVE_ARM:
+        if contractive is None:
+            msg = (
+                f"arm {arm.label} grows a contractive bank and needs its construction: the seed bank and the "
+                "parent's recorded dwell onset"
+            )
+            raise ValueError(msg)
+        return contractive
+    if contractive is not None:
+        msg = (
+            f"arm {arm.label} trains on recorded episodes only; a contractive construction belongs to a "
+            f"{CONTRACTIVE_ARM} arm"
+        )
+        raise ValueError(msg)
+    return None
 
 
 def training_spec_for_arm(
-    arm: ManualArmSpec, *, warmup_s: float, base_alpha: float, anchor: ManualAnchor = MANUAL_ANCHOR
+    arm: ManualArmSpec,
+    *,
+    warmup_s: float,
+    base_alpha: float,
+    anchor: ManualAnchor = MANUAL_ANCHOR,
+    contractive: ContractiveTrainingSpec | None = None,
 ) -> TrainingSpec:
-    """The arm's training construction: inherited warm-up, equal-episode weighting, and its multiplicities."""
+    """The arm's training construction: inherited warm-up, equal-episode weighting, and its multiplicities.
+
+    ``C10`` additionally records the contractive construction its nine synthetic
+    episodes regenerate from; every other arm refuses one.
+    """
     return TrainingSpec(
         washout=anchor.washout,
         warmup_s=warmup_s,
@@ -211,6 +255,7 @@ def training_spec_for_arm(
         source_counts=arm.source_counts,
         base_alpha=base_alpha,
         regularization_rule=anchor.regularization_rule,
+        contractive=_contractive_for(arm, contractive),
     )
 
 
@@ -285,6 +330,8 @@ class ArmAccounting:
     assignments: tuple[str, ...]
     unique_sources: int
     copies: int
+    synthetic: int
+    """Contractive episodes grown from the arm's parent; recorded apart from copies (plan section 4)."""
     episodes: int
     loss_rows: tuple[int, ...]
     """Raw loss rows of every episode in training order; a copy repeats its parent's count."""
@@ -303,8 +350,11 @@ class ArmAccounting:
         if len(self.loss_rows) != self.episodes or len(self.row_weights) != self.episodes:
             msg = f"{self.label}: one loss-row count and one weight per episode ({self.episodes}) are required"
             raise ValueError(msg)
-        if self.episodes != self.unique_sources + self.copies or self.unique_sources < 1:
-            msg = f"{self.label}: episodes must be the unique sources plus their copies"
+        if self.episodes != self.unique_sources + self.copies + self.synthetic or self.unique_sources < 1:
+            msg = f"{self.label}: episodes must be the unique sources plus their copies and synthetic episodes"
+            raise ValueError(msg)
+        if self.copies and self.synthetic:
+            msg = f"{self.label}: an arm duplicates its parent or grows a bank from it, never both"
             raise ValueError(msg)
         if any(rows < 1 for rows in self.loss_rows) or any(weight <= 0 for weight in self.row_weights):
             msg = f"{self.label}: loss rows and weights must be positive"
@@ -331,6 +381,10 @@ def arm_accounting(
     rows: list[int] = []
     for name in arm.assignments:
         rows.extend([loss_rows[name]] * arm.copies_per_source)
+    if arm.synthetic:
+        # A contractive episode is the parent perturbed in place: same grid, same length, same row weight.
+        (parent,) = arm.assignments
+        rows.extend([loss_rows[parent]] * arm.synthetic)
     weights = tuple(anchor.weight_reference_rows / count for count in rows)
     return ArmAccounting(
         label=arm.label,
@@ -338,6 +392,7 @@ def arm_accounting(
         assignments=arm.assignments,
         unique_sources=arm.unique_sources,
         copies=arm.copies,
+        synthetic=arm.synthetic,
         episodes=arm.count,
         loss_rows=tuple(rows),
         row_weights=weights,
@@ -362,14 +417,19 @@ def fit_identity(
     anchor: ManualAnchor = MANUAL_ANCHOR,
     rclib_commit: str,
     execution_identity: str,
+    contractive: ContractiveTrainingSpec | None = None,
 ) -> str:
     """SHA-256 identity of one fit: every input that decides the fitted readout, including the environment.
 
     The execution environment (:attr:`~arm_rc_ctrl.execution.ExecutionRecord.identity`)
     is part of the key, so a fit produced on another core type or thread
-    setting is never served from a cache (clarification C10).
+    setting is never served from a cache (clarification C10). A contractive arm
+    additionally binds the construction its synthetic episodes regenerate from,
+    so two seed banks never share a key; the recorded-data arms keep the key
+    they had, because the entry appears only where the construction does.
     """
-    mapping = {
+    construction = _contractive_for(arm, contractive)
+    mapping: dict[str, object] = {
         "configuration": configuration,
         "arm": to_mapping(arm),
         "label": arm.label,
@@ -386,6 +446,8 @@ def fit_identity(
         "rclib_commit": rclib_commit,
         "execution_identity": execution_identity,
     }
+    if construction is not None:
+        mapping["contractive"] = to_mapping(construction)
     return sha256_bytes(canonical_json(mapping).encode("utf-8"))
 
 
@@ -402,9 +464,10 @@ def recipe_for_arm(
     validation: TrainingValidation,
     warmup_s: float,
     base_alpha: float,
-    scenario: ScenarioConfig | None = None,
+    scenario: TaskGeometry | None = None,
     anchor: ManualAnchor = MANUAL_ANCHOR,
     name: str | None = None,
+    contractive: ContractiveTrainingSpec | None = None,
 ) -> tuple[ModelRecipe, EsnModel]:
     """Fit one arm over the locked bank and return the schema 3 recipe that reproduces it, plus the model.
 
@@ -412,6 +475,8 @@ def recipe_for_arm(
     explicit-bias form at ``K alpha_0``, the transform must be the frozen one
     copied from :attr:`ManualAnchor.transform_source`, and the copies of
     ``R10`` are recorded as source multiplicities, never as duplicated data.
+    ``C10`` records its ``contractive`` construction instead and regenerates the
+    bank from its parent, so the synthetic episodes are never stored either.
     """
     if transform.derived_from != (anchor.transform_source.artifact_id,):
         msg = (
@@ -429,7 +494,9 @@ def recipe_for_arm(
         task_code_dim=task_code_dim,
         preprocessing=preprocessing,
         transform=transform,
-        training=training_spec_for_arm(arm, warmup_s=warmup_s, base_alpha=base_alpha, anchor=anchor),
+        training=training_spec_for_arm(
+            arm, warmup_s=warmup_s, base_alpha=base_alpha, anchor=anchor, contractive=contractive
+        ),
         scenario=scenario,
         validation=validation,
         transform_source=anchor.transform_source,

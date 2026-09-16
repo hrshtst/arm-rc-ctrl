@@ -19,12 +19,16 @@ import numpy as np
 import pytest
 
 from arm_rc_ctrl.data.derivatives import DerivativeConfig, differentiate
+from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
 from arm_rc_ctrl.data.records import Normalization, Preprocessing, ProcessedDatasetRecord, load_record
 from arm_rc_ctrl.data.samples import SampleSet
+from arm_rc_ctrl.rc.augment import MANUAL_N_SYNTHETIC
 from arm_rc_ctrl.rc.esn import EsnConfig, ReadoutConfig, ReservoirConfig
 from arm_rc_ctrl.rc.recipe import (
     EQUAL_EPISODE_WEIGHTING,
     WEIGHTED_SCHEMA_VERSION,
+    AugmentationTrainingSpec,
+    ContractiveTrainingSpec,
     DatasetSource,
     ModelRecipe,
     RecipeMismatchError,
@@ -44,6 +48,7 @@ from arm_rc_ctrl.scenario import endpoint_positions, load_scenario
 if TYPE_CHECKING:
     from pathlib import Path
 
+    from arm_rc_ctrl.rc.augment import TaskGeometry
     from arm_rc_ctrl.rc.esn import EsnModel
 
 
@@ -93,11 +98,26 @@ def _samples(n: int, goal: tuple[float, float]) -> SampleSet:
     return SampleSet(t, q, dq, ddq, tip, dtip, ddtip, np.zeros((n, 0)), phase)
 
 
+PARENT = DatasetSource("processed-20260916-333333333333", "ef" * 32, "data/records/processed/parent.toml")
+"""The contractive arm's parent: a 1.50 s recording with room for the frozen 0.5 s ramp before the taper window."""
 FIRST_SAMPLES = _samples(61, (0.8, 0.4))
 SECOND_SAMPLES = _samples(41, (0.7, 0.5))
-SAMPLES = {FIRST.artifact_id: FIRST_SAMPLES, SECOND.artifact_id: SECOND_SAMPLES}
+PARENT_SAMPLES = _samples(151, (0.8, 0.4))
+SAMPLES = {
+    FIRST.artifact_id: FIRST_SAMPLES,
+    SECOND.artifact_id: SECOND_SAMPLES,
+    PARENT.artifact_id: PARENT_SAMPLES,
+}
 FIRST_ROWS = FIRST_SAMPLES.n_samples - 1
 SECOND_ROWS = SECOND_SAMPLES.n_samples - 1
+PARENT_ROWS = PARENT_SAMPLES.n_samples - 1
+DWELL_START_S = float(PARENT_SAMPLES.t[-1]) - 0.1
+CONTRACTIVE = ContractiveTrainingSpec(seed_bank=5, dwell_start_s=DWELL_START_S)
+MANUAL_SCENARIO_FILE = REPO_ROOT / "tests" / "fixtures" / "configs" / "planar_2dof_manual_fixture.toml"
+MANUAL_SCENARIO = load_manual_scenario(MANUAL_SCENARIO_FILE)
+AUGMENTATION = AugmentationTrainingSpec(
+    family="contractive", n_synthetic=16, sigma_rad=0.025, phi=0.99, gamma=1.0, seed_bank=1, attempt_budget=64
+)
 
 
 def _spec(
@@ -105,6 +125,7 @@ def _spec(
     *,
     weighting: str | None = EQUAL_EPISODE_WEIGHTING,
     reference: int | None = ROWS_REFERENCE,
+    contractive: ContractiveTrainingSpec | None = None,
 ) -> TrainingSpec:
     return TrainingSpec(
         washout="warmup_hold",
@@ -114,6 +135,7 @@ def _spec(
         source_counts=counts,
         base_alpha=BASE_ALPHA,
         regularization_rule="count_scaled",
+        contractive=contractive,
     )
 
 
@@ -128,18 +150,25 @@ def _validation() -> TrainingValidation:
     return TrainingValidation.from_scenario(SCENARIO, SCENARIO_FILE, root=REPO_ROOT)
 
 
-def _build(sources: list[DatasetSource], counts: tuple[int, ...]) -> tuple[ModelRecipe, EsnModel]:
+def _build(
+    sources: list[DatasetSource],
+    counts: tuple[int, ...],
+    *,
+    contractive: ContractiveTrainingSpec | None = None,
+    scenario: TaskGeometry | None = SCENARIO,
+) -> tuple[ModelRecipe, EsnModel]:
+    spec = _spec(counts, contractive=contractive)
     return create_recipe(
         "manual-weighted-test",
-        _esn(sum(counts)),
+        _esn(spec.episode_count),
         sources=sources,
         samples=SAMPLES,
         dof=2,
         task_code_dim=0,
         preprocessing=PREPROCESSING,
         transform=TRANSFORM,
-        training=_spec(counts),
-        scenario=SCENARIO,
+        training=spec,
+        scenario=scenario,
         validation=_validation(),
         transform_source=FROZEN_SOURCE,
     )
@@ -333,3 +362,98 @@ def test_schema_three_records_the_weighting_its_fit_used() -> None:
     unweighted = dataclasses.replace(recipe.fit, episode_loss_rows=None, episode_weights=None)
     with pytest.raises(ValueError, match="per-episode loss rows and weights"):
         dataclasses.replace(recipe, fit=unweighted)
+
+
+def test_the_contractive_construction_is_one_parent_and_its_frozen_bank() -> None:
+    """Nine synthetic episodes join one parent at multiplicity one; copies and the inherited augmentation are out."""
+    spec = _spec((1,), contractive=CONTRACTIVE)
+    assert spec.contractive == CONTRACTIVE
+    assert CONTRACTIVE.n_synthetic == MANUAL_N_SYNTHETIC
+    assert spec.episode_count == 1 + MANUAL_N_SYNTHETIC == 10
+    assert spec.uses_weighted_features
+    assert TrainingSpec(washout="warmup_hold", warmup_s=WARMUP_S).contractive is None
+
+    with pytest.raises(ValueError, match="exactly one dataset at multiplicity one"):
+        _spec((1, 1), contractive=CONTRACTIVE)  # a contractive recipe grows exactly one parent's bank
+    with pytest.raises(ValueError, match="exactly one dataset at multiplicity one"):
+        _spec((10,), contractive=CONTRACTIVE)  # copies are the separate duplication control
+    with pytest.raises(ValueError, match="exactly one dataset at multiplicity one"):
+        TrainingSpec(washout="warmup_hold", warmup_s=WARMUP_S, contractive=CONTRACTIVE)
+    with pytest.raises(ValueError, match="separate repetition and varied-data constructions"):
+        dataclasses.replace(_spec((1,), contractive=CONTRACTIVE), augmentation=AUGMENTATION)
+    with pytest.raises(ValueError, match="separate repetition and varied-data constructions"):
+        dataclasses.replace(_spec((1,), contractive=CONTRACTIVE), additional_repeats=16)
+    with pytest.raises(ValueError, match="seed_bank"):
+        ContractiveTrainingSpec(seed_bank=-1, dwell_start_s=DWELL_START_S)
+    with pytest.raises(ValueError, match="dwell_start_s"):
+        ContractiveTrainingSpec(seed_bank=1, dwell_start_s=0.0)
+
+
+def test_a_contractive_recipe_trains_its_parent_with_the_regenerated_bank(tmp_path: Path) -> None:
+    """Schema 3 with a contractive bank: ten episodes at ten alpha_0, written, reloaded, and refitted exactly."""
+    recipe, _model = _build([PARENT], (1,), contractive=CONTRACTIVE, scenario=MANUAL_SCENARIO)
+    assert recipe.schema_version == WEIGHTED_SCHEMA_VERSION
+    assert recipe.training.contractive == CONTRACTIVE
+    assert recipe.training.episode_count == 10
+    assert recipe.solver_alpha == 10 * BASE_ALPHA
+    labels = expected_episode_labels(recipe.training, (PARENT.artifact_id,))
+    assert labels == recipe.fit.episodes
+    assert labels[0] == PARENT.artifact_id
+    assert labels[1] == f"{PARENT.artifact_id}#contractive-001"
+    assert labels[-1] == f"{PARENT.artifact_id}#contractive-{MANUAL_N_SYNTHETIC:03d}"
+    assert recipe.fit.episode_loss_rows == (PARENT_ROWS,) * 10
+    assert recipe.fit.episode_weights == (ROWS_REFERENCE / PARENT_ROWS,) * 10
+    assert recipe.fit.loss_rows == 10 * PARENT_ROWS
+
+    file = tmp_path / "contractive.toml"
+    write_recipe(file, recipe)
+    text = file.read_text(encoding="utf-8")
+    assert "[training.contractive]" in text
+    assert "seed_bank = 5" in text
+    loaded = load_recipe(file)
+    assert loaded == recipe
+    _refit, report = loaded.refit(SAMPLES, scenario=MANUAL_SCENARIO)
+    assert report == recipe.fit
+
+
+def test_the_historical_schemas_refuse_the_contractive_bank() -> None:
+    """Only schema 3 may carry the manual protocol's contractive construction."""
+    recipe, _model = _build([PARENT], (1,), contractive=CONTRACTIVE, scenario=MANUAL_SCENARIO)
+    with pytest.raises(ValueError, match="need a schema 3 recipe"):
+        dataclasses.replace(recipe, schema_version=2)
+    unbound = dataclasses.replace(recipe.training, base_alpha=None, regularization_rule=None)
+    with pytest.raises(ValueError, match="need a schema 3 recipe"):
+        dataclasses.replace(recipe, schema_version=1, validation=None, transform_source=None, training=unbound)
+
+
+def test_a_contractive_bank_that_cannot_be_grown_names_its_parent() -> None:
+    """A generation failure is reported with the parent it belongs to, never as a silently short bank."""
+    unreachable = dataclasses.replace(CONTRACTIVE, dwell_start_s=10.0)  # past the end of the recording
+    with pytest.raises(ValueError, match=PARENT.artifact_id) as excinfo:
+        _build([PARENT], (1,), contractive=unreachable, scenario=MANUAL_SCENARIO)
+    assert "dwell onset" in str(excinfo.value.__cause__)  # the generator's own diagnosis stays attached
+    with pytest.raises(ValueError, match="scenario"):
+        _build([PARENT], (1,), contractive=CONTRACTIVE, scenario=None)
+
+
+def test_training_validation_accepts_both_task_schemas() -> None:
+    """The manual protocol binds a ManualScenarioConfig; both schemas report the same limits for the same arm."""
+    scripted = _validation()
+    manual = TrainingValidation.from_scenario(MANUAL_SCENARIO, MANUAL_SCENARIO_FILE, root=REPO_ROOT)
+    assert manual.scenario_file == "tests/fixtures/configs/planar_2dof_manual_fixture.toml"
+    assert manual.scenario_sha256 != scripted.scenario_sha256  # a different file is bound
+    limits = ("velocity_limit", "joint_lower", "joint_upper", "endpoint_radius")
+    assert [getattr(manual, name) for name in limits] == [getattr(scripted, name) for name in limits]
+    # Both schemas describe the same fixture arm, so either validation accepts either configuration.
+    manual.check(MANUAL_SCENARIO)
+    manual.check(SCENARIO)
+    scripted.check(MANUAL_SCENARIO)
+    assert scripted == _validation()  # existing callers are unchanged
+
+    slower = dataclasses.replace(
+        MANUAL_SCENARIO,
+        limits=dataclasses.replace(MANUAL_SCENARIO.limits, velocity=(1.0, 1.0)),
+        acquisition=dataclasses.replace(MANUAL_SCENARIO.acquisition, velocity_bound_rad_s=1.0),
+    )
+    with pytest.raises(ValueError, match="training-validation limits"):
+        manual.check(slower)
