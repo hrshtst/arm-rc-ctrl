@@ -21,6 +21,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import pytest
 
+from arm_rc_ctrl.config import to_mapping
 from arm_rc_ctrl.data.arrays import array_digest
 from arm_rc_ctrl.data.derivatives import DerivativeConfig, differentiate
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario, manual_endpoint_positions
@@ -45,7 +46,12 @@ from arm_rc_ctrl.experiments.manual_recipes import (
     ROWS_REFERENCE,
     SYNTHETIC_EPISODES,
     TRANSFORM_SOURCE,
+    ArmAccounting,
+    ManualAnchor,
     ManualArmSpec,
+    arm_accounting,
+    esn_for_arm,
+    fit_identity,
     manual_arms,
 )
 from arm_rc_ctrl.experiments.manual_study import (
@@ -65,6 +71,7 @@ from arm_rc_ctrl.experiments.manual_study import (
 )
 from arm_rc_ctrl.experiments.repetition_panel import load_panel
 from arm_rc_ctrl.provenance import DirtyWorktreeError, ProvenanceRecord, collect_provenance, sha256_file
+from arm_rc_ctrl.rc.esn import EsnConfig
 from arm_rc_ctrl.rc.recipe import DatasetSource, RclibIdentity, TrainingValidation
 from arm_rc_ctrl.rc.train import load_model_config
 from arm_rc_ctrl.repo import repository_root
@@ -282,7 +289,7 @@ def test_manifest_enumerates_the_186_models_of_the_approved_scope(manifest: Stud
     assert sum(kinds.values()) == MODEL_COUNT
     assert manifest.models_by_arm == kinds
     assert manifest.entry("feasible-best", "S/D01").label == "feasible-best/S/D01"
-    assert [d.artifact_id for d in manifest.entry("feasible-best", "M10").datasets] == list(IDS)
+    assert [d.artifact_id for d in manifest.datasets(manifest.entry("feasible-best", "M10"))] == list(IDS)
     assert manifest.configuration("feasible-worst").source_trial == 53
     with pytest.raises(KeyError):
         manifest.entry("feasible-best", "M100")  # the whole-bank duplication control stays deferred (D4)
@@ -296,33 +303,34 @@ def test_solver_alphas_are_the_episode_count_times_the_configuration_alpha(manif
     panel_alphas = {e.label: e.base_alpha for e in PANEL.entries}
     for entry in manifest.entries:
         configuration = by_label[entry.configuration]
+        accounting, esn = manifest.accounting(entry), manifest.esn(entry)
         count = 1 if entry.arm.arm == "S" else 10
-        assert entry.arm.count == count == entry.accounting.episodes == entry.episodes
+        assert entry.arm.count == count == accounting.episodes == entry.episodes
         assert configuration.base_alpha == panel_alphas[entry.configuration]
-        assert entry.accounting.base_alpha == configuration.base_alpha
-        assert entry.accounting.solver_alpha == count * configuration.base_alpha
-        assert entry.esn.readout.alpha == entry.accounting.solver_alpha
-        assert entry.esn.readout.explicit_bias is True
-        assert entry.esn.readout.include_bias is False
-        assert entry.esn.reservoir == configuration.reservoir
+        assert accounting.base_alpha == configuration.base_alpha
+        assert accounting.solver_alpha == count * configuration.base_alpha
+        assert esn.readout.alpha == accounting.solver_alpha
+        assert esn.readout.explicit_bias is True
+        assert esn.readout.include_bias is False
+        assert esn.reservoir == configuration.reservoir
         assert entry.warmup_s == configuration.warmup_s
         assert entry.source_trial == configuration.source_trial
-        assert entry.accounting.regularization_lambda == configuration.base_alpha / ROWS_REFERENCE
-        assert entry.accounting.total_loss_weight == pytest.approx(ROWS_REFERENCE * count)
-        assert entry.accounting.weight_reference_rows == MANUAL_ANCHOR.weight_reference_rows
+        assert accounting.regularization_lambda == configuration.base_alpha / ROWS_REFERENCE
+        assert accounting.total_loss_weight == pytest.approx(ROWS_REFERENCE * count)
+        assert accounting.weight_reference_rows == MANUAL_ANCHOR.weight_reference_rows
 
-    single = manifest.entry("feasible-best", "S/D02")
-    assert single.accounting.loss_rows == (LOSS_ROWS["D02"],)
-    assert single.accounting.row_weights == (ROWS_REFERENCE / LOSS_ROWS["D02"],)
-    everything = manifest.entry("feasible-best", "M10")
-    assert everything.accounting.loss_rows == tuple(LOSS_ROWS[name] for name in ASSIGNMENTS)
-    assert len(set(everything.accounting.row_weights)) == len(ASSIGNMENTS)  # unequal recordings, unequal weights
-    control = manifest.entry("feasible-best", "R10/D02")
-    assert control.accounting.loss_rows == (LOSS_ROWS["D02"],) * COPIES
-    assert (control.accounting.unique_sources, control.accounting.copies) == (1, COPIES - 1)
-    grown = manifest.entry("feasible-best", "C10/D02")
-    assert grown.accounting.synthetic == SYNTHETIC_EPISODES
-    assert grown.accounting.total_loss_weight == pytest.approx(everything.accounting.total_loss_weight)
+    single = manifest.accounting(manifest.entry("feasible-best", "S/D02"))
+    assert single.loss_rows == (LOSS_ROWS["D02"],)
+    assert single.row_weights == (ROWS_REFERENCE / LOSS_ROWS["D02"],)
+    everything = manifest.accounting(manifest.entry("feasible-best", "M10"))
+    assert everything.loss_rows == tuple(LOSS_ROWS[name] for name in ASSIGNMENTS)
+    assert len(set(everything.row_weights)) == len(ASSIGNMENTS)  # unequal recordings, unequal weights
+    control = manifest.accounting(manifest.entry("feasible-best", "R10/D02"))
+    assert control.loss_rows == (LOSS_ROWS["D02"],) * COPIES
+    assert (control.unique_sources, control.copies) == (1, COPIES - 1)
+    grown = manifest.accounting(manifest.entry("feasible-best", "C10/D02"))
+    assert grown.synthetic == SYNTHETIC_EPISODES
+    assert grown.total_loss_weight == pytest.approx(everything.total_loss_weight)
 
 
 def test_contractive_entries_bind_their_parents_bank_and_seed_bank(
@@ -337,7 +345,7 @@ def test_contractive_entries_bind_their_parents_bank_and_seed_bank(
         construction = entry.contractive
         assert construction is not None
         assert construction.assignment == entry.arm.assignment
-        assert construction.parent == entry.datasets[0].artifact_id
+        assert construction.parent == manifest.datasets(entry)[0].artifact_id
         assert construction.seed_bank == manifest.seed_bank == SEED_BANK
         assert construction.dwell_start_s == DWELL_START_S
         assert construction.bank_sha256 == banks[construction.assignment].bank_sha256
@@ -426,16 +434,50 @@ def test_tampered_manifests_are_refused_on_load(manifest: StudyManifest, tmp_pat
         file.write_text(json.dumps(document), encoding="utf-8")
         return load_study(file)
 
+    # The header records each demonstration once; a recording without a loss row fits nothing.
     counted = json.loads(study_to_json(manifest))
-    counted["entries"][0]["accounting"]["loss_rows"] = [counted["entries"][0]["accounting"]["loss_rows"][0] + 1]
-    with pytest.raises(ValueError, match="accounting"):
+    counted["demonstrations"][0]["loss_rows"] = 0
+    with pytest.raises(ValueError, match="loss_rows"):
         reload(counted)
 
-    # The fixed-alpha diagnostic stays deferred (D4): a ten-episode arm never trains at alpha_0.
+    # Two bank positions sharing one dataset would let M10 fit the same recording twice.
+    repeated = json.loads(study_to_json(manifest))
+    repeated["demonstrations"][1]["dataset"] = json.loads(json.dumps(repeated["demonstrations"][0]["dataset"]))
+    with pytest.raises(ValueError, match="distinct dataset"):
+        reload(repeated)
+
+    out_of_order = json.loads(study_to_json(manifest))
+    out_of_order["demonstrations"].reverse()
+    with pytest.raises(ValueError, match="bank order"):
+        reload(out_of_order)
+
+    # A dataset the header no longer binds by its committed payload no longer re-derives the keys it was hashed into.
+    payload = json.loads(study_to_json(manifest))
+    payload["demonstrations"][0]["dataset"]["payload_sha256"] = "ab" * 32
+    with pytest.raises(ValueError, match="does not re-derive"):
+        reload(payload)
+
+    foreign_parent = json.loads(study_to_json(manifest))
+    foreign_parent["demonstrations"][0]["dataset"]["artifact_id"] = "processed-20260916-000000000000"
+    with pytest.raises(ValueError, match="bank was grown from"):
+        reload(foreign_parent)
+
+    # The readout solver and the inherited reservoir are bound once and rebuild every entry's fitted configuration.
+    solver = json.loads(study_to_json(manifest))
+    solver["readout"]["solver"] = "dual_cholesky"
+    with pytest.raises(ValueError, match="does not re-derive"):
+        reload(solver)
+
+    reservoir = json.loads(study_to_json(manifest))
+    reservoir["configurations"][0]["reservoir"]["n_neurons"] += 1
+    with pytest.raises(ValueError, match="does not re-derive"):
+        reload(reservoir)
+
+    # The fixed-alpha diagnostic stays deferred (D4): the header binds the count-scaled ridge rule, and no
+    # document can state a ten-episode arm that trains at alpha_0.
     fixed_alpha = json.loads(study_to_json(manifest))
-    control = next(entry for entry in fixed_alpha["entries"] if entry["arm"]["arm"] == "R10")
-    control["esn"]["readout"]["alpha"] = control["accounting"]["base_alpha"]
-    with pytest.raises(ValueError, match="solver parameter"):
+    fixed_alpha["anchor"]["regularization_rule"] = "base"
+    with pytest.raises(ValueError, match="count_scaled"):
         reload(fixed_alpha)
 
     duplicated = json.loads(study_to_json(manifest))
@@ -463,6 +505,90 @@ def test_tampered_manifests_are_refused_on_load(manifest: StudyManifest, tmp_pat
     reordered["entries"].reverse()
     with pytest.raises(ValueError, match="report order"):
         reload(reordered)
+
+
+def test_entries_reference_the_header_instead_of_embedding_their_fit_inputs(manifest: StudyManifest) -> None:
+    """An entry stores what identifies it; its ESN, datasets, and accounting rebuild from the header it references."""
+    document = json.loads(study_to_json(manifest))
+    assert {key for entry in document["entries"] for key in entry} == {
+        "arm",
+        "configuration",
+        "contractive",
+        "execution_identity",
+        "fit_identity",
+        "source_trial",
+        "warmup_s",
+    }
+    assert [record["assignment"] for record in document["demonstrations"]] == list(ASSIGNMENTS)
+    assert document["readout"] == to_mapping(MODEL.esn.readout)
+    assert manifest.sources == {name: parent.dataset for name, parent in zip(ASSIGNMENTS, PARENTS, strict=True)}
+    assert manifest.loss_rows == LOSS_ROWS
+
+    entry = manifest.entry("feasible-middle", "R10/D03")
+    configuration = manifest.configuration("feasible-middle")
+    assert manifest.datasets(entry) == (PARENTS[2].dataset,)
+    assert manifest.esn(entry) == esn_for_arm(
+        EsnConfig(reservoir=configuration.reservoir, readout=MODEL.esn.readout),
+        entry.arm,
+        base_alpha=configuration.base_alpha,
+    )
+    assert manifest.accounting(entry) == arm_accounting(
+        entry.arm, base_alpha=configuration.base_alpha, loss_rows=LOSS_ROWS
+    )
+    # The recorded identity is the witness of the rebuild: it was hashed from exactly these values.
+    assert entry.fit_identity == fit_identity(
+        configuration=entry.configuration,
+        arm=entry.arm,
+        warmup_s=entry.warmup_s,
+        base_alpha=configuration.base_alpha,
+        esn=manifest.esn(entry),
+        datasets=manifest.datasets(entry),
+        transform=TRANSFORM,
+        validation=VALIDATION,
+        rclib_commit=RCLIB.commit,
+        execution_identity=EXECUTION.identity,
+    )
+
+
+def test_the_loader_refuses_a_rebuild_that_no_longer_matches_the_arms(
+    manifest: StudyManifest, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The rebuilt inputs are checked, not trusted: another ridge rule, accounting, or bias layout never loads."""
+    from arm_rc_ctrl.experiments import manual_study
+
+    # A ten-episode arm fitted at alpha_0 is the fixed-alpha diagnostic that stays deferred (D4).
+    monkeypatch.setattr(manual_study, "RIDGE_RULE", "count_divided")
+    with pytest.raises(StudyMismatchError, match="solver parameter"):
+        dataclasses.replace(manifest)
+    monkeypatch.undo()
+
+    inherited_accounting = manual_study.arm_accounting
+
+    def foreign_accounting(
+        arm: ManualArmSpec, *, base_alpha: float, loss_rows: Mapping[str, int], anchor: ManualAnchor = MANUAL_ANCHOR
+    ) -> ArmAccounting:
+        """The accounting of a different arm than the one that was asked for."""
+        other = ManualArmSpec("M10") if arm.label != "M10" else ManualArmSpec("S", ASSIGNMENTS[0])
+        return inherited_accounting(other, base_alpha=base_alpha, loss_rows=loss_rows, anchor=anchor)
+
+    monkeypatch.setattr(manual_study, "arm_accounting", foreign_accounting)
+    with pytest.raises(StudyMismatchError, match="not the arm"):
+        dataclasses.replace(manifest)
+    monkeypatch.undo()
+
+    inherited_esn = manual_study.esn_for_arm
+
+    def implicit_bias(
+        base: EsnConfig, arm: ManualArmSpec, *, base_alpha: float, anchor: ManualAnchor = MANUAL_ANCHOR
+    ) -> EsnConfig:
+        """The historical implicit-bias layout the equal-episode weighting replaced (I3)."""
+        fitted = inherited_esn(base, arm, base_alpha=base_alpha, anchor=anchor)
+        readout = dataclasses.replace(fitted.readout, explicit_bias=None, include_bias=True)
+        return EsnConfig(reservoir=fitted.reservoir, readout=readout)
+
+    monkeypatch.setattr(manual_study, "esn_for_arm", implicit_bias)
+    with pytest.raises(StudyMismatchError, match="explicit-bias readout"):
+        dataclasses.replace(manifest)
 
 
 def test_build_refuses_sources_that_do_not_match_the_bank_or_the_panel(

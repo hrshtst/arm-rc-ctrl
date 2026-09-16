@@ -14,31 +14,41 @@ The header binds the read-only panel with its digest, the locked take bank with
 its digest, the manual task and preprocessing configurations the takes were
 validated and derived under (both taken from the bank itself, so the study can
 only use what the bank was built with), the model configuration the panel
-already bound (the frozen readout solver and the physical input transform), the
+already bound together with the readout solver that file declares, the
 transform and the digest-bound scripted dataset it was copied from
-(clarification I8), the shared seed bank of the contractive banks, the training
-validation, the pinned ``rclib`` revision, the canonical
+(clarification I8), the ten locked demonstrations in bank order — each with its
+digest-bound dataset and the raw loss rows it contributes — the shared seed
+bank of the contractive banks, the training validation, the pinned ``rclib``
+revision, the canonical
 :class:`~arm_rc_ctrl.execution.ExecutionRecord` (clarification C10), and the
 provenance of the run that wrote the manifest.
 
-Every entry records its configuration and source trial, the arm and its
-construction (source counts, unique sources, copies, synthetic episodes), the
-episode count ``K``, ``alpha_0`` and the solver's ``K alpha_0``, the warm-up,
-the complete ESN configuration the arm fits, its digest-bound training
-datasets, the contractive construction of a ``C10`` arm (seed bank, the
-parent's recorded dwell onset, and that parent's bank digest), the accounting
-(raw loss rows per episode, row weights, total loss weight, and the
-regularization scale ``alpha_0 / 400``), and the fit identity.
+Every entry is a reference, never a copy. It records its configuration and
+source trial, the arm, the warm-up, the contractive construction of a ``C10``
+arm (seed bank, the parent's recorded dwell onset, and that parent's bank
+digest), the canonical execution identity, and the fit identity. Everything
+else the fit consumes is bound once in the header and rebuilt on demand
+(:meth:`StudyManifest.esn`, :meth:`StudyManifest.datasets`, and
+:meth:`StudyManifest.accounting`): the fitted ESN from the configuration's
+reservoir and the bound readout at ``K alpha_0`` with the explicit-bias layout
+(I3), the digest-bound training datasets from the arm's assignments, and the
+accounting (raw loss rows per episode, row weights, total loss weight, and the
+regularization scale ``alpha_0 / 400``) from the ten demonstrations under the
+frozen anchor. The recorded fit identity is the witness of that rebuild: it is
+hashed from the rebuilt values, so a header that no longer produces them cannot
+re-derive a single one of the 186 keys.
 
 Loading re-derives every invariant instead of trusting the document: the
 entries are exactly the six configurations crossed with the 31 arms, in order
-and without a duplicate pair; the accounting re-derives from the ten
-demonstrations' loss-row counts; every solver parameter is ``K alpha_0``, so a
-fixed-alpha diagnostic is refused (and the deferred ``M100`` is not an arm the
-approved algebra admits); every ``C10`` entry names its parent's bank digest at
-the manifest's seed bank; every entry binds the manifest's canonical execution
-identity; and every fit identity re-derives from the recorded inputs and is
-distinct from all others.
+and without a duplicate pair; the header names the ten bank positions in bank
+order, each with a distinct digest-bound dataset; the accounting rebuilds from
+those demonstrations' loss-row counts and describes the arm it belongs to;
+every solver parameter is ``K alpha_0`` and every readout fits an explicit
+bias, so a fixed-alpha diagnostic is refused (and the deferred ``M100`` is not
+an arm the approved algebra admits); every ``C10`` entry names its parent's
+dataset and bank digest at the manifest's seed bank; every entry binds the
+manifest's canonical execution identity; and every fit identity re-derives from
+the rebuilt inputs and is distinct from all others.
 
 Payloads live in the external store. The contractive bank digests are derived
 from the parent arrays the caller loads through it, so nothing written here
@@ -109,7 +119,7 @@ from arm_rc_ctrl.provenance import (
     sha256_file,
     worktree_state,
 )
-from arm_rc_ctrl.rc.esn import EsnConfig, ReservoirConfig
+from arm_rc_ctrl.rc.esn import EsnConfig, ReadoutConfig, ReservoirConfig
 from arm_rc_ctrl.rc.recipe import (
     ContractiveTrainingSpec,
     DatasetSource,
@@ -130,7 +140,6 @@ if TYPE_CHECKING:
     from arm_rc_ctrl.experiments.manual_bank import BankManifest
     from arm_rc_ctrl.experiments.repetition_panel import PanelManifest
     from arm_rc_ctrl.rc.augment import TaskGeometry
-    from arm_rc_ctrl.rc.esn import ReadoutConfig
     from arm_rc_ctrl.rc.teacher_forcing import TransformPolicy
     from arm_rc_ctrl.rc.train import ModelConfig
     from arm_rc_ctrl.storage import StorageRoot
@@ -146,6 +155,7 @@ __all__ = [
     "FrozenTransform",
     "SourceFile",
     "StudyConfiguration",
+    "StudyDemonstration",
     "StudyManifest",
     "StudyMismatchError",
     "StudyModel",
@@ -353,32 +363,64 @@ class FrozenTransform:
 
 
 @dataclass(frozen=True)
+class StudyDemonstration:
+    """One locked demonstration: its bank position, its digest-bound dataset, and the loss rows it contributes.
+
+    The ten demonstrations are bound once, in bank order. An entry names only
+    its arm, and the arm's assignments resolve through this list to the datasets
+    its fit trains on and the raw row counts its weights are built from, so no
+    entry carries a copy of either and every dataset a model sees stays bound to
+    the payload digest of its committed record.
+    """
+
+    assignment: str
+    """``D01`` .. ``D10``: the demonstration's position in the locked bank."""
+    dataset: DatasetSource
+    """The digest-bound processed dataset the accepted take produced."""
+    loss_rows: int
+    """Raw loss rows of the recording: its samples minus the one row the next-step pairing consumes."""
+
+    def __post_init__(self) -> None:
+        """The position is a bank position and the recording contributes at least one loss row."""
+        if self.assignment not in ASSIGNMENTS:
+            msg = f"assignment must be a bank position in {list(ASSIGNMENTS)}, got {self.assignment!r}"
+            raise ValueError(msg)
+        if self.loss_rows < 1:
+            msg = f"{self.assignment}: loss_rows must be positive, got {self.loss_rows}"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
 class StudyModel:
-    """One of the 186 models: a configuration, an arm, everything the fit consumes, and the fit identity."""
+    """One of the 186 models: a configuration, an arm, the environment it is keyed in, and the fit identity.
+
+    An entry stores references rather than copies. Its fitted ESN, its training
+    datasets, and its accounting rebuild from the manifest header — the
+    configuration's reservoir and ``alpha_0``, the bound readout, the ten
+    demonstrations, and the frozen anchor — through :meth:`esn`,
+    :meth:`datasets`, and :meth:`accounting`. :attr:`fit_identity` is the
+    witness of that rebuild: it is hashed from the rebuilt values, so a header
+    that no longer produces them cannot re-derive it.
+    """
 
     configuration: str
     source_trial: int
     arm: ManualArmSpec
     warmup_s: float
-    esn: EsnConfig
-    """The complete configuration the arm fits: the inherited reservoir and the
-    explicit-bias readout at ``K alpha_0`` (I3)."""
-    datasets: tuple[DatasetSource, ...]
-    """Digest-bound training datasets in training order (copies are multiplicities, never duplicated payloads)."""
-    accounting: ArmAccounting
     fit_identity: str
     execution_identity: str
     contractive: ContractiveBank | None = None
 
     def __post_init__(self) -> None:
-        """Every redundant field re-derives: the accounting, the ridge scale, the datasets, and the bank."""
+        """The entry identifies one model of one configuration, and only a contractive arm carries a bank."""
         if not self.configuration.strip() or self.source_trial < 0:
             msg = f"a model needs its configuration and a non-negative source trial, got {self.configuration!r}"
             raise ValueError(msg)
+        if not (math.isfinite(self.warmup_s) and self.warmup_s >= 0):
+            msg = f"{self.label}: warmup_s must be finite and non-negative, got {self.warmup_s!r}"
+            raise ValueError(msg)
         _require_sha256(f"{self.label}: fit_identity", self.fit_identity)
         _require_sha256(f"{self.label}: execution_identity", self.execution_identity)
-        _check_model_accounting(self)
-        _check_model_readout(self)
         _check_model_bank(self)
 
     @property
@@ -391,41 +433,44 @@ class StudyModel:
         """The episode count ``K`` the weighting and the ridge parameter refer to."""
         return self.arm.count
 
+    def esn(
+        self, configuration: StudyConfiguration, readout: ReadoutConfig, *, anchor: ManualAnchor = MANUAL_ANCHOR
+    ) -> EsnConfig:
+        """The complete configuration this arm fits: the inherited reservoir and the bound readout at ``K alpha_0``.
 
-def _check_model_accounting(model: StudyModel) -> None:
-    """The accounting describes this arm, and the datasets are its distinct sources."""
-    arm, accounting = model.arm, model.accounting
-    recorded = (accounting.label, accounting.arm, accounting.assignments)
-    expected = (arm.label, arm.arm, arm.assignments)
-    counts = (accounting.unique_sources, accounting.copies, accounting.synthetic, accounting.episodes)
-    if recorded != expected or counts != (arm.unique_sources, arm.copies, arm.synthetic, arm.count):
-        msg = f"{model.label}: the recorded accounting {recorded} {counts} does not describe the arm {expected}"
-        raise StudyMismatchError(msg)
-    ids = tuple(dataset.artifact_id for dataset in model.datasets)
-    if len(ids) != arm.unique_sources or len(set(ids)) != len(ids):
-        msg = f"{model.label}: {len(ids)} datasets for {arm.unique_sources} distinct sources, got {list(ids)}"
-        raise StudyMismatchError(msg)
+        The readout is the one the model configuration declares, re-solved at
+        the arm's episode count with the explicit-bias layout the equal-episode
+        weighting needs (I3); the reservoir is the configuration's own and never
+        differs between the arms of one configuration.
+        """
+        base = EsnConfig(reservoir=configuration.reservoir, readout=readout)
+        return esn_for_arm(base, self.arm, base_alpha=configuration.base_alpha, anchor=anchor)
 
+    def datasets(self, sources: Mapping[str, DatasetSource]) -> tuple[DatasetSource, ...]:
+        """The digest-bound training datasets in training order, resolved through the bank's assignments.
 
-def _check_model_readout(model: StudyModel) -> None:
-    """The solver fits at ``K alpha_0`` with the explicit-bias layout the equal-episode weighting needs (I3)."""
-    accounting = model.accounting
-    expected = solver_alpha(accounting.base_alpha, RIDGE_RULE, model.episodes)
-    if accounting.solver_alpha != expected or model.esn.readout.alpha != expected:
-        msg = (
-            f"{model.label}: the solver parameter must be {model.episodes} x alpha_0 = {expected!r} ({RIDGE_RULE}), "
-            f"got accounting {accounting.solver_alpha!r} and readout {model.esn.readout.alpha!r}; the fixed-alpha "
-            "diagnostic stays deferred (D4)"
-        )
-        raise StudyMismatchError(msg)
-    readout = model.esn.readout
-    if not readout.explicit_bias or readout.include_bias:
-        msg = f"{model.label}: manual arms fit the explicit-bias readout (I3), got {readout!r}"
-        raise StudyMismatchError(msg)
+        Copies are recipe multiplicities, so a duplication control resolves to
+        the single dataset it repeats and never to ten copies of it.
+        """
+        return arm_sources(self.arm, sources)
+
+    def accounting(
+        self,
+        configuration: StudyConfiguration,
+        loss_rows: Mapping[str, int],
+        *,
+        anchor: ManualAnchor = MANUAL_ANCHOR,
+    ) -> ArmAccounting:
+        """What this fit is made of: rows, weights, the total loss weight, and the ridge scales of ``K alpha_0``."""
+        return arm_accounting(self.arm, base_alpha=configuration.base_alpha, loss_rows=loss_rows, anchor=anchor)
 
 
 def _check_model_bank(model: StudyModel) -> None:
-    """A contractive arm names its parent's bank digest; every other arm trains on recorded episodes only."""
+    """A contractive arm names the bank grown from its own parent; every other arm trains on recorded episodes only.
+
+    The parent's dataset is checked in :func:`_check_entries`, where the bank
+    positions resolve to the header's demonstrations.
+    """
     construction = model.contractive
     if model.arm.arm != CONTRACTIVE_ARM:
         if construction is not None:
@@ -435,11 +480,10 @@ def _check_model_bank(model: StudyModel) -> None:
     if construction is None:
         msg = f"{model.label}: a {CONTRACTIVE_ARM} arm names its parent's bank digest and seed bank"
         raise StudyMismatchError(msg)
-    parent = model.datasets[0].artifact_id
-    if construction.assignment != model.arm.assignment or construction.parent != parent:
+    if construction.assignment != model.arm.assignment:
         msg = (
-            f"{model.label}: the bank digest belongs to {construction.assignment} ({construction.parent}), "
-            f"not to the arm's parent {model.arm.assignment} ({parent})"
+            f"{model.label}: the bank digest belongs to {construction.assignment}, not to the arm's parent "
+            f"{model.arm.assignment}"
         )
         raise StudyMismatchError(msg)
 
@@ -456,12 +500,18 @@ class StudyManifest:
     preprocessing: SourceFile
     model: SourceFile
     """The model configuration the panel bound: the readout solver and the frozen physical input transform."""
+    readout: ReadoutConfig
+    """The readout that model configuration declares. Every arm fits it at ``K alpha_0`` with the explicit-bias
+    layout (I3), so the ``alpha`` recorded here is the configuration file's own and never a model's ridge
+    parameter; :meth:`esn` re-solves it for each entry."""
     transform_source: DatasetSource
     transform: FrozenTransform
     validation: TrainingValidation
     anchor: ManualAnchor
     rclib: RclibIdentity
     seed_bank: int
+    demonstrations: tuple[StudyDemonstration, ...]
+    """The ten locked demonstrations in bank order; every entry resolves its datasets and rows through them."""
     configurations: tuple[StudyConfiguration, ...]
     entries: tuple[StudyModel, ...]
     execution: ExecutionRecord
@@ -473,8 +523,10 @@ class StudyManifest:
         """Re-derive every invariant of the frozen scope rather than trusting the document."""
         _check_header(self)
         _check_scope(self)
+        _check_demonstrations(self)
         _check_entries(self)
         _check_accounting(self)
+        _check_readouts(self)
         _check_identities(self)
 
     def configuration(self, label: str) -> StudyConfiguration:
@@ -492,6 +544,28 @@ class StudyManifest:
                 return model
         msg = f"no model {configuration!r}/{arm!r}"
         raise KeyError(msg)
+
+    @property
+    def sources(self) -> dict[str, DatasetSource]:
+        """The ten bank positions mapped to their digest-bound datasets."""
+        return {record.assignment: record.dataset for record in self.demonstrations}
+
+    @property
+    def loss_rows(self) -> dict[str, int]:
+        """The ten bank positions mapped to the raw loss rows of their recordings."""
+        return {record.assignment: record.loss_rows for record in self.demonstrations}
+
+    def esn(self, entry: StudyModel) -> EsnConfig:
+        """The complete ESN configuration ``entry`` fits, rebuilt from its configuration and the bound readout."""
+        return entry.esn(self.configuration(entry.configuration), self.readout, anchor=self.anchor)
+
+    def datasets(self, entry: StudyModel) -> tuple[DatasetSource, ...]:
+        """The digest-bound training datasets of ``entry``, in training order."""
+        return entry.datasets(self.sources)
+
+    def accounting(self, entry: StudyModel) -> ArmAccounting:
+        """The accounting of ``entry``, rebuilt from the demonstrations' loss rows under the frozen anchor."""
+        return entry.accounting(self.configuration(entry.configuration), self.loss_rows, anchor=self.anchor)
 
     @property
     def models_by_arm(self) -> dict[str, int]:
@@ -551,25 +625,26 @@ def _check_scope(manifest: StudyManifest) -> None:
         raise StudyMismatchError(msg)
 
 
+def _check_demonstrations(manifest: StudyManifest) -> None:
+    """The header binds the locked bank once: every position, in bank order, with its own digest-bound dataset."""
+    positions = tuple(record.assignment for record in manifest.demonstrations)
+    if positions != ASSIGNMENTS:
+        msg = f"the study binds the {BANK_SIZE} demonstrations {list(ASSIGNMENTS)} in bank order, got {list(positions)}"
+        raise StudyMismatchError(msg)
+    artifacts = [record.dataset.artifact_id for record in manifest.demonstrations]
+    if len(set(artifacts)) != len(artifacts):
+        msg = f"every bank position names a distinct dataset, got {artifacts}"
+        raise StudyMismatchError(msg)
+
+
 def _check_entries(manifest: StudyManifest) -> None:
-    """Every model agrees with its configuration, the frozen anchor, the seed bank, and the environment."""
+    """Every model agrees with its configuration, the locked bank, the study's seed bank, and the environment."""
     identity = manifest.execution.identity
+    sources = manifest.sources
     for model in manifest.entries:
         configuration = manifest.configuration(model.configuration)
-        inherited = (model.source_trial, model.warmup_s, model.accounting.base_alpha, model.esn.reservoir)
-        expected = (
-            configuration.source_trial,
-            configuration.warmup_s,
-            configuration.base_alpha,
-            configuration.reservoir,
-        )
-        if inherited != expected:
-            msg = (
-                f"{model.label}: the recorded trial, warm-up, alpha_0, and reservoir differ from {configuration.label}"
-            )
-            raise StudyMismatchError(msg)
-        if model.accounting.weight_reference_rows != manifest.anchor.weight_reference_rows:
-            msg = f"{model.label}: the weight reference differs from the frozen anchor"
+        if (model.source_trial, model.warmup_s) != (configuration.source_trial, configuration.warmup_s):
+            msg = f"{model.label}: the recorded trial and warm-up differ from {configuration.label}"
             raise StudyMismatchError(msg)
         if model.execution_identity != identity:
             msg = (
@@ -577,48 +652,67 @@ def _check_entries(manifest: StudyManifest) -> None:
                 f"manifest's canonical environment {identity[:_SHORT]} (C10)"
             )
             raise StudyMismatchError(msg)
-        if model.contractive is not None and model.contractive.seed_bank != manifest.seed_bank:
+        construction = model.contractive
+        if construction is None:
+            continue
+        if construction.seed_bank != manifest.seed_bank:
             msg = (
-                f"{model.label}: the bank was grown in seed bank {model.contractive.seed_bank}, not the study's "
+                f"{model.label}: the bank was grown in seed bank {construction.seed_bank}, not the study's "
                 f"{manifest.seed_bank}"
             )
             raise StudyMismatchError(msg)
-
-
-def _loss_rows(manifest: StudyManifest) -> dict[str, int]:
-    """The ten demonstrations' loss-row counts, taken from the singleton arms and required to agree everywhere."""
-    rows: dict[str, int] = {}
-    for model in manifest.entries:
-        if model.arm.arm != "S":
-            continue
-        assignment = cast("str", model.arm.assignment)
-        recorded = model.accounting.loss_rows[0]
-        previous = rows.setdefault(assignment, recorded)
-        if previous != recorded:
+        parent = sources[cast("str", model.arm.assignment)].artifact_id
+        if construction.parent != parent:
             msg = (
-                f"{assignment}: the singleton arms record {previous} and {recorded} loss rows; one accounting per "
-                "demonstration must agree across every configuration"
+                f"{model.label}: the bank was grown from {construction.parent}, not from {parent}, the dataset the "
+                f"locked bank assigns to {model.arm.assignment}"
             )
             raise StudyMismatchError(msg)
-    missing = [name for name in ASSIGNMENTS if name not in rows]
-    if missing:
-        msg = f"the study has no singleton arm for {missing}, so their accounting cannot be re-derived"
-        raise StudyMismatchError(msg)
-    return rows
 
 
 def _check_accounting(manifest: StudyManifest) -> None:
-    """Every arm's rows, weights, total loss weight, and ridge scales re-derive from the demonstrations."""
-    rows = _loss_rows(manifest)
+    """Every arm's rows, weights, and ridge scales rebuild from the demonstrations and describe the arm they fit.
+
+    The document no longer states an accounting, so this guards the rebuild: the
+    shared episode algebra could never hand a model the rows, multiplicities, or
+    weight reference of some other arm without the study refusing to load.
+    """
     for model in manifest.entries:
-        expected = arm_accounting(
-            model.arm, base_alpha=model.accounting.base_alpha, loss_rows=rows, anchor=manifest.anchor
-        )
-        if expected != model.accounting:
+        accounting, arm = manifest.accounting(model), model.arm
+        described = (accounting.label, accounting.arm, accounting.assignments)
+        counts = (accounting.unique_sources, accounting.copies, accounting.synthetic, accounting.episodes)
+        expected = (arm.unique_sources, arm.copies, arm.synthetic, arm.count)
+        if described != (arm.label, arm.arm, arm.assignments) or counts != expected:
             msg = (
-                f"{model.label}: the recorded accounting does not re-derive from the demonstrations' loss rows "
-                f"{[rows[name] for name in model.arm.assignments]} under the frozen anchor"
+                f"{model.label}: the accounting rebuilt from the demonstrations' loss rows describes {described} "
+                f"{counts}, not the arm {(arm.label, arm.arm, arm.assignments)} {expected}"
             )
+            raise StudyMismatchError(msg)
+        if accounting.weight_reference_rows != manifest.anchor.weight_reference_rows:
+            msg = f"{model.label}: the weight reference differs from the frozen anchor"
+            raise StudyMismatchError(msg)
+
+
+def _check_readouts(manifest: StudyManifest) -> None:
+    """Every rebuilt fit solves at ``K alpha_0`` with the explicit-bias layout the weighting needs (I3, D4).
+
+    No document can state a solver parameter any more — the ridge rule is bound
+    once in the frozen anchor and every readout rebuilds from it — so this
+    guards the rebuild itself: a fixed-alpha diagnostic or an implicit-bias
+    readout is refused whatever produced it.
+    """
+    for model in manifest.entries:
+        configuration = manifest.configuration(model.configuration)
+        readout = manifest.esn(model).readout
+        expected = solver_alpha(configuration.base_alpha, RIDGE_RULE, model.episodes)
+        if readout.alpha != expected or manifest.accounting(model).solver_alpha != expected:
+            msg = (
+                f"{model.label}: the solver parameter must be {model.episodes} x alpha_0 = {expected!r} "
+                f"({RIDGE_RULE}), got readout {readout.alpha!r}; the fixed-alpha diagnostic stays deferred (D4)"
+            )
+            raise StudyMismatchError(msg)
+        if not readout.explicit_bias or readout.include_bias:
+            msg = f"{model.label}: manual arms fit the explicit-bias readout (I3), got {readout!r}"
             raise StudyMismatchError(msg)
 
 
@@ -632,9 +726,9 @@ def _check_identities(manifest: StudyManifest) -> None:
             configuration=model.configuration,
             arm=model.arm,
             warmup_s=model.warmup_s,
-            base_alpha=model.accounting.base_alpha,
-            esn=model.esn,
-            datasets=model.datasets,
+            base_alpha=manifest.configuration(model.configuration).base_alpha,
+            esn=manifest.esn(model),
+            datasets=manifest.datasets(model),
             transform=transform,
             validation=manifest.validation,
             anchor=manifest.anchor,
@@ -843,7 +937,6 @@ def _study_model(
     *,
     readout: ReadoutConfig,
     sources: Mapping[str, DatasetSource],
-    loss_rows: Mapping[str, int],
     banks: Mapping[str, ParentBankRecord],
     transform: InputTransform,
     validation: TrainingValidation,
@@ -851,7 +944,12 @@ def _study_model(
     rclib_commit: str,
     execution_identity: str,
 ) -> StudyModel:
-    """Bind one arm of one configuration to everything its fit consumes."""
+    """Bind one arm of one configuration to the identity of everything its fit consumes.
+
+    The ESN and the datasets are rebuilt here exactly as the loader rebuilds
+    them, hashed into the fit identity, and then dropped: the manifest records
+    the identity, and the header records the inputs it was hashed from.
+    """
     esn = esn_for_arm(
         EsnConfig(reservoir=configuration.reservoir, readout=readout),
         arm,
@@ -867,9 +965,6 @@ def _study_model(
         source_trial=configuration.source_trial,
         arm=arm,
         warmup_s=configuration.warmup_s,
-        esn=esn,
-        datasets=datasets,
-        accounting=arm_accounting(arm, base_alpha=configuration.base_alpha, loss_rows=loss_rows, anchor=anchor),
         fit_identity=fit_identity(
             configuration=configuration.label,
             arm=arm,
@@ -924,8 +1019,13 @@ def build_study_manifest(
     resolved_parents = _check_parents(parents, bank)
     resolved_banks = _check_banks(banks, resolved_parents, seed_bank=seed_bank)
     _check_model_file(panel, model_file, base)
-    sources = {name: parent.dataset for name, parent in resolved_parents.items()}
-    loss_rows = {name: parent.n_samples - 1 for name, parent in resolved_parents.items()}
+    demonstrations = tuple(
+        StudyDemonstration(
+            assignment=name, dataset=resolved_parents[name].dataset, loss_rows=resolved_parents[name].n_samples - 1
+        )
+        for name in ASSIGNMENTS
+    )
+    sources = {record.assignment: record.dataset for record in demonstrations}
     identity = RclibIdentity.current() if rclib is None else rclib
     configurations = study_configurations(panel, model)
     entries = tuple(
@@ -934,7 +1034,6 @@ def build_study_manifest(
             arm,
             readout=model.esn.readout,
             sources=sources,
-            loss_rows=loss_rows,
             banks=resolved_banks,
             transform=transform,
             validation=validation,
@@ -952,12 +1051,14 @@ def build_study_manifest(
         scenario=SourceFile.resolve(scenario_file, base),
         preprocessing=SourceFile.resolve(preprocessing_file, base),
         model=SourceFile.resolve(model_file, base),
+        readout=model.esn.readout,
         transform_source=anchor.transform_source,
         transform=FrozenTransform.of(transform),
         validation=validation,
         anchor=anchor,
         rclib=identity,
         seed_bank=seed_bank,
+        demonstrations=demonstrations,
         configurations=configurations,
         entries=entries,
         execution=execution,
@@ -979,22 +1080,16 @@ def _short(digest: str) -> str:
     return digest[:_SHORT]
 
 
-def _demonstrations(manifest: StudyManifest) -> list[tuple[str, str, int, float, ContractiveBank]]:
-    """Per bank position: the dataset, its loss rows, the row weight, and the frozen contractive bank."""
-    rows = _loss_rows(manifest)
+def _demonstrations(manifest: StudyManifest) -> list[tuple[StudyDemonstration, float, ContractiveBank]]:
+    """Per bank position: the demonstration, its equal-episode row weight, and the frozen contractive bank."""
     first = manifest.configurations[0].label
-    datasets = {
-        cast("str", model.arm.assignment): model.datasets[0].artifact_id
-        for model in manifest.entries
-        if model.arm.arm == "S" and model.configuration == first
-    }
     banks = {
         cast("str", model.arm.assignment): cast("ContractiveBank", model.contractive)
         for model in manifest.entries
         if model.arm.arm == CONTRACTIVE_ARM and model.configuration == first
     }
     reference = manifest.anchor.weight_reference_rows
-    return [(name, datasets[name], rows[name], reference / rows[name], banks[name]) for name in ASSIGNMENTS]
+    return [(record, reference / record.loss_rows, banks[record.assignment]) for record in manifest.demonstrations]
 
 
 def _configuration_rows(manifest: StudyManifest) -> list[str]:
@@ -1124,8 +1219,9 @@ def render_study_markdown(manifest: StudyManifest) -> str:
         "| --- | --- | ---: | ---: | ---: | --- |",
     ]
     lines.extend(
-        f"| {name} | `{artifact}` | {rows} | {weight:.6g} | {bank.dwell_start_s:g} | `{_short(bank.bank_sha256)}` |"
-        for name, artifact, rows, weight, bank in _demonstrations(manifest)
+        f"| {record.assignment} | `{record.dataset.artifact_id}` | {record.loss_rows} | {weight:.6g} "
+        f"| {bank.dwell_start_s:g} | `{_short(bank.bank_sha256)}` |"
+        for record, weight, bank in _demonstrations(manifest)
     )
     counts = manifest.models_by_arm
     lines.extend(
@@ -1142,6 +1238,11 @@ def render_study_markdown(manifest: StudyManifest) -> str:
                 "- Every fit identity binds the arm, the datasets, the transform, the training validation, the ridge "
                 "scale, the contractive construction where there is one, the pinned rclib revision, and the execution "
                 "identity; all of them are distinct and re-derived when this manifest is loaded."
+            ),
+            (
+                "- Entries reference this header instead of repeating it: each records its configuration, arm, "
+                "warm-up, contractive bank, and identities, while its fitted ESN, its digest-bound datasets, and its "
+                "accounting are rebuilt from the configurations, the bound readout, and the demonstrations above."
             ),
             "",
             "## Provenance",
