@@ -4479,3 +4479,155 @@ record = "data/records/runs/run-20260904-b319c0e0b6be.toml"
 uri = "armrc://runs/run-20260904-b319c0e0b6be/run.json"
 sha256 = "b319c0e0b6be4c587741f57c6b83abaccb4d2e2cb55ad6e4636b415c1e822b01"
 created_at = "2026-09-04T03:58:15+00:00"
+
+[[artifacts]]
+artifact_id = "raw-20260916-c70007e967c4"
+kind = "raw"
+record = "data/records/raw/raw-20260916-c70007e967c4.toml"
+uri = "armrc://raw/raw-20260916-c70007e967c4/demo.sklog.npz"
+sha256 = "c70007e967c4c94c863174fe6920958d6e190567150d0f871d613a8a1b894c6a"
+created_at = "2026-09-16T03:50:01+00:00"
+
+[[artifacts]]
+artifact_id = "processed-20260916-a8c94bb35358"
+kind = "processed"
+record = "data/records/processed/processed-20260916-a8c94bb35358.toml"
+uri = "armrc://processed/processed-20260916-a8c94bb35358/samples.npz"
+sha256 = "a8c94bb3535816f0fad37d297a27312277473835dae737dfb6d4155c926af58e"
+created_at = "2026-09-16T03:50:01+00:00"
+
+[[artifacts]]
+artifact_id = "raw-20260916-b2523c96b63e"
+kind = "raw"
+record = "data/records/raw/raw-20260916-b2523c96b63e.toml"
+uri = "armrc://raw/raw-20260916-b2523c96b63e/demo.sklog.npz"
+sha256 = "b2523c96b63eb12de99dbfc660ba0b10185daf588538b7bef071ad674900bd4d"
+created_at = "2026-09-16T03:50:02+00:00"
+
+[[artifacts]]
+artifact_id = "processed-20260916-c33a21797eb3"
+kind = "processed"
+record = "data/records/processed/processed-20260916-c33a21797eb3.toml"
+uri = "armrc://processed/processed-20260916-c33a21797eb3/samples.npz"
+sha256 = "c33a21797eb38bf57a93ce7c9ba6950a9006de0e7ad24a361f6d543ca46d8251"
+created_at = "2026-09-16T03:50:02+00:00"
+
+[[artifacts]]
+artifact_id = "raw-20260916-364ed5eb585c"
+kind = "raw"
+record = "data/records/raw/raw-20260916-364ed5eb585c.toml"
+uri = "armrc://raw/raw-20260916-364ed5eb585c/demo.sklog.npz"
+sha256 = "364ed5eb585cd7c4ddcfe4ff152205af5240e0db3c62efa7966c175bed441220"
+created_at = "2026-09-16T03:50:02+00:00"
+
+[[artifacts]]
+artifact_id = "raw-20260916-4ee6b11dbca9"
+kind = "raw"
+record = "data/records/raw/raw-20260916-4ee6b11dbca9.toml"
+uri = "armrc://raw/raw-20260916-4ee6b11dbca9/demo.sklog.npz"
+sha256 = "4ee6b11dbca92ecf8cad7bef9b900972f44d60c92168bf941050e2bdd228fd7f"
+created_at = "2026-09-16T03:50:03+00:00"
+
+[[artifacts]]
+artifact_id = "processed-20260916-d78ffcea290e"
+kind = "processed"
+record = "data/records/processed/processed-20260916-d78ffcea290e.toml"
+uri = "armrc://processed/processed-20260916-d78ffcea290e/samples.npz"
+sha256 = "d78ffcea290e162441b5629bb87fac8d774c40f1552bc22e8451c0552395316d"
+created_at = "2026-09-16T03:50:03+00:00"
+
+[[artifacts]]
+artifact_id = "raw-20260916-ff6325699e62"
+kind = "raw"
+record = "data/records/raw/raw-20260916-ff6325699e62.toml"
+uri = "armrc://raw/raw-20260916-ff6325699e62/demo.sklog.npz"
+sha256 = "ff6325699e62395514d3fefcf67be59ef34e75ccbb3d8dc3abb302d5619bcb36"
+created_at = "2026-09-16T03:50:03+00:00"
+
+[[artifacts]]
+artifact_id = "processed-20260916-6f06d3c33ea8"
+kind = "processed"
+record = "data/records/processed/processed-20260916-6f06d3c33ea8.toml"
+uri = "armrc://processed/processed-20260916-6f06d3c33ea8/samples.npz"
+sha256 = "6f06d3c33ea85cd177af85d0bdb630c8b671001aad3b05fe46bf42a011dbe0bf"
+created_at = "2026-09-16T03:50:04+00:00"
+
+[[artifacts]]
+artifact_id = "raw-20260916-6fe6960f9d42"
+kind = "raw"
+record = "data/records/raw/raw-20260916-6fe6960f9d42.toml"
+uri = "armrc://raw/raw-20260916-6fe6960f9d42/demo.sklog.npz"
+sha256 = "6fe6960f9d42ba97202a303356d9763c21ee1f75c062594318d8cf6991b96703"
+created_at = "2026-09-16T03:50:04+00:00"
+
+[[artifacts]]
+artifact_id = "processed-20260916-f5fc3e298697"
+kind = "processed"
+record = "data/records/processed/processed-20260916-f5fc3e298697.toml"
+uri = "armrc://processed/processed-20260916-f5fc3e298697/samples.npz"
+sha256 = "f5fc3e298697bc5b0d70093218f0895edb659fb63235c41647bbe913c2c7f93c"
+created_at = "2026-09-16T03:50:04+00:00"
+
+[[artifacts]]
+artifact_id = "raw-20260916-4e916b601390"
+kind = "raw"
+record = "data/records/raw/raw-20260916-4e916b601390.toml"
+uri = "armrc://raw/raw-20260916-4e916b601390/demo.sklog.npz"
+sha256 = "4e916b6013903957b88b5577d4003f1d2c2d421d33403f74f1f719d9044b916f"
+created_at = "2026-09-16T03:50:05+00:00"
+
+[[artifacts]]
+artifact_id = "processed-20260916-bce2e493648f"
+kind = "processed"
+record = "data/records/processed/processed-20260916-bce2e493648f.toml"
+uri = "armrc://processed/processed-20260916-bce2e493648f/samples.npz"
+sha256 = "bce2e493648fa24d45ded96ccfb59e65dff8abd650b00e47fbe9a7ab38e53578"
+created_at = "2026-09-16T03:50:05+00:00"
+
+[[artifacts]]
+artifact_id = "raw-20260916-0c257a167b79"
+kind = "raw"
+record = "data/records/raw/raw-20260916-0c257a167b79.toml"
+uri = "armrc://raw/raw-20260916-0c257a167b79/demo.sklog.npz"
+sha256 = "0c257a167b79ced384e194c9b1b991653241f411cc56700aca150c1f30bf3976"
+created_at = "2026-09-16T03:50:05+00:00"
+
+[[artifacts]]
+artifact_id = "processed-20260916-5ce1d9783a72"
+kind = "processed"
+record = "data/records/processed/processed-20260916-5ce1d9783a72.toml"
+uri = "armrc://processed/processed-20260916-5ce1d9783a72/samples.npz"
+sha256 = "5ce1d9783a72e948fe8f31dae38d72d04da7ece97890ed090199df136bf4cffc"
+created_at = "2026-09-16T03:50:06+00:00"
+
+[[artifacts]]
+artifact_id = "raw-20260916-a27f07fa07fd"
+kind = "raw"
+record = "data/records/raw/raw-20260916-a27f07fa07fd.toml"
+uri = "armrc://raw/raw-20260916-a27f07fa07fd/demo.sklog.npz"
+sha256 = "a27f07fa07fd67c6fdfd33c933e3271e680529ce94d846f9ac94516b230edda9"
+created_at = "2026-09-16T03:50:06+00:00"
+
+[[artifacts]]
+artifact_id = "processed-20260916-87520abd2930"
+kind = "processed"
+record = "data/records/processed/processed-20260916-87520abd2930.toml"
+uri = "armrc://processed/processed-20260916-87520abd2930/samples.npz"
+sha256 = "87520abd29307c9c50b37dd477deeecc112cb7ecacc0bdf77cb70395464fe179"
+created_at = "2026-09-16T03:50:06+00:00"
+
+[[artifacts]]
+artifact_id = "raw-20260916-bfd1f028ff4c"
+kind = "raw"
+record = "data/records/raw/raw-20260916-bfd1f028ff4c.toml"
+uri = "armrc://raw/raw-20260916-bfd1f028ff4c/demo.sklog.npz"
+sha256 = "bfd1f028ff4c6044f9fbcc0616c2c76b77c55de57ee3d0480ef432ce63930dae"
+created_at = "2026-09-16T03:50:06+00:00"
+
+[[artifacts]]
+artifact_id = "processed-20260916-227ac2516270"
+kind = "processed"
+record = "data/records/processed/processed-20260916-227ac2516270.toml"
+uri = "armrc://processed/processed-20260916-227ac2516270/samples.npz"
+sha256 = "227ac25162708063247d1cc242c07d28f816ca5d01a6586bf76158fec7671209"
+created_at = "2026-09-16T03:50:07+00:00"

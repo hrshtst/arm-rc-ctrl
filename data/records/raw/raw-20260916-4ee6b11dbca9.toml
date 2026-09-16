@@ -1,0 +1,93 @@
+session = "study-01"
+take = 4
+source_file = "reach_004.sklog.npz"
+n_frames = 701
+duration_s = 13.98989131601411
+reset_q = [
+    0.2,
+    1.2,
+]
+manual_schema_version = 1
+
+[artifact]
+artifact_id = "raw-20260916-4ee6b11dbca9"
+kind = "raw"
+created_at = "2026-09-16T03:50:03+00:00"
+license = "proprietary"
+access = "private"
+notes = ""
+schema_version = 1
+
+[artifact.payload]
+uri = "armrc://raw/raw-20260916-4ee6b11dbca9/demo.sklog.npz"
+sha256 = "4ee6b11dbca92ecf8cad7bef9b900972f44d60c92168bf941050e2bdd228fd7f"
+size = 13551
+format = "sklog.npz"
+schema_version = 1
+
+[artifact.origin]
+command = "python -m arm_rc_ctrl.data.manual import"
+config_sha256 = "59668c50ac93cfcd8419d00832a21566724599677df615a4248abc2c76bd31f9"
+project_commit = "d8d78e1446768f7d7ad811ee9b0561f3e9246bb3"
+project_dirty = false
+sources = []
+
+[artifact.origin.dependency_commits]
+rclib = "61a29f0ce6fa19135e3674fa7d2de5cb13df3b4f"
+skelarm = "2cf37a6ef71b61a52d954dc9f0993f4063c7ced5"
+rtctrl = "c601076ee60ec712c1cb4a85756a186882df2e1b"
+
+[scenario]
+config_path = "configs/tasks/task_1a_manual_v2.toml"
+config_sha256 = "4abdad9b15046905e4e17929196907f92e97df9c770748c7acded242508577fb"
+robot = "planar-2dof"
+task = "task-1a-manual"
+dof = 2
+initial_q = [
+    0.2,
+    1.2,
+]
+target = [
+    0.1,
+    0.45,
+]
+
+[sampling]
+period_s = 0.01998365750478115
+clock = "wall"
+
+[sampling.units]
+t = "s"
+q = "rad"
+tip = "m"
+nominal_time = "s"
+
+[acquisition]
+clock = "wall-clock"
+mode = "ik"
+tick_period_s = 0.02
+sample_period_s = 0.02
+pose_updates_per_sample = 1
+display_period_s = 0.02
+ticks = 700
+wall_mean_tick_s = 0.019985559022877297
+wall_max_tick_s = 0.03619824000634253
+late_ticks = 2
+late_tick_factor = 1.5
+
+[display]
+show_tip_trail = true
+show_past_trails = true
+past_trails_shown_during_take = true
+history_takes = [
+    1,
+    2,
+    3,
+]
+visible_source_takes = [
+    3,
+]
+visible_source_files = [
+    "reach_003.sklog.npz",
+]
+policy_json = "{\"current_alpha\":230,\"current_color\":\"#c81e78\",\"current_width_px\":2.0,\"order\":\"saved trails behind the current trail\",\"past_alpha\":55,\"past_color\":\"#465aa0\",\"past_width_px\":2.0,\"source\":\"logged tip samples (forward kinematics), not the cursor\"}"

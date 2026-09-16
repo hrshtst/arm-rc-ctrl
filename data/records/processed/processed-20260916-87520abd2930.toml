@@ -1,0 +1,217 @@
+n_samples = 1388
+dof = 2
+task_dim = 2
+task_code_dim = 0
+session = "study-01"
+take = 9
+manual_schema_version = 2
+
+[artifact]
+artifact_id = "processed-20260916-87520abd2930"
+kind = "processed"
+created_at = "2026-09-16T03:50:06+00:00"
+license = "proprietary"
+access = "private"
+notes = ""
+schema_version = 1
+
+[artifact.payload]
+uri = "armrc://processed/processed-20260916-87520abd2930/samples.npz"
+sha256 = "87520abd29307c9c50b37dd477deeecc112cb7ecacc0bdf77cb70395464fe179"
+size = 157632
+format = "samples.npz"
+schema_version = 1
+
+[artifact.origin]
+command = "python -m arm_rc_ctrl.data.manual derive"
+config_sha256 = "823fd309273c2bd160d416c6c1b11f2fd814e72be84a76c5540c991921094979"
+project_commit = "d8d78e1446768f7d7ad811ee9b0561f3e9246bb3"
+project_dirty = false
+sources = [
+    "raw-20260916-a27f07fa07fd",
+]
+
+[artifact.origin.dependency_commits]
+rclib = "61a29f0ce6fa19135e3674fa7d2de5cb13df3b4f"
+skelarm = "2cf37a6ef71b61a52d954dc9f0993f4063c7ced5"
+rtctrl = "c601076ee60ec712c1cb4a85756a186882df2e1b"
+
+[scenario]
+config_path = "configs/tasks/task_1a_manual_v2.toml"
+config_sha256 = "4abdad9b15046905e4e17929196907f92e97df9c770748c7acded242508577fb"
+robot = "planar-2dof"
+task = "task-1a-manual"
+dof = 2
+initial_q = [
+    0.2,
+    1.2,
+]
+target = [
+    0.1,
+    0.45,
+]
+
+[units]
+t = "s"
+q = "rad"
+dq = "rad/s"
+ddq = "rad/s^2"
+tip = "m"
+dtip = "m/s"
+ddtip = "m/s^2"
+task_code = "1"
+phase = "code"
+
+[phases]
+hold = 0
+move = 1
+dwell = 2
+
+[preprocessing]
+resample_period_s = 0.01
+smoothing = "butterworth-zero-phase-first-sample-reflected"
+derivative_method = "central-difference"
+interpolation = "linear"
+
+[preprocessing.smoothing_params]
+order = 4.0
+cutoff_hz = 5.0
+extension_s = 5.0
+max_start_shift_rad = 1e-12
+
+[raw_timing]
+n_frames = 693
+duration_s = 13.877684709004825
+median_interval_s = 0.020011453510960564
+max_interval_s = 0.04782222700305283
+late_frames = 2
+max_raw_speed_rad_s = [
+    0.6906520208899649,
+    0.8003123841958728,
+]
+acquisition_period_s = 0.02
+
+[start]
+expected = [
+    0.2,
+    1.2,
+]
+observed = [
+    0.2,
+    1.2,
+]
+max_deviation_rad = 0.0
+tolerance_rad = 1e-12
+ok = true
+
+[smoothing]
+method = "butterworth-zero-phase-first-sample-reflected"
+onset_s = 0.35000000000000003
+start_shift_rad = 0.0
+tolerance_rad = 1e-12
+ok = true
+extension_s = 5.0
+
+[dwell]
+ok = true
+final_samples = 454
+final_duration_s = 4.530000000000001
+start_s = 9.34
+end_s = 13.870000000000001
+max_endpoint_error_m = 0.00277135453113056
+max_joint_speed_rad_s = 0.04875335440556183
+longest_samples = 454
+earliest_start_s = 5.58
+
+[dwell.predicate]
+tolerance_m = 0.01
+max_velocity_rad_s = 0.05
+min_duration_s = 1.0
+min_samples = 101
+
+[motion]
+hold_end_s = 0.3697780079965014
+dwell_start_s = 9.34
+movement_duration_s = 8.970221992003498
+time_to_dwell_s = 9.34
+path_length_rad = 1.0930463960758854
+peak_speed_rad_s = 0.31469483276451715
+final_q = [
+    0.8264165354978872,
+    1.1669174526009178,
+]
+final_tip = [
+    0.10073566962504182,
+    0.44866528436795006,
+]
+final_endpoint_error_m = 0.0015240326819486772
+
+[arrays.t]
+shape = [
+    1388,
+]
+dtype = "float64"
+sha256 = "34936b5d24d634a103a2a25e0a16e63420841da28f974d713af02a513bdb568b"
+
+[arrays.q]
+shape = [
+    1388,
+    2,
+]
+dtype = "float64"
+sha256 = "8e2d48ae6fbfd98cb4a072977b109ac2b50d3a8b02eaeefa55bddb9d2d02cf54"
+
+[arrays.dq]
+shape = [
+    1388,
+    2,
+]
+dtype = "float64"
+sha256 = "871fac6ac380ce9d0ce738ac3575396acca1f59c32959c5e1de075786687d0c6"
+
+[arrays.ddq]
+shape = [
+    1388,
+    2,
+]
+dtype = "float64"
+sha256 = "a1de61f0e39f6d89ab233453dc80fba9079e8bbff55ad21596d9c3a17bc93914"
+
+[arrays.tip]
+shape = [
+    1388,
+    2,
+]
+dtype = "float64"
+sha256 = "20013cdb5c160dfe64dc1c51551a48332747310ee17432110c57705a4a56a1f8"
+
+[arrays.dtip]
+shape = [
+    1388,
+    2,
+]
+dtype = "float64"
+sha256 = "a4b3c2b3a8bffb71c0557c604ad23561345e434d31a27cd7a4781bc968f2ffd0"
+
+[arrays.ddtip]
+shape = [
+    1388,
+    2,
+]
+dtype = "float64"
+sha256 = "da1a0420c13751d2b2e26caf5771451eaac4f0679a8966599c4b75f5aa25fa98"
+
+[arrays.task_code]
+shape = [
+    1388,
+    0,
+]
+dtype = "float64"
+sha256 = "bc241727797ef6695eff71ea27fac9b8b2cee232d0f1e4e9f1ded2565b9968c9"
+
+[arrays.phase]
+shape = [
+    1388,
+]
+dtype = "int64"
+sha256 = "29ec86717f375ab0aaa88895f354dd84f01b5bb98773e6621b0f3618db2e9fc9"

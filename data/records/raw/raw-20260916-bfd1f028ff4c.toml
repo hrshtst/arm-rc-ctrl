@@ -1,0 +1,99 @@
+session = "study-01"
+take = 10
+source_file = "reach_010.sklog.npz"
+n_frames = 738
+duration_s = 14.722855499014258
+reset_q = [
+    0.2,
+    1.2,
+]
+manual_schema_version = 1
+
+[artifact]
+artifact_id = "raw-20260916-bfd1f028ff4c"
+kind = "raw"
+created_at = "2026-09-16T03:50:06+00:00"
+license = "proprietary"
+access = "private"
+notes = ""
+schema_version = 1
+
+[artifact.payload]
+uri = "armrc://raw/raw-20260916-bfd1f028ff4c/demo.sklog.npz"
+sha256 = "bfd1f028ff4c6044f9fbcc0616c2c76b77c55de57ee3d0480ef432ce63930dae"
+size = 13544
+format = "sklog.npz"
+schema_version = 1
+
+[artifact.origin]
+command = "python -m arm_rc_ctrl.data.manual import"
+config_sha256 = "7ef0d1cee8778e8812308c50b66c39abb98b452944bb2058977ff7f3a8e9076d"
+project_commit = "d8d78e1446768f7d7ad811ee9b0561f3e9246bb3"
+project_dirty = false
+sources = []
+
+[artifact.origin.dependency_commits]
+rclib = "61a29f0ce6fa19135e3674fa7d2de5cb13df3b4f"
+skelarm = "2cf37a6ef71b61a52d954dc9f0993f4063c7ced5"
+rtctrl = "c601076ee60ec712c1cb4a85756a186882df2e1b"
+
+[scenario]
+config_path = "configs/tasks/task_1a_manual_v2.toml"
+config_sha256 = "4abdad9b15046905e4e17929196907f92e97df9c770748c7acded242508577fb"
+robot = "planar-2dof"
+task = "task-1a-manual"
+dof = 2
+initial_q = [
+    0.2,
+    1.2,
+]
+target = [
+    0.1,
+    0.45,
+]
+
+[sampling]
+period_s = 0.0199877800187096
+clock = "wall"
+
+[sampling.units]
+t = "s"
+q = "rad"
+tip = "m"
+nominal_time = "s"
+
+[acquisition]
+clock = "wall-clock"
+mode = "ik"
+tick_period_s = 0.02
+sample_period_s = 0.02
+pose_updates_per_sample = 1
+display_period_s = 0.02
+ticks = 737
+wall_mean_tick_s = 0.01997673744778054
+wall_max_tick_s = 0.038909611001145095
+late_ticks = 2
+late_tick_factor = 1.5
+
+[display]
+show_tip_trail = true
+show_past_trails = true
+past_trails_shown_during_take = true
+history_takes = [
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+]
+visible_source_takes = [
+    9,
+]
+visible_source_files = [
+    "reach_009.sklog.npz",
+]
+policy_json = "{\"current_alpha\":230,\"current_color\":\"#c81e78\",\"current_width_px\":2.0,\"order\":\"saved trails behind the current trail\",\"past_alpha\":55,\"past_color\":\"#465aa0\",\"past_width_px\":2.0,\"source\":\"logged tip samples (forward kinematics), not the cursor\"}"
