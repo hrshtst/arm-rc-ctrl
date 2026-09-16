@@ -47,6 +47,7 @@ from arm_rc_ctrl.rc.recipe import (
     solver_alpha,
 )
 from arm_rc_ctrl.repo import repository_root
+from arm_rc_ctrl.validation import SHA256_HEX_LENGTH, is_hex
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -404,6 +405,27 @@ def arm_accounting(
     )
 
 
+def _bank_digest_for(
+    arm: ManualArmSpec, contractive: ContractiveTrainingSpec | None, bank_sha256: str | None
+) -> str | None:
+    """The frozen bank digest a contractive key binds; every recorded-data arm binds none."""
+    if contractive is None:
+        if bank_sha256 is not None:
+            msg = f"arm {arm.label} grows no contractive bank, so its fit identity binds no bank digest"
+            raise ValueError(msg)
+        return None
+    if bank_sha256 is None:
+        msg = (
+            f"arm {arm.label} needs the digest of the frozen bank its synthetic episodes come from: a contractive "
+            "fit identity binds that bank (M3MAN-006), or two banks of one seed bank would share a key"
+        )
+        raise ValueError(msg)
+    if not is_hex(bank_sha256, SHA256_HEX_LENGTH):
+        msg = f"arm {arm.label}: bank_sha256 must be 64 lowercase hex characters, got {bank_sha256!r}"
+        raise ValueError(msg)
+    return bank_sha256
+
+
 def fit_identity(
     *,
     configuration: str,
@@ -418,17 +440,22 @@ def fit_identity(
     rclib_commit: str,
     execution_identity: str,
     contractive: ContractiveTrainingSpec | None = None,
+    bank_sha256: str | None = None,
 ) -> str:
     """SHA-256 identity of one fit: every input that decides the fitted readout, including the environment.
 
     The execution environment (:attr:`~arm_rc_ctrl.execution.ExecutionRecord.identity`)
     is part of the key, so a fit produced on another core type or thread
     setting is never served from a cache (clarification C10). A contractive arm
-    additionally binds the construction its synthetic episodes regenerate from,
-    so two seed banks never share a key; the recorded-data arms keep the key
-    they had, because the entry appears only where the construction does.
+    additionally binds the construction its synthetic episodes regenerate from
+    *and* ``bank_sha256``, the digest of the frozen bank record those episodes
+    were accepted in (M3MAN-006), so neither another seed bank nor another bank
+    of the same seed bank ever shares a key. Both belong to the contractive
+    construction and are hashed only where it is present, so the recorded-data
+    arms keep exactly the key they had.
     """
     construction = _contractive_for(arm, contractive)
+    digest = _bank_digest_for(arm, construction, bank_sha256)
     mapping: dict[str, object] = {
         "configuration": configuration,
         "arm": to_mapping(arm),
@@ -448,6 +475,7 @@ def fit_identity(
     }
     if construction is not None:
         mapping["contractive"] = to_mapping(construction)
+        mapping["contractive_bank_sha256"] = digest
     return sha256_bytes(canonical_json(mapping).encode("utf-8"))
 
 

@@ -47,7 +47,7 @@ import numpy as np
 from arm_rc_ctrl.config import from_mapping, to_mapping
 from arm_rc_ctrl.data.arrays import array_digest
 from arm_rc_ctrl.data.records import to_toml
-from arm_rc_ctrl.experiments.manual_recipes import ManualArmSpec, recipe_for_arm
+from arm_rc_ctrl.experiments.manual_recipes import ManualArmSpec, recipe_for_arm, training_spec_for_arm
 from arm_rc_ctrl.provenance import canonical_json, sha256_bytes, sha256_file
 from arm_rc_ctrl.rc.esn import EsnConfig
 from arm_rc_ctrl.rc.recipe import ModelRecipe, RclibIdentity, load_recipe
@@ -86,6 +86,7 @@ __all__ = [
     "episode_identities",
     "fit_entry",
     "fit_record_from",
+    "recipe_mismatches",
     "recipe_text_of",
     "states_witness",
 ]
@@ -292,6 +293,63 @@ class ManualFitInputs:
         return EsnConfig(reservoir=self.configuration(entry).reservoir, readout=self.manifest.readout)
 
 
+def _datasets_label(datasets: Sequence[DatasetSource]) -> str:
+    """The training datasets in training order, as artifact IDs with their bound payload digests."""
+    return "[" + ", ".join(f"{d.artifact_id} ({d.payload_sha256[:12]})" for d in datasets) + "]"
+
+
+def recipe_mismatches(entry: StudyModel, recipe: ModelRecipe, inputs: ManualFitInputs) -> tuple[str, ...]:
+    """Every way ``recipe``'s construction differs from the one ``entry`` and the frozen manifest demand.
+
+    A fit identity is a digest of the construction that was hashed into it; it
+    never witnesses that the recipe *stored* under it is that construction. So
+    the recipe itself is compared here with what the study entry demands: the
+    fitted ESN and with it the ridge parameter, the digest-bound training
+    datasets, the training construction (weighting, multiplicities, warm-up,
+    and a contractive bank where there is one), the frozen input transform and
+    the dataset it was copied from (I8), the training validation, the
+    preprocessing, both widths, and the pinned ``rclib`` build.
+    """
+    manifest = inputs.manifest
+    configuration = inputs.configuration(entry)
+    training = training_spec_for_arm(
+        entry.arm,
+        warmup_s=entry.warmup_s,
+        base_alpha=configuration.base_alpha,
+        anchor=manifest.anchor,
+        contractive=None if entry.contractive is None else entry.contractive.spec,
+    )
+    compared: tuple[tuple[str, object, object], ...] = (
+        ("esn", recipe.esn, manifest.esn(entry)),
+        ("datasets", _datasets_label(recipe.datasets), _datasets_label(manifest.datasets(entry))),
+        ("training", recipe.training, training),
+        ("transform", recipe.transform, manifest.transform.transform),
+        ("transform_source", recipe.transform_source, manifest.anchor.transform_source),
+        ("validation", recipe.validation, manifest.validation),
+        ("preprocessing", recipe.preprocessing, inputs.preprocessing),
+        ("dof", recipe.dof, inputs.dof),
+        ("task_code_dim", recipe.task_code_dim, inputs.task_code_dim),
+        ("rclib", recipe.rclib, inputs.rclib),
+    )
+    return tuple(
+        f"{name}: the recipe has {actual!r}, the study entry demands {expected!r}"
+        for name, actual, expected in compared
+        if actual != expected
+    )
+
+
+def _require_recipe(entry: StudyModel, recipe: ModelRecipe, inputs: ManualFitInputs) -> None:
+    """Fail unless ``recipe`` is the construction the frozen study entry demands."""
+    mismatches = recipe_mismatches(entry, recipe, inputs)
+    if mismatches:
+        reported = "; ".join(mismatches)
+        msg = (
+            f"{entry.label}: the recipe is not the construction the study froze for this model, so a fit of it is "
+            f"another model's: {reported}"
+        )
+        raise ValueError(msg)
+
+
 def fit_entry(entry: StudyModel, inputs: ManualFitInputs) -> tuple[ModelRecipe, EsnModel, tuple[Episode, ...]]:
     """Fit one study entry in this process (no cache) and return recipe, model, and training episodes."""
     configuration = inputs.configuration(entry)
@@ -312,12 +370,8 @@ def fit_entry(entry: StudyModel, inputs: ManualFitInputs) -> tuple[ModelRecipe, 
         name=entry.label,
         contractive=None if entry.contractive is None else entry.contractive.spec,
     )
-    if recipe.esn != inputs.manifest.esn(entry):
-        msg = (
-            f"{entry.label}: the rebuilt ESN differs from the one the manifest hashed into the fit identity; "
-            "the fit would not be the model the study froze"
-        )
-        raise ValueError(msg)
+    # Nearly vacuous here, where the recipe was just built from the entry, and the whole guard on the serve path.
+    _require_recipe(entry, recipe, inputs)
     episodes = tuple(recipe.episodes(inputs.samples, scenario=inputs.scenario))
     return recipe, model, episodes
 
@@ -454,15 +508,17 @@ class ManualFitStore:
         """Serve the fit of ``entry`` from the cache, or fit it now and cache it.
 
         A cached fit is verified against its own record (recipe and weight
-        digests) and its recipe is rebuilt into a fitted model through the
-        recipe's refit self-check, which reproduces the recorded fit report and
-        its per-episode weighting; the refit must also reproduce the weights
-        bitwise, or the cache identity no longer describes this environment.
-        The weights handed back are the cached array, never the refit's.
+        digests), its recipe's complete construction is verified against the
+        one ``entry`` and the frozen manifest demand, and the recipe is rebuilt
+        into a fitted model through the recipe's refit self-check, which
+        reproduces the recorded fit report and its per-episode weighting; the
+        refit must also reproduce the weights bitwise, or the cache identity no
+        longer describes this environment. The weights handed back are the
+        cached array, never the refit's.
         """
         identity = inputs.identity(entry)
         if self.exists(identity):
-            return self._serve(identity, inputs)
+            return self._serve(entry, identity, inputs)
         started = time.perf_counter()
         recipe, model, episodes = fit_entry(entry, inputs)
         elapsed = time.perf_counter() - started
@@ -482,9 +538,16 @@ class ManualFitStore:
         self.write(record, recipe_text, weights)
         return CachedFit(record, recipe, weights, model, episodes, cache_hit=False)
 
-    def _serve(self, identity: str, inputs: ManualFitInputs) -> CachedFit:
+    def _serve(self, entry: StudyModel, identity: str, inputs: ManualFitInputs) -> CachedFit:
         record = self.read_record(identity)
+        if (record.configuration, record.arm) != (entry.configuration, entry.arm):
+            msg = (
+                f"cached fit {identity[:12]} records {record.label}, not {entry.label}; a fit of another model is "
+                "never served under this identity"
+            )
+            raise ValueError(msg)
         recipe = self.read_recipe(record)
+        _require_recipe(entry, recipe, inputs)
         weights = self.read_weights(record)
         model, _report = recipe.refit(inputs.samples, scenario=inputs.scenario)
         if array_digest(model.readout_weights()) != record.weights_sha256:

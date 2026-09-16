@@ -75,7 +75,12 @@ from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
 from arm_rc_ctrl.data.records import load_record, verify_payload
 from arm_rc_ctrl.data.samples import load_samples
 from arm_rc_ctrl.execution import ExecutionRecord, collect_execution, require_canonical
-from arm_rc_ctrl.experiments.manual_augmentation import MANUAL_PROTOCOL
+from arm_rc_ctrl.experiments.manual_augmentation import (
+    MANUAL_PROTOCOL,
+    ManualParent,
+    ParentFailure,
+    generate_parent_bank,
+)
 from arm_rc_ctrl.experiments.manual_fits import (
     RECIPE_FILE,
     CachedFit,
@@ -86,7 +91,7 @@ from arm_rc_ctrl.experiments.manual_fits import (
     states_witness,
 )
 from arm_rc_ctrl.experiments.manual_recipes import ASSIGNMENTS
-from arm_rc_ctrl.experiments.manual_study import StudyManifest, StudyModel, load_study
+from arm_rc_ctrl.experiments.manual_study import ContractiveBank, StudyManifest, StudyModel, load_study
 from arm_rc_ctrl.provenance import (
     ArtifactReference,
     ProvenanceRecord,
@@ -112,6 +117,7 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from arm_rc_ctrl.data.samples import SampleSet
+    from arm_rc_ctrl.rc.augment import TaskGeometry
     from arm_rc_ctrl.rc.esn import EsnModel
     from arm_rc_ctrl.rc.teacher_forcing import InputEncoder
 
@@ -826,6 +832,7 @@ class ManualStudyContext:
         if any((r.preprocessing, r.dof, r.task_code_dim) != shape for r in records):
             msg = "the locked demonstrations were not all derived with the same preprocessing and widths"
             raise ValueError(msg)
+        _check_contractive_banks(manifest, samples, records, scenario)
         inputs = ManualFitInputs(
             manifest=manifest,
             samples=samples,
@@ -869,6 +876,62 @@ def _load_demonstrations(
         payloads.append(ArtifactReference(artifact.payload.uri, artifact.payload.sha256, artifact.payload.size))
         records.append(record)
     return samples, tuple(payloads), records
+
+
+def _check_contractive_banks(
+    manifest: StudyManifest,
+    samples: Mapping[str, SampleSet],
+    records: Sequence[ManualDatasetRecord],
+    scenario: TaskGeometry,
+) -> None:
+    """Grow every contractive bank the study binds again and refuse a recorded digest that does not re-derive.
+
+    Each digest is recorded once per parent and hashed into that parent's six
+    contractive fit identities, but nothing else in the study re-derives it:
+    the numerical arms are the singleton and the duplication control
+    (:data:`NUMERICAL_ARMS`), so no contractive arm is ever fitted and a check
+    on the fit path would never run. The bank is therefore regenerated here
+    from the parent's committed record, exactly as M3MAN-006 grew it, before
+    any fit of the study is served.
+    """
+    banks: dict[str, ContractiveBank] = {}
+    for model in manifest.entries:
+        construction = model.contractive
+        if construction is not None:
+            banks.setdefault(construction.assignment, construction)
+    by_position = {
+        demonstration.assignment: (demonstration, record)
+        for demonstration, record in zip(manifest.demonstrations, records, strict=True)
+    }
+    for assignment, bank in sorted(banks.items()):
+        demonstration, record = by_position[assignment]
+        parent = ManualParent(
+            assignment=assignment,
+            dataset=demonstration.dataset,
+            dwell_start_s=record.motion.dwell_start_s,
+            n_samples=record.n_samples,
+            period_s=record.preprocessing.resample_period_s,
+            derivative_method=record.preprocessing.derivative_method,
+            q_sha256=record.arrays["q"].sha256,
+            dq_sha256=record.arrays["dq"].sha256,
+        )
+        outcome = generate_parent_bank(
+            parent, samples[demonstration.dataset.artifact_id], scenario, seed_bank=bank.seed_bank
+        )
+        if isinstance(outcome, ParentFailure):
+            msg = (
+                f"{assignment}: the contractive bank the study records ({bank.bank_sha256}) cannot be grown again "
+                f"from {parent.identifier}: {outcome.reason}"
+            )
+            raise ValueError(msg)  # noqa: TRY004 - a bank that cannot be grown is a study error
+        regenerated = outcome.record.bank_sha256
+        if regenerated != bank.bank_sha256:
+            msg = (
+                f"{assignment}: the contractive bank of {parent.identifier} regenerates as {regenerated}, but the "
+                f"study manifest records {bank.bank_sha256}; the contractive fit identities bind a bank this study "
+                "cannot reproduce"
+            )
+            raise ValueError(msg)
 
 
 # --- the validation -------------------------------------------------------------------------

@@ -131,6 +131,9 @@ PARENT_ROWS = PARENT_SAMPLES.n_samples - 1
 DWELL_START_S = float(PARENT_SAMPLES.t[-1]) - 0.1
 CONTRACTIVE_SAMPLES = {PARENT: PARENT_SAMPLES}
 SEED_BANK = 7
+BANK_DIGEST = "1a" * 32
+"""The digest of the frozen bank a ``C10`` key binds; the real one comes from the bank record (M3MAN-006)."""
+OTHER_BANK_DIGEST = "2b" * 32
 
 
 def _build(
@@ -507,10 +510,12 @@ def test_a_contractive_bank_that_cannot_be_grown_names_its_parent() -> None:
 
 
 def test_the_contractive_construction_binds_the_fit_identity() -> None:
-    """A contractive fit key changes with the seed bank and the dwell onset its bank regenerates from."""
+    """A contractive fit key changes with the seed bank, the dwell onset, and the digest of the bank itself."""
     rclib = RclibIdentity.current()
 
-    def identity(arm: ManualArmSpec, contractive: ContractiveTrainingSpec | None) -> str:
+    def identity(
+        arm: ManualArmSpec, contractive: ContractiveTrainingSpec | None, bank_sha256: str | None = None
+    ) -> str:
         return fit_identity(
             configuration="trial-17",
             arm=arm,
@@ -523,16 +528,53 @@ def test_the_contractive_construction_binds_the_fit_identity() -> None:
             rclib_commit=rclib.commit,
             execution_identity="a" * 64,
             contractive=contractive,
+            bank_sha256=bank_sha256,
         )
 
     arm = ManualArmSpec(CONTRACTIVE_ARM, CONTRACTIVE_ASSIGNMENT)
     construction = ContractiveTrainingSpec(seed_bank=SEED_BANK, dwell_start_s=DWELL_START_S)
-    base = identity(arm, construction)
-    assert base == identity(arm, construction)
-    assert base != identity(arm, ContractiveTrainingSpec(seed_bank=SEED_BANK + 1, dwell_start_s=DWELL_START_S))
-    assert base != identity(arm, ContractiveTrainingSpec(seed_bank=SEED_BANK, dwell_start_s=DWELL_START_S - 0.01))
+    base = identity(arm, construction, BANK_DIGEST)
+    assert base == identity(arm, construction, BANK_DIGEST)
+    assert base != identity(
+        arm, ContractiveTrainingSpec(seed_bank=SEED_BANK + 1, dwell_start_s=DWELL_START_S), BANK_DIGEST
+    )
+    assert base != identity(
+        arm, ContractiveTrainingSpec(seed_bank=SEED_BANK, dwell_start_s=DWELL_START_S - 0.01), BANK_DIGEST
+    )
     assert base != identity(ManualArmSpec("R10", CONTRACTIVE_ASSIGNMENT), None)
+    # Two banks that differ only in their recorded digest are two different models (M3MAN-006).
+    assert base != identity(arm, construction, OTHER_BANK_DIGEST)
     with pytest.raises(ValueError, match="needs its construction"):
         identity(arm, None)
     with pytest.raises(ValueError, match="recorded episodes only"):
-        identity(ManualArmSpec("S", CONTRACTIVE_ASSIGNMENT), construction)
+        identity(ManualArmSpec("S", CONTRACTIVE_ASSIGNMENT), construction, BANK_DIGEST)
+    # The bank digest and the construction are one binding: neither is optional where the other is present.
+    with pytest.raises(ValueError, match="frozen bank"):
+        identity(arm, construction)
+    with pytest.raises(ValueError, match="grows no contractive bank"):
+        identity(ManualArmSpec("R10", CONTRACTIVE_ASSIGNMENT), None, BANK_DIGEST)
+    with pytest.raises(ValueError, match="64 lowercase hex"):
+        identity(arm, construction, "not-a-digest")
+
+
+def test_a_recorded_data_fit_identity_never_depends_on_a_contractive_bank() -> None:
+    """The 126 recorded-data keys are hashed from a mapping the bank digest never enters."""
+    rclib = RclibIdentity.current()
+    keys = {
+        arm.label: fit_identity(
+            configuration="trial-17",
+            arm=arm,
+            warmup_s=WARMUP_S,
+            base_alpha=BASE_ALPHA,
+            esn=BASE_ESN,
+            datasets=(SOURCES[CONTRACTIVE_ASSIGNMENT],),
+            transform=TRANSFORM,
+            validation=MANUAL_VALIDATION,
+            rclib_commit=rclib.commit,
+            execution_identity="a" * 64,
+        )
+        for arm in (ManualArmSpec("S", CONTRACTIVE_ASSIGNMENT), ManualArmSpec("R10", CONTRACTIVE_ASSIGNMENT))
+    }
+    assert len(set(keys.values())) == len(keys)
+    # The committed values of these keys are locked against the frozen manifest in tests/unit/test_manual_study.py.
+    assert all(len(key) == 64 for key in keys.values())

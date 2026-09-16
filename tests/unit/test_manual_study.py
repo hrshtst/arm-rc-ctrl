@@ -496,6 +496,13 @@ def test_tampered_manifests_are_refused_on_load(manifest: StudyManifest, tmp_pat
     with pytest.raises(ValueError, match="bank digest"):
         reload(without_bank)
 
+    # The digest of the frozen bank is part of the contractive key: another bank is another model (M3MAN-006).
+    forged_digest = json.loads(study_to_json(manifest))
+    grown_bank = next(entry for entry in forged_digest["entries"] if entry["arm"]["arm"] == CONTRACTIVE_ARM)
+    grown_bank["contractive"]["bank_sha256"] = "ab" * 32
+    with pytest.raises(ValueError, match="does not re-derive"):
+        reload(forged_digest)
+
     stale = json.loads(study_to_json(manifest))
     stale["entries"][0]["fit_identity"] = "d" * 64
     with pytest.raises(ValueError, match="does not re-derive"):

@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from typing import TYPE_CHECKING
+import shutil
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import pytest
@@ -31,7 +32,9 @@ from arm_rc_ctrl.experiments.manual_fits import (
     ManualFitRecord,
     ManualFitStore,
     cache_uri,
+    episode_identities,
     fit_entry,
+    fit_record_from,
     recipe_text_of,
     states_witness,
 )
@@ -62,14 +65,15 @@ from arm_rc_ctrl.experiments.manual_numerics import (
     validation_to_json,
     weighted_normal_equations,
 )
-from arm_rc_ctrl.experiments.manual_recipes import ManualArmSpec
-from arm_rc_ctrl.rc.recipe import RclibIdentity, load_recipe
+from arm_rc_ctrl.experiments.manual_recipes import ManualArmSpec, fit_identity, recipe_for_arm
+from arm_rc_ctrl.experiments.manual_study import load_study
+from arm_rc_ctrl.rc.recipe import DatasetSource, RclibIdentity, load_recipe
 from arm_rc_ctrl.rc.training import FitReport, harvest_episode
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from arm_rc_ctrl.experiments.manual_study import StudyManifest, StudyModel
+    from arm_rc_ctrl.experiments.manual_study import ContractiveBank, StudyManifest, StudyModel
 
 FULL_CONFIGURATIONS = (
     "feasible-best",
@@ -772,6 +776,145 @@ def test_the_command_guards_its_outputs_and_its_environment(
     assert markdown.read_text(encoding="utf-8") == render_validation_markdown(written)
     with pytest.raises(FileExistsError, match="refusing to overwrite"):
         main(argv)
+
+
+def _foreign_fit(
+    f: ManualFixture,
+    entry: StudyModel,
+    *,
+    base_alpha: float | None = None,
+    sources: dict[str, DatasetSource] | None = None,
+) -> ManualFitRecord:
+    """Cache a fit of a construction that is *not* ``entry``'s under ``entry``'s own expected identity.
+
+    This is the reproduction: recipe, weights, and refit all agree with each
+    other, so every check the store makes of a cached fit against its own
+    record passes. Only a comparison against the frozen study entry can see
+    that the construction is another one.
+    """
+    configuration = f.inputs.configuration(entry)
+    recipe, model = recipe_for_arm(
+        entry.arm,
+        esn=f.inputs.base_esn(entry),
+        sources=f.manifest.sources if sources is None else sources,
+        samples=f.inputs.samples,
+        dof=f.inputs.dof,
+        task_code_dim=f.inputs.task_code_dim,
+        preprocessing=f.inputs.preprocessing,
+        transform=f.manifest.transform.transform,
+        validation=f.manifest.validation,
+        warmup_s=entry.warmup_s,
+        base_alpha=configuration.base_alpha if base_alpha is None else base_alpha,
+        scenario=f.inputs.scenario,
+        anchor=f.manifest.anchor,
+        name=entry.label,
+    )
+    episodes = tuple(recipe.episodes(f.inputs.samples, scenario=f.inputs.scenario))
+    weights = model.readout_weights()
+    text = recipe_text_of(recipe)
+    record = fit_record_from(
+        identity=entry.fit_identity,
+        entry=entry,
+        recipe_text=text,
+        recipe=recipe,
+        weights=weights,
+        episodes=episode_identities(model, episodes, cast("tuple[float, ...]", recipe.fit.episode_weights)),
+        execution_identity=f.inputs.execution_identity,
+        fit_seconds=0.5,
+        now=f.now,
+    )
+    ManualFitStore(f.store).write(record, text, weights)
+    return record
+
+
+def _assert_the_cache_verifies_itself(f: ManualFixture, record: ManualFitRecord) -> None:
+    """Every check the store makes of a cached fit against its own record passes for ``record``."""
+    fits = ManualFitStore(f.store)
+    assert fits.exists(record.identity)
+    assert fits.read_record(record.identity) == record
+    recipe = fits.read_recipe(record)  # the stored recipe matches its recorded digest
+    assert array_digest(fits.read_weights(record)) == record.weights_sha256
+    model, _report = recipe.refit(f.inputs.samples, scenario=f.inputs.scenario)
+    assert array_digest(model.readout_weights()) == record.weights_sha256  # and refitting reproduces them bitwise
+
+
+def test_a_cached_fit_of_another_ridge_parameter_is_never_served(manual_fixture: ManualFixture) -> None:
+    """A fit trained at twice the frozen regularization is refused, although it verifies against its own record."""
+    f = manual_fixture
+    entry = f.manifest.entry(CONFIGURATION, "S/D05")
+    doubled = 2 * f.inputs.configuration(entry).base_alpha
+    record = _foreign_fit(f, entry, base_alpha=doubled)
+    fits = ManualFitStore(f.store)
+    try:
+        _assert_the_cache_verifies_itself(f, record)
+        assert fits.read_recipe(record).esn.readout.alpha == doubled
+        assert f.manifest.esn(entry).readout.alpha != doubled  # the entry demands alpha_0, not 2 alpha_0
+        with pytest.raises(ValueError, match="esn") as excinfo:
+            fits.fit_or_load(entry, f.inputs, now=f.now)
+        message = str(excinfo.value)
+        assert entry.label in message
+        assert repr(doubled) in message  # the refusal names the construction it found
+    finally:
+        shutil.rmtree(fits.directory(record.identity))
+
+
+def test_a_cached_fit_trained_on_another_recording_is_never_served(manual_fixture: ManualFixture) -> None:
+    """The guard is not alpha-specific: a fit of the wrong demonstration is refused under the right identity."""
+    f = manual_fixture
+    entry = f.manifest.entry(CONFIGURATION, "S/D06")
+    record = _foreign_fit(f, entry, sources={**f.manifest.sources, "D06": f.manifest.sources["D07"]})
+    fits = ManualFitStore(f.store)
+    try:
+        _assert_the_cache_verifies_itself(f, record)
+        assert [d.artifact_id for d in fits.read_recipe(record).datasets] == [f.manifest.sources["D07"].artifact_id]
+        with pytest.raises(ValueError, match="datasets") as excinfo:
+            fits.fit_or_load(entry, f.inputs, now=f.now)
+        message = str(excinfo.value)
+        assert entry.label in message
+        assert f.manifest.sources["D06"].artifact_id in message  # the recording the entry actually demands
+    finally:
+        shutil.rmtree(fits.directory(record.identity))
+
+
+def test_the_study_context_refuses_a_contractive_bank_that_does_not_regenerate(
+    manual_fixture: ManualFixture, tmp_path: Path
+) -> None:
+    """A recorded bank digest is verified by growing the bank again, never by trusting the manifest."""
+    f = manual_fixture
+    assignment = "D04"
+    forged = "ab" * 32
+    recorded = cast("ContractiveBank", f.manifest.entry(CONFIGURATION, f"C10/{assignment}").contractive).bank_sha256
+    document = json.loads(f.manifest_file.read_text(encoding="utf-8"))
+    for entry in document["entries"]:
+        construction = entry["contractive"]
+        if construction is None or construction["assignment"] != assignment:
+            continue
+        construction["bank_sha256"] = forged
+        model = f.manifest.entry(entry["configuration"], f"C10/{assignment}")
+        entry["fit_identity"] = fit_identity(
+            configuration=model.configuration,
+            arm=model.arm,
+            warmup_s=model.warmup_s,
+            base_alpha=f.inputs.configuration(model).base_alpha,
+            esn=f.manifest.esn(model),
+            datasets=f.manifest.datasets(model),
+            transform=f.manifest.transform.transform,
+            validation=f.manifest.validation,
+            anchor=f.manifest.anchor,
+            rclib_commit=f.manifest.rclib.commit,
+            execution_identity=f.manifest.execution.identity,
+            contractive=cast("ContractiveBank", model.contractive).spec,
+            bank_sha256=forged,
+        )
+    file = tmp_path / "study_manifest_v1.json"
+    file.write_text(json.dumps(document), encoding="utf-8")
+    # The document is internally consistent: every forged key re-derives from the forged digest.
+    assert len(load_study(file).entries) == len(f.manifest.entries)
+    with pytest.raises(ValueError, match=assignment) as excinfo:
+        ManualStudyContext.load(file, store=f.store, root=f.root, execution=f.execution)
+    message = str(excinfo.value)
+    assert forged in message
+    assert recorded in message  # both digests are named, so the failure can be diagnosed from the message alone
 
 
 def test_the_study_context_binds_the_manifest_its_sources_and_the_environment(

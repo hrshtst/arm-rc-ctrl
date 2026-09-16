@@ -736,6 +736,7 @@ def _check_identities(manifest: StudyManifest) -> None:
             rclib_commit=manifest.rclib.commit,
             execution_identity=manifest.execution.identity,
             contractive=construction,
+            bank_sha256=None if model.contractive is None else model.contractive.bank_sha256,
         )
         if expected != model.fit_identity:
             msg = (
@@ -979,6 +980,7 @@ def _study_model(
             rclib_commit=rclib_commit,
             execution_identity=execution_identity,
             contractive=None if construction is None else construction.spec,
+            bank_sha256=None if construction is None else construction.bank_sha256,
         ),
         execution_identity=execution_identity,
         contractive=construction,
