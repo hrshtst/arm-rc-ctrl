@@ -154,6 +154,7 @@ _TIP_TOLERANCE_M = 1e-9
 _TASK_DIM = 2
 _MIN_FRAMES = 2
 _MIN_DWELL_SAMPLES = 2
+_MIN_GRID_SAMPLES = 4  # the derivative schemes need four samples on the training grid
 _HOLD_ANCHORED_LABEL = "butterworth-zero-phase-hold-anchored"
 _REFLECTED_LABEL = "butterworth-zero-phase-first-sample-reflected"
 _DATASET_SCHEMA_VERSIONS = (MANUAL_SCHEMA_VERSION, MANUAL_REFLECTED_SCHEMA_VERSION)
@@ -1394,8 +1395,20 @@ def assess_take(take: ManualTake, config: ManualScenarioConfig, derive: ManualDe
         return _partial(problems, timing, start)
     hold_end_s = float(take.times[int(onset_indices[0])])
 
+    duration_s = float(take.times[-1])
+    grid_samples = math.floor(duration_s / period + _TIME_TOLERANCE_S) + 1
+    if grid_samples < _MIN_GRID_SAMPLES:
+        problems.append(
+            f"too short to reconstruct: {take.n_frames} frames over {duration_s:.4f} s give {grid_samples} samples "
+            f"on the {period} s grid, fewer than the {_MIN_GRID_SAMPLES} the derivative scheme needs"
+        )
+        return _partial(problems, timing, start)
     interpolation = cast("Literal['linear', 'cubic']", derive.resampling.interpolation)
-    grid, q_grid = reconstruct_on_grid(take.times, take.q, period, interpolation)
+    try:
+        grid, q_grid = reconstruct_on_grid(take.times, take.q, period, interpolation)
+    except ValueError as exc:
+        problems.append(f"reconstruction refused the take: {exc}")
+        return _partial(problems, timing, start)
     try:
         q_s, smoothing = _smooth_on_grid(q_grid, config, derive)
     except ValueError as exc:

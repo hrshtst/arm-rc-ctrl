@@ -31,6 +31,7 @@ from arm_rc_ctrl.data.manual_scenario import ManualScenarioConfig, load_manual_s
 from arm_rc_ctrl.data.recovery import load_processed_record
 from arm_rc_ctrl.data.samples import load_samples
 from arm_rc_ctrl.data.synthetic import synthetic_manual_take_log
+from arm_rc_ctrl.experiments.manual_bank import validate_batch
 from arm_rc_ctrl.experiments.repetition_numerics import require_recipe_dataset
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.storage import StorageRoot
@@ -338,3 +339,40 @@ def test_v2_derivation_writes_schema_2_records_that_keep_the_schemas_apart(works
     unknown["manual_schema_version"] = 3
     with pytest.raises(ConfigError, match="unsupported manual_schema_version"):
         from_mapping(unknown, ManualDatasetRecord)
+
+
+SHORT_SHAPE = Shape(hold_s=ACQUISITION_S, move_s=0.0, dwell_s=0.0, preroll_amplitude_rad=0.0)
+
+
+def test_a_take_too_short_to_reconstruct_is_rejected_not_raised(workspace: Workspace) -> None:
+    """A take of a few frames cannot fill the derivative scheme's window; that is a rejection, never an exception."""
+    take, assessment = _assess(workspace, SHORT_SHAPE)
+    assert take.n_frames == 2  # only the reset frame and one moved frame
+    assert not assessment.accepted
+    assert any("short" in problem for problem in assessment.problems), assessment.problems
+    assert assessment.samples is None
+    assert assessment.dwell is None
+
+
+def test_a_short_take_does_not_abort_the_batch(workspace: Workspace) -> None:
+    """The batch rejects the short take, keeps it retained, and still assesses the takes after it."""
+    short = _log(workspace, "reach_001.sklog.npz", SHORT_SHAPE)
+    good = _log(workspace, "reach_002.sklog.npz")
+    report = validate_batch(
+        [short, good],
+        scenario_file=workspace.scenario,
+        config_file=workspace.derive,
+        store=workspace.store,
+        records_root=workspace.records_root,
+        session="manual-v2-session",
+        batch=1,
+        manifest_file=workspace.records_root / "docs" / "bank" / "v2.json",
+        required=10,
+        license_label="proprietary",
+        access="private",
+        exploratory=True,
+    )
+    assert [v.accepted for v in report.verdicts] == [False, True]
+    assert any("short" in reason for reason in report.verdicts[0].reasons), report.verdicts[0].reasons
+    assert report.verdicts[0].raw_artifact_id is not None
+    assert report.verdicts[1].processed_artifact_id is not None
