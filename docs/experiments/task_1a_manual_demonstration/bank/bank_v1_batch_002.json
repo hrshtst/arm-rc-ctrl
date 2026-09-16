@@ -1,0 +1,43 @@
+{
+  "accepted_total": 10,
+  "batch": 2,
+  "complete": true,
+  "next_action": "bank complete: the first 10 accepted takes are assigned D01..D10; later accepted takes stay retained but unassigned",
+  "required": 10,
+  "session": "study-01",
+  "shortfall": 0,
+  "updated_at": "2026-09-16T03:50:49+00:00",
+  "verdicts": [
+    {
+      "accepted": true,
+      "assignment": "D10",
+      "attempt": 11,
+      "batch": 2,
+      "duplicate_of": null,
+      "measurements": {
+        "duration_s": 16.92476308500045,
+        "dwell_final_duration_s": 4.040000000000001,
+        "dwell_final_samples": 405,
+        "final_endpoint_error_m": 0.0034896414272948145,
+        "hold_end_s": 1.1255362200026866,
+        "late_frames": 0,
+        "max_interval_s": 0.02587614001822658,
+        "max_raw_speed_rad_s": 1.028983110822365,
+        "median_interval_s": 0.01999006699770689,
+        "movement_duration_s": 11.754463779997314,
+        "n_frames": 848,
+        "path_length_rad": 1.0918932216202988,
+        "peak_speed_rad_s": 0.38313868220754,
+        "start_deviation_rad": 0.0,
+        "start_shift_rad": 0.0,
+        "time_to_dwell_s": 12.88
+      },
+      "payload_sha256": "7757d647098f342a7047f7422916fcdbdd2fa19c819d345624b03ecad114d9db",
+      "processed_artifact_id": "processed-20260916-f4044d555347",
+      "q_sha256": "fcc1bd76ad7525c15525b8bb689a912daefe13eac6b58b1d65678d4f9bbfad9f",
+      "raw_artifact_id": "raw-20260916-7757d647098f",
+      "reasons": [],
+      "source_file": "reach_011.sklog.npz"
+    }
+  ]
+}

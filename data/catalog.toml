@@ -4631,3 +4631,19 @@ record = "data/records/processed/processed-20260916-227ac2516270.toml"
 uri = "armrc://processed/processed-20260916-227ac2516270/samples.npz"
 sha256 = "227ac25162708063247d1cc242c07d28f816ca5d01a6586bf76158fec7671209"
 created_at = "2026-09-16T03:50:07+00:00"
+
+[[artifacts]]
+artifact_id = "raw-20260916-7757d647098f"
+kind = "raw"
+record = "data/records/raw/raw-20260916-7757d647098f.toml"
+uri = "armrc://raw/raw-20260916-7757d647098f/demo.sklog.npz"
+sha256 = "7757d647098f342a7047f7422916fcdbdd2fa19c819d345624b03ecad114d9db"
+created_at = "2026-09-16T03:50:49+00:00"
+
+[[artifacts]]
+artifact_id = "processed-20260916-f4044d555347"
+kind = "processed"
+record = "data/records/processed/processed-20260916-f4044d555347.toml"
+uri = "armrc://processed/processed-20260916-f4044d555347/samples.npz"
+sha256 = "f4044d555347d3f3e2200536a1454781d7b9e3c38d0b9c74d818db6b3aee6710"
+created_at = "2026-09-16T03:50:49+00:00"
