@@ -290,7 +290,21 @@ class EsnModel:
         self._fitted = True
 
     def fit_sequence(self, inputs: NDArray[np.float64], targets: NDArray[np.float64], *, washout_len: int) -> None:
-        """``rclib``'s single-sequence fit (reset, drive, ridge on the rows after ``washout_len``); reference path."""
+        """``rclib``'s single-sequence fit (reset, drive, ridge on the rows after ``washout_len``); reference path.
+
+        Refused under the explicit-bias layout: ``rclib`` harvests the states
+        itself and never sees the appended ones column, so it would fit
+        ``n_neurons`` rows where every other path expects ``n_neurons + 1``.
+        The refusal comes before the model is touched, so nothing is left
+        half-fitted at the wrong width; fit that layout through
+        :meth:`fit_readout` on harvested states instead.
+        """
+        if self.explicit_bias:
+            msg = (
+                "fit_sequence cannot fit the explicit-bias readout: rclib harvests the states itself and never "
+                "sees the appended ones column; fit it through fit_readout on harvested states"
+            )
+            raise ValueError(msg)
         x = np.asarray(inputs, dtype=np.float64)
         y = np.asarray(targets, dtype=np.float64)
         if x.ndim != 2 or x.shape[1] != self._input_dim or y.shape != (x.shape[0], self._output_dim):  # noqa: PLR2004

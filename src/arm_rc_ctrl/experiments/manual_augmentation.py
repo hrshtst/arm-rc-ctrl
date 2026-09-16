@@ -30,7 +30,7 @@ here depends on a machine path.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Final
 
 from arm_rc_ctrl.config import to_mapping
@@ -83,6 +83,8 @@ MANUAL_PROTOCOL: Final = "task_1a_manual_v1"
 """Protocol every manual bank belongs to."""
 
 _RECORD_DIRECTORY: Final = "data/records/processed"
+_PENDING_DIGEST: Final = "0" * SHA256_HEX_LENGTH
+"""Stand-in a record carries only between its construction and the stamping of its own identity digest."""
 _ASSIGNMENT_RE: Final = re.compile(r"^D\d{2}$")
 
 
@@ -386,18 +388,33 @@ def _check_identity(parent: ManualParent, samples: SampleSet) -> None:
             raise ValueError(msg)
 
 
-def _bank_digest(parent: ManualParent, config: ManualAugmentationConfig, episodes: Sequence[EpisodeDigests]) -> str:
-    """The canonical identity of one bank: its parent, its protocol, and every episode digest."""
+def record_digest(record: ParentBankRecord) -> str:
+    """The canonical identity of one bank, derived from the record's own fields.
+
+    Everything that decides which episodes the bank holds and why enters the
+    digest: the parent binding, the protocol and its versions, the grid, the
+    derivative policy, the seed namespace, every episode, and the whole
+    rejection history. A record whose metadata was edited therefore no longer
+    matches the digest it carries, which :func:`check_bank_reproducible`
+    re-derives rather than trusting.
+    """
     payload: dict[str, object] = {
-        "assignment": parent.assignment,
-        "config": to_mapping(config),
-        "dataset": to_mapping(parent.dataset),
-        "dwell_start_s": parent.dwell_start_s,
-        "envelope": MANUAL_ENVELOPE_VERSION,
-        "episodes": [to_mapping(episode) for episode in episodes],
-        "protocol": MANUAL_PROTOCOL,
-        "schema_version": MANUAL_AUGMENTATION_SCHEMA_VERSION,
-        "seed_namespace": MANUAL_SEED_NAMESPACE,
+        "accepted_attempts": list(record.accepted_attempts),
+        "assignment": record.assignment,
+        "attempts_used": record.attempts_used,
+        "config": to_mapping(record.config),
+        "dataset": to_mapping(record.dataset),
+        "derivative_method": record.derivative_method,
+        "dwell_start_s": record.dwell_start_s,
+        "envelope": record.envelope,
+        "episodes": [to_mapping(episode) for episode in record.episodes],
+        "parent_dq_sha256": record.parent_dq_sha256,
+        "parent_q_sha256": record.parent_q_sha256,
+        "period_s": record.period_s,
+        "protocol": record.protocol,
+        "rejections": [to_mapping(rejection) for rejection in record.rejections],
+        "schema_version": record.schema_version,
+        "seed_namespace": record.seed_namespace,
     }
     return sha256_bytes(canonical_json(portable_config(payload)).encode("utf-8"))
 
@@ -466,7 +483,7 @@ def generate_parent_bank(
         )
         for episode in result.episodes
     )
-    record = ParentBankRecord(
+    provisional = ParentBankRecord(
         schema_version=MANUAL_AUGMENTATION_SCHEMA_VERSION,
         protocol=MANUAL_PROTOCOL,
         assignment=parent.assignment,
@@ -483,8 +500,10 @@ def generate_parent_bank(
         accepted_attempts=tuple(episode.attempt for episode in episodes),
         attempts_used=result.attempts_used,
         rejections=tuple(RejectionRecord(r.attempt, r.reason) for r in result.rejections),
-        bank_sha256=_bank_digest(parent, config, episodes),
+        bank_sha256=_PENDING_DIGEST,
     )
+    # The digest covers every other field, so it is stamped once the record carrying them exists.
+    record = replace(provisional, bank_sha256=record_digest(provisional))
     return ParentBank(record=record, episodes=tuple(episode.arrays for episode in result.episodes))
 
 
@@ -526,11 +545,14 @@ def check_bank_reproducible(
     record: ParentBankRecord, parent: ManualParent, samples: SampleSet, scenario: TaskGeometry
 ) -> tuple[str, ...]:
     """Re-derive a bank from its parent and report every difference from ``record`` (empty when identical)."""
+    mismatches: list[str] = []
+    if record.bank_sha256 != record_digest(record):
+        mismatches.append(f"{record.assignment}: bank_sha256 does not match the record's own contents")
     outcome = generate_parent_bank(parent, samples, scenario, seed_bank=record.config.seed_bank)
     if isinstance(outcome, ParentFailure):
-        return (f"{record.assignment}: regeneration failed: {outcome.reason}",)
+        return (*mismatches, f"{record.assignment}: regeneration failed: {outcome.reason}")
     fresh = outcome.record
-    mismatches: list[str] = []
+    mismatches.extend(_identity_mismatches(record, fresh))
     # Both sides hold exactly ``n_synthetic`` episodes: the record validates it, and so does the fresh bank.
     for recorded, regenerated in zip(record.episodes, fresh.episodes, strict=True):
         for name, was, now in (
@@ -540,11 +562,47 @@ def check_bank_reproducible(
         ):
             if was != now:
                 mismatches.append(f"episode {recorded.episode}: {name} {was} regenerated as {now}")
-    for name, was, now in (
-        ("attempts_used", str(record.attempts_used), str(fresh.attempts_used)),
-        ("rejections", str(len(record.rejections)), str(len(fresh.rejections))),
-        ("bank_sha256", record.bank_sha256, fresh.bank_sha256),
-    ):
-        if was != now:
-            mismatches.append(f"{record.assignment}: {name} {was} regenerated as {now}")
+    mismatches.extend(_rejection_mismatches(record, fresh))
     return tuple(mismatches)
+
+
+_IDENTITY_FIELDS: Final = (
+    "schema_version",
+    "protocol",
+    "assignment",
+    "dataset",
+    "config",
+    "envelope",
+    "seed_namespace",
+    "dwell_start_s",
+    "period_s",
+    "derivative_method",
+    "parent_q_sha256",
+    "parent_dq_sha256",
+    "accepted_attempts",
+    "attempts_used",
+    "bank_sha256",
+)
+"""Everything a record states about its bank; a regeneration reproduces all of it or the bank changed."""
+
+
+def _identity_mismatches(record: ParentBankRecord, fresh: ParentBankRecord) -> list[str]:
+    """Every recorded identity field the regenerated bank did not reproduce."""
+    return [
+        f"{record.assignment}: {name} {getattr(record, name)!r} regenerated as {getattr(fresh, name)!r}"
+        for name in _IDENTITY_FIELDS
+        if getattr(record, name) != getattr(fresh, name)
+    ]
+
+
+def _rejection_mismatches(record: ParentBankRecord, fresh: ParentBankRecord) -> list[str]:
+    """Every difference in the rejection history: rejections are evidence, not a count."""
+    was, now = record.rejections, fresh.rejections
+    if len(was) != len(now):
+        return [f"{record.assignment}: rejections {len(was)} regenerated as {len(now)}"]
+    return [
+        f"{record.assignment}: rejection of attempt {a.attempt} {a.reason!r} regenerated as "
+        f"attempt {b.attempt} {b.reason!r}"
+        for a, b in zip(was, now, strict=True)
+        if a != b
+    ]

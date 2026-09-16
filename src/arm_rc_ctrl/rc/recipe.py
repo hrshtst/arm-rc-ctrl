@@ -710,6 +710,15 @@ def _check_weighted_recipe(recipe: ModelRecipe) -> None:
     if len(counts) != len(recipe.datasets):
         msg = f"source_counts {counts} must give one multiplicity per dataset, got {len(recipe.datasets)} datasets"
         raise ValueError(msg)
+    override = spec.regularization_count
+    if override is not None and override != spec.episode_count:
+        msg = (
+            f"regularization_count {override} must equal the {spec.episode_count} episodes a schema "
+            f"{WEIGHTED_SCHEMA_VERSION} recipe stacks: the weighted objective scales the solver's parameter with "
+            "the episodes actually fitted, so an override would let a copy control train at another "
+            "regularization than the count it matches"
+        )
+        raise ValueError(msg)
     if spec.base_alpha is None or spec.regularization_rule != "count_scaled":
         msg = (
             f"schema {WEIGHTED_SCHEMA_VERSION} recipes derive esn.readout.alpha as 'count_scaled' of base_alpha "
@@ -739,12 +748,18 @@ def _check_weighted_recipe(recipe: ModelRecipe) -> None:
             "and leave esn.readout.include_bias false, so every weighted row scales with its bias entry (I3)"
         )
         raise ValueError(msg)
+    if recipe.fit.episode_loss_rows is None or recipe.fit.episode_weights is None:
+        msg = (
+            f"schema {WEIGHTED_SCHEMA_VERSION} recipes record the per-episode loss rows and weights their fit "
+            "used, so a refit verifies the weighting itself and not only the errors it produced"
+        )
+        raise ValueError(msg)
 
 
 def _compare_fit(actual: FitReport, expected: FitReport, tolerance: FitTolerance) -> list[str]:
     mismatches = [
         f"{name} {getattr(actual, name)!r} != {getattr(expected, name)!r}"
-        for name in ("episodes", "loss_rows", "washout_rows")
+        for name in ("episodes", "loss_rows", "washout_rows", "episode_loss_rows", "episode_weights")
         if getattr(actual, name) != getattr(expected, name)
     ]
     pairs = [

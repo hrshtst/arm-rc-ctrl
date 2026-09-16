@@ -434,3 +434,55 @@ def test_the_check_reports_a_failed_regeneration_and_a_changed_accounting() -> N
     claimed = dataclasses.replace(record, attempts_used=record.config.attempt_budget)
     mismatches = check_bank_reproducible(claimed, _parent(), _samples(), SCENARIO)
     assert any("attempts_used" in mismatch for mismatch in mismatches)
+
+
+@pytest.mark.parametrize(
+    ("changes", "field"),
+    [
+        ({"period_s": 0.02}, "period_s"),
+        ({"dwell_start_s": DWELL_START_S + 0.1}, "dwell_start_s"),
+        ({"seed_namespace": "task_1a_manual_v1/contractive/v2"}, "seed_namespace"),
+        ({"derivative_method": "cubic-spline"}, "derivative_method"),
+        ({"envelope": "boundary_ramp_v2"}, "envelope"),
+        ({"parent_q_sha256": "ab" * 32}, "parent_q_sha256"),
+    ],
+)
+def test_changed_bank_metadata_is_reported_by_the_reproducibility_check(changes: dict[str, object], field: str) -> None:
+    """The check validates the whole recorded identity, not only the episode digests and the stored bank digest."""
+    parent, samples = _parent(), _samples()
+    record = _bank(parent, samples).record
+    tampered = dataclasses.replace(record, **changes)
+    mismatches = check_bank_reproducible(tampered, parent, samples, SCENARIO)
+    assert any(field in mismatch for mismatch in mismatches), (field, mismatches)
+
+
+def test_a_bank_digest_that_does_not_match_its_own_record_is_reported() -> None:
+    """The stored digest is re-derived from the record's own contents, so a stale one cannot vouch for it."""
+    parent, samples = _parent(), _samples()
+    record = _bank(parent, samples).record
+    stale = dataclasses.replace(record, bank_sha256="cd" * 32)
+    mismatches = check_bank_reproducible(stale, parent, samples, SCENARIO)
+    assert any("bank_sha256" in mismatch for mismatch in mismatches), mismatches
+
+
+def _partial_bank() -> tuple[ManualParent, SampleSet, ManualScenarioConfig, ParentBankRecord]:
+    """A complete bank whose generation also rejected at least one attempt, for the rejection-history checks."""
+    parent, samples = _parent(), _samples()
+    for velocity in (1.6, 1.4, 1.3, 1.2, 1.15, 1.1, 1.05, 1.0):
+        scenario = _slow_scenario(velocity)
+        outcome = generate_parent_bank(parent, samples, scenario, seed_bank=SEED_BANK)
+        if isinstance(outcome, ParentBank) and outcome.record.rejections:
+            return parent, samples, scenario, outcome.record
+    pytest.fail("no speed limit in the probe produced a complete bank with at least one rejection")
+
+
+def test_a_changed_rejection_reason_is_reported_by_the_reproducibility_check() -> None:
+    """Rejections are evidence: the check compares every attempt and reason, not only how many there were."""
+    parent, samples, scenario, record = _partial_bank()
+    assert check_bank_reproducible(record, parent, samples, scenario) == ()
+    first = record.rejections[0]
+    rewritten = (RejectionRecord(first.attempt, "joint limits violated"), *record.rejections[1:])
+    assert rewritten != record.rejections  # the probe never rejects for that reason
+    tampered = dataclasses.replace(record, rejections=rewritten)
+    mismatches = check_bank_reproducible(tampered, parent, samples, scenario)
+    assert any("rejection" in mismatch for mismatch in mismatches), mismatches

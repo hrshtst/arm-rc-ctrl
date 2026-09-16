@@ -27,6 +27,7 @@ from arm_rc_ctrl.rc.recipe import (
     WEIGHTED_SCHEMA_VERSION,
     DatasetSource,
     ModelRecipe,
+    RecipeMismatchError,
     TrainingSpec,
     TrainingValidation,
     create_recipe,
@@ -300,3 +301,35 @@ def test_the_weighting_fields_are_one_construction() -> None:
     assert spec.episode_count == 11
     assert spec.uses_weighted_features
     assert not TrainingSpec().uses_weighted_features
+
+
+def test_a_regularization_override_cannot_understate_the_episode_count() -> None:
+    """A ten-copy recipe stacks ten episodes, so its ridge parameter is ten alpha_0 and no override may claim fewer."""
+    recipe, _model = _build([FIRST], (10,))
+    assert recipe.solver_alpha == 10 * BASE_ALPHA
+    understated = dataclasses.replace(recipe.training, regularization_count=1)
+    with pytest.raises(ValueError, match="regularization_count"):
+        # Without this rule the copy control would train at alpha_0, the regularization the singleton uses.
+        dataclasses.replace(recipe, training=understated, esn=_esn(1))
+    matched = dataclasses.replace(recipe.training, regularization_count=10)
+    assert dataclasses.replace(recipe, training=matched).solver_alpha == 10 * BASE_ALPHA
+
+
+def test_a_refit_verifies_the_recorded_per_episode_weighting() -> None:
+    """Equal weights recorded for unequal-length episodes fail the refit instead of passing on the errors alone."""
+    recipe, _model = _build([FIRST, SECOND], (1, 1))
+    assert recipe.fit.episode_weights != (1.0, 1.0)
+    tampered = dataclasses.replace(recipe, fit=dataclasses.replace(recipe.fit, episode_weights=(1.0, 1.0)))
+    with pytest.raises(RecipeMismatchError, match="episode_weights"):
+        tampered.refit(SAMPLES, scenario=SCENARIO)
+    rows = dataclasses.replace(recipe, fit=dataclasses.replace(recipe.fit, episode_loss_rows=(1, 1)))
+    with pytest.raises(RecipeMismatchError, match="episode_loss_rows"):
+        rows.refit(SAMPLES, scenario=SCENARIO)
+
+
+def test_schema_three_records_the_weighting_its_fit_used() -> None:
+    """A schema 3 recipe carries the per-episode rows and weights, so a refit can verify the weighting at all."""
+    recipe, _model = _build([FIRST, SECOND], (1, 1))
+    unweighted = dataclasses.replace(recipe.fit, episode_loss_rows=None, episode_weights=None)
+    with pytest.raises(ValueError, match="per-episode loss rows and weights"):
+        dataclasses.replace(recipe, fit=unweighted)

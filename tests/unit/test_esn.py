@@ -226,3 +226,15 @@ def test_explicit_bias_widths_and_weight_use_are_validated() -> None:
         implicit.fit_readout(np.zeros((5, 40)), np.zeros((5, 2)), weights=np.ones(5))
     implicit.fit_readout(np.zeros((5, 40)), np.zeros((5, 2)))
     assert implicit.readout_weights().shape == (41, 2)  # the historical implicit bias row is still last
+
+
+def test_the_single_sequence_fit_refuses_the_explicit_bias_layout() -> None:
+    """``rclib``'s own fit cannot carry the appended ones column, so it is refused before the model is touched."""
+    model = EsnModel(EXPLICIT_BIAS, input_dim=3, output_dim=2)
+    with pytest.raises(ValueError, match=r"fit_sequence cannot fit the explicit-bias readout"):
+        model.fit_sequence(X, Y, washout_len=15)
+    with pytest.raises(RuntimeError, match="has not been fitted"):
+        model.readout_weights()  # the refusal leaves the model unfitted, never half-fitted at the wrong width
+    implicit = EsnModel(CONFIG, input_dim=3, output_dim=2)
+    implicit.fit_sequence(X, Y, washout_len=15)  # the historical reference path is unchanged
+    assert implicit.readout_weights().shape == (41, 2)
