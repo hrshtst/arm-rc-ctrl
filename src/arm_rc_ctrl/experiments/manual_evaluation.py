@@ -1499,6 +1499,23 @@ class ManualEvaluationRunner:
         conditions = self.conditions(warmup_s, self.replay_cutoffs(entry))
         return sha256_bytes(f"{entry.fit_identity}:{conditions.identity}".encode("ascii"))
 
+    def _fit_binding(self, entry: StudyModel, cached: CachedFit) -> ManualFitBinding:
+        """The complete fit binding this entry's evidence must carry.
+
+        One construction serves both writing and checking: evidence records
+        exactly this, and served evidence is compared against exactly this, so
+        the two cannot drift apart and no recorded field is left vouching for
+        itself.
+        """
+        return ManualFitBinding(
+            identity=cached.record.identity,
+            configuration=entry.configuration,
+            arm=entry.arm.label,
+            solver_alpha=cached.recipe.solver_alpha,
+            recipe_sha256=cached.record.recipe_sha256,
+            weights_sha256=cached.record.weights_sha256,
+        )
+
     def _check_served_evidence(
         self,
         evidence: ManualModelEvidence,
@@ -1515,13 +1532,14 @@ class ManualEvaluationRunner:
         alteration that rewrote them together would be checked against its own
         claims and pass. Each is compared with the trusted source instead --
         the study entry that was requested, the fit this runner loaded, and the
-        conditions it derived.
+        conditions it derived. The fit is compared whole, because its identity
+        is a recorded field too and cannot vouch for the bindings beside it.
         """
         checks: tuple[tuple[str, object, object], ...] = (
             ("label", evidence.label, entry.label),
             ("assignment", evidence.assignment, entry.arm.assignment),
             ("conditions", evidence.conditions.identity, conditions.identity),
-            ("fit", None if evidence.fit is None else evidence.fit.identity, cached.record.identity),
+            ("fit", evidence.fit, self._fit_binding(entry, cached)),
         )
         for field, found, expected in checks:
             if found != expected:
@@ -1713,14 +1731,7 @@ class ManualEvaluationRunner:
             identity=identity,
             label=entry.label,
             conditions=conditions,
-            fit=ManualFitBinding(
-                identity=cached.record.identity,
-                configuration=entry.configuration,
-                arm=entry.arm.label,
-                solver_alpha=cached.recipe.solver_alpha,
-                recipe_sha256=cached.record.recipe_sha256,
-                weights_sha256=cached.record.weights_sha256,
-            ),
+            fit=self._fit_binding(entry, cached),
             assignment=assignment,
             replay_bank=None if bank is None else bank.identity,
             status="feasible" if counts["completed"] == len(pairs) else "infeasible",

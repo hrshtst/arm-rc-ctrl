@@ -423,3 +423,46 @@ def test_evidence_claiming_another_parent_is_refused(manual_fixture: ManualFixtu
     with pytest.raises(ValueError, match="assignment"):
         fresh.evaluate(entry, warmup_s=WARMUP_TRUSTED)
     assert fresh.pointers == (), "altered evidence must not be pointed at either"
+
+
+ALTERED_FIT_FIELDS = (
+    ("solver_alpha", 999.0, 0.36),
+    ("recipe_sha256", "a" * 64, 0.37),
+    ("weights_sha256", "b" * 64, 0.38),
+    ("arm", "S/D02", 0.39),
+    ("configuration", "feasible-worst", 0.40),
+)
+"""Each recorded fit field, with a well-formed replacement and an evidence directory of its own."""
+
+
+def _alter_fit_field(path: Path, field: str, value: object) -> str:
+    """Change one recorded fit field, leaving the identity it stores intact."""
+    document = cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
+    fit = cast("dict[str, object]", document["fit"])
+    assert field in fit, f"{field} is not a recorded fit field: {sorted(fit)}"
+    assert fit[field] != value, "the alteration has to change something to mean anything"
+    fit[field] = value
+    return json.dumps(document, indent=1, sort_keys=True)
+
+
+@pytest.mark.parametrize(("field", "value", "warmup_s"), ALTERED_FIT_FIELDS)
+def test_an_altered_fit_binding_is_refused(
+    manual_fixture: ManualFixture, field: str, value: object, warmup_s: float
+) -> None:
+    """The whole recorded fit is compared, not the identity it happens to store.
+
+    That identity is itself a recorded field, so checking only it leaves the
+    regularization and the fitted model free to claim anything: served evidence
+    could misreport the ridge parameter it was solved at, or the weights it was
+    produced from, and still be accepted.
+    """
+    f = manual_fixture
+    scenario_config = load_manual_scenario(f.scenario_file)
+    entry = _entry(f)
+    evidence = _runner(f, _CountingSimulator(scenario_config)).evaluate(entry, warmup_s=warmup_s)
+    path = _manifest_of(f, model_uri(evidence.identity))
+    _rename_to_own_digest(path, _alter_fit_field(path, field, value))
+    fresh = _runner(f, _CountingSimulator(scenario_config))
+    with pytest.raises(ValueError, match="fit"):
+        fresh.evaluate(entry, warmup_s=warmup_s)
+    assert fresh.pointers == (), "altered evidence must not be pointed at either"
