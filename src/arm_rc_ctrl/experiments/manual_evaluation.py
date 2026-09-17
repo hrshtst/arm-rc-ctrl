@@ -18,6 +18,7 @@ for the final dwell it is meant to disturb.
 from __future__ import annotations
 
 import math
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path  # a run-time import: the configuration loader resolves field types at run time
 from typing import TYPE_CHECKING, Any, Final, cast
@@ -25,17 +26,21 @@ from typing import TYPE_CHECKING, Any, Final, cast
 import numpy as np
 
 from arm_rc_ctrl.config import load_config, to_mapping
+from arm_rc_ctrl.controllers.adapter import GeneratorTrackingController
+from arm_rc_ctrl.controllers.estimator import CausalDerivativeEstimator, EstimatorConfig
 from arm_rc_ctrl.controllers.tracking import LimitedTracker
 from arm_rc_ctrl.data.manual import DwellPredicate, continuous_dwell, dwell_runs
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario, manual_endpoint_positions
 from arm_rc_ctrl.experiments.baselines import frozen_baseline_digest
+from arm_rc_ctrl.experiments.manual_fits import ManualFitStore
 from arm_rc_ctrl.experiments.recovery_search import RECOVERY_TRACKERS
 from arm_rc_ctrl.experiments.recovery_slice import HeldTaskReference
 from arm_rc_ctrl.experiments.run_record import write_run
-from arm_rc_ctrl.experiments.simulation import DwellTrigger, simulate
+from arm_rc_ctrl.experiments.simulation import GENERATOR_CHANNELS, RESIDUAL_CHANNELS, DwellTrigger, simulate
 from arm_rc_ctrl.experiments.termination import Outcome
 from arm_rc_ctrl.metrics.recovery import SATURATION_BOUND
 from arm_rc_ctrl.provenance import canonical_json, sha256_bytes, sha256_file
+from arm_rc_ctrl.rc.generator import RcTargetGenerator
 from arm_rc_ctrl.validation import is_hex
 
 if TYPE_CHECKING:
@@ -48,7 +53,8 @@ if TYPE_CHECKING:
     from arm_rc_ctrl.data.samples import SampleSet
     from arm_rc_ctrl.execution import ExecutionRecord
     from arm_rc_ctrl.experiments.disturbances import ForcePulse
-    from arm_rc_ctrl.experiments.manual_fits import ManualFitInputs
+    from arm_rc_ctrl.experiments.manual_fits import CachedFit, ManualFitInputs
+    from arm_rc_ctrl.experiments.manual_study import StudyConfiguration, StudyModel
     from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
     from arm_rc_ctrl.experiments.run_record import RunArrays
     from arm_rc_ctrl.experiments.termination import Termination
@@ -60,12 +66,15 @@ __all__ = [
     "ManualDwellReport",
     "ManualEvaluationConfig",
     "ManualEvaluationRunner",
+    "ManualFitBinding",
+    "ManualModelEvidence",
     "ManualPairRecord",
     "ManualReplayBank",
     "ManualRunConditions",
     "ManualRunOutcome",
     "ManualSimulationLimits",
     "ManualTriggerRule",
+    "SimulateFn",
     "TriggerOutcome",
     "horizon_completed",
     "load_manual_evaluation_config",
@@ -80,6 +89,18 @@ __all__ = [
 _SHA256_HEX: Final = 64
 _GRID_TOLERANCE_S: Final = 1e-9
 """Slack for comparing times that are exact multiples of the control period."""
+
+ASSIGNMENT_ALL: Final = "M10"
+"""The all-ten arm trains on the whole bank, so its runs are sourced from it rather than one parent."""
+
+REPORTS_PREFIX: Final = "armrc://reports/task_1a_manual_v1"
+"""Where this experiment's evidence lives in the store."""
+
+EVALUATION_SCHEMA_VERSION: Final = 1
+MODEL_STATUSES: Final = ("feasible", "infeasible")
+"""Every scenario is attempted, so a model is feasible or not; nothing is left unexecuted by an earlier failure."""
+
+type SimulateFn = Callable[..., tuple[RunArrays, Termination]]
 
 
 def horizon_completed(
@@ -716,10 +737,73 @@ def manual_run_outcome(
     )
 
 
-# --- the replay baselines of one demonstration -----------------------------------------------
+# --- the evidence of one model ---------------------------------------------------------------
 
-REPORTS_PREFIX: Final = "armrc://reports/task_1a_manual_v1"
-"""Where this experiment's evidence lives in the store."""
+
+@dataclass(frozen=True)
+class ManualFitBinding:
+    """The fit a model's runs were produced from, bound by the study's own identity and digests."""
+
+    identity: str
+    configuration: str
+    arm: str
+    solver_alpha: float
+    recipe_sha256: str
+    weights_sha256: str
+
+    def __post_init__(self) -> None:
+        """Digests are well formed and the ridge parameter is a real positive number."""
+        for name in ("identity", "recipe_sha256", "weights_sha256"):
+            value = getattr(self, name)
+            if not is_hex(value, _SHA256_HEX):
+                msg = f"{name} must be 64 lowercase hex characters, got {value!r}"
+                raise ValueError(msg)
+        if not (self.solver_alpha > 0 and math.isfinite(self.solver_alpha)):
+            msg = f"solver_alpha must be positive and finite, got {self.solver_alpha!r}"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
+class ManualModelEvidence:
+    """Everything one model produced under one protocol, with its counts re-derived from its runs."""
+
+    identity: str
+    conditions: ManualRunConditions
+    fit: ManualFitBinding | None
+    assignment: str | None
+    """The parent this model is paired against; ``None`` for the all-ten arm, which has no single parent."""
+    replay_bank: str | None
+    status: str
+    pairs: tuple[ManualPairRecord, ...]
+    n_pairs: int
+    n_completed: int
+    n_infeasible: int
+    n_unexecuted: int
+    schema_version: int = EVALUATION_SCHEMA_VERSION
+
+    def __post_init__(self) -> None:
+        """The recorded summary must be exactly what the pairs say, and the pairs the conditions' own."""
+        if self.schema_version != EVALUATION_SCHEMA_VERSION:
+            msg = f"unsupported evidence schema {self.schema_version}"
+            raise ValueError(msg)
+        if self.status not in MODEL_STATUSES:
+            msg = f"status must be one of {MODEL_STATUSES}, got {self.status!r}"
+            raise ValueError(msg)
+        if [(p.scenario_id, p.tracker) for p in self.pairs] != list(self.conditions.pairs):
+            msg = "the pairs are every scenario and tracker of the conditions, in evaluation order"
+            raise ValueError(msg)
+        counts = Counter(p.status for p in self.pairs)
+        recorded = (self.n_pairs, self.n_completed, self.n_infeasible, self.n_unexecuted)
+        actual = (len(self.pairs), counts["completed"], counts["infeasible"], counts["unexecuted"])
+        if recorded != actual:
+            msg = f"recorded counts {recorded} contradict the pairs {actual}"
+            raise ValueError(msg)
+        if (self.status == "feasible") != (self.n_completed == self.n_pairs):
+            msg = "a feasible model completed every pair"
+            raise ValueError(msg)
+
+
+# --- the replay baselines of one demonstration -----------------------------------------------
 
 
 def replay_bank_uri(conditions: ManualRunConditions, assignment: str) -> str:
@@ -795,6 +879,7 @@ class ManualEvaluationRunner:
         root: Path,
         execution: ExecutionRecord,
         provenance: ProvenanceRecord,
+        simulate_fn: SimulateFn | None = None,
         log: Callable[[str], None] = lambda _message: None,
         license_label: str = "LicenseRef-Private",
         access: str = "private",
@@ -811,11 +896,13 @@ class ManualEvaluationRunner:
         self.execution = execution
         self.provenance = provenance
         self.log = log
+        self.simulate: SimulateFn = simulate if simulate_fn is None else simulate_fn
         self.license_label = license_label
         self.access = access
         self.command = command
         self.scenario = load_manual_scenario(config.scenario)
         self._banks: dict[str, ManualReplayBank] = {}
+        self._models: dict[str, ManualModelEvidence] = {}
 
     def conditions(self, warmup_s: float) -> ManualRunConditions:
         """The protocol conditions at one warm-up; banks are shared by every model that shares it."""
@@ -855,7 +942,7 @@ class ManualEvaluationRunner:
             else manual_trigger(self.config, self.scenario, direction_deg=case.direction_deg or 0.0)
         )
         fired: list[ForcePulse] = []
-        arrays, termination = simulate(
+        arrays, termination = self.simulate(
             self.scenario,
             controller,
             duration_s=warmup_s + self.config.horizon_s,
@@ -948,6 +1035,159 @@ class ManualEvaluationRunner:
             size=pointer.artifact.payload.size,
             arrays_sha256=summary.arrays_sha256,
         )
+
+    def _configuration(self, entry: StudyModel) -> StudyConfiguration:
+        """The inherited configuration of ``entry``, which carries its evaluation-side estimator cutoffs."""
+        return self.inputs.configuration(entry)
+
+    def _controllers(
+        self, entry: StudyModel, cached: CachedFit, warmup_s: float
+    ) -> dict[str, GeneratorTrackingController]:
+        """One generator-tracking controller per tracker, holding the reset posture until activation."""
+        configuration = self._configuration(entry)
+        lower = np.array([link.q_min for link in self.scenario.robot.links], dtype=np.float64)
+        upper = np.array([link.q_max for link in self.scenario.robot.links], dtype=np.float64)
+        controllers: dict[str, GeneratorTrackingController] = {}
+        for name, gains in self.trackers.items():
+            estimator = CausalDerivativeEstimator(
+                EstimatorConfig(
+                    nominal_dt_s=self.scenario.timing.dt,
+                    velocity_cutoff_hz=configuration.velocity_cutoff_hz,
+                    acceleration_cutoff_hz=configuration.acceleration_cutoff_hz,
+                ),
+                self.inputs.dof,
+            )
+            generator = RcTargetGenerator(
+                cached.model,
+                cached.recipe.encoder(),
+                estimator,
+                position_bounds=(lower, upper),
+                output=cached.recipe.output,
+            )
+            controllers[name] = GeneratorTrackingController(
+                generator, gains, self.scenario.limits.torque, hold_until_s=warmup_s
+            )
+        return controllers
+
+    def _rc_pair(
+        self,
+        index: int,
+        case: RobustnessScenario,
+        tracker: str,
+        *,
+        controller: GeneratorTrackingController,
+        cached: CachedFit,
+        assignment: str | None,
+        warmup_s: float,
+    ) -> ManualPairRecord:
+        """Run one scenario under one tracker from a fresh reset, whatever earlier scenarios did."""
+        start = self._start(case)
+        trigger = (
+            None
+            if case.pulse is None
+            else manual_trigger(self.config, self.scenario, direction_deg=case.direction_deg or 0.0)
+        )
+        fired: list[ForcePulse] = []
+        channels = RESIDUAL_CHANNELS if cached.recipe.output == "increment" else GENERATOR_CHANNELS
+        arrays, termination = self.simulate(
+            self.scenario,
+            controller,
+            duration_s=warmup_s + self.config.horizon_s,
+            initial_q=start,
+            force_trigger=trigger,
+            triggered=fired,
+            channels=channels,
+            velocity_abort=self.config.simulation.velocity_abort,
+        )
+        pulse = fired[0] if fired else None
+        outcome = manual_run_outcome(
+            arrays,
+            termination,
+            scenario=self.scenario,
+            activation_s=warmup_s,
+            horizon_s=self.config.horizon_s,
+            pulse=pulse,
+            force_case=case.pulse is not None,
+        )
+        run = self._persist(
+            arrays,
+            termination,
+            outcome=outcome,
+            case=case,
+            tracker=tracker,
+            arm="rc",
+            assignment=assignment or ASSIGNMENT_ALL,
+            warmup_s=warmup_s,
+            pulse=pulse,
+        )
+        return ManualPairRecord(
+            index=index,
+            scenario_id=case.scenario_id,
+            kind=str(case.kind),
+            tracker=tracker,
+            arm="rc",
+            status="completed" if outcome.success else "infeasible",
+            initial_q=start,
+            outcome=outcome,
+            run=run,
+            pulse_start_s=None if pulse is None else pulse.start_s,
+        )
+
+    def evaluate(self, entry: StudyModel, *, warmup_s: float) -> ManualModelEvidence:
+        """Evaluate one model over every scenario and tracker, paired against its parent's replay baselines.
+
+        Every scenario is attempted from a fresh reset: an unsafe run aborts
+        alone and the next one still runs (D6), so per-class success rates
+        exist. The predecessor's sweep stopped at the first infeasible pair and
+        marked the rest unexecuted; nothing here does.
+        """
+        conditions = self.conditions(warmup_s)
+        cached = ManualFitStore(self.store).fit_or_load(entry, self.inputs)
+        identity = sha256_bytes(f"{cached.record.identity}:{conditions.identity}".encode("ascii"))
+        existing = self._models.get(identity)
+        if existing is not None:
+            return existing
+        assignment = entry.arm.assignment
+        bank = None if assignment is None else self.replay_bank(assignment, warmup_s=warmup_s)
+        controllers = self._controllers(entry, cached, warmup_s)
+        pairs: list[ManualPairRecord] = []
+        for index, case in enumerate(self.scenarios):
+            for tracker in conditions.tracker_order:
+                self.log(f"{entry.label}: {case.scenario_id} [{tracker}]")
+                pairs.append(
+                    self._rc_pair(
+                        index,
+                        case,
+                        tracker,
+                        controller=controllers[tracker],
+                        cached=cached,
+                        assignment=assignment,
+                        warmup_s=warmup_s,
+                    )
+                )
+        counts = Counter(pair.status for pair in pairs)
+        evidence = ManualModelEvidence(
+            identity=identity,
+            conditions=conditions,
+            fit=ManualFitBinding(
+                identity=cached.record.identity,
+                configuration=entry.configuration,
+                arm=entry.arm.label,
+                solver_alpha=cached.recipe.solver_alpha,
+                recipe_sha256=cached.record.recipe_sha256,
+                weights_sha256=cached.record.weights_sha256,
+            ),
+            assignment=assignment,
+            replay_bank=None if bank is None else bank.identity,
+            status="feasible" if counts["completed"] == len(pairs) else "infeasible",
+            pairs=tuple(pairs),
+            n_pairs=len(pairs),
+            n_completed=counts["completed"],
+            n_infeasible=counts["infeasible"],
+            n_unexecuted=counts["unexecuted"],
+        )
+        self._models[identity] = evidence
+        return evidence
 
     def replay_bank(self, assignment: str, *, warmup_s: float) -> ManualReplayBank:
         """Every replay baseline of one demonstration, run once and shared by the models that pair against it."""
