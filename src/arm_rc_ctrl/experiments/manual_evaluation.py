@@ -64,6 +64,7 @@ if TYPE_CHECKING:
     from arm_rc_ctrl.storage import StorageRoot
 
 __all__ = [
+    "PROGRESS_FILE",
     "GeneratedReferenceReport",
     "ManualDwellReport",
     "ManualEvaluationConfig",
@@ -88,6 +89,7 @@ __all__ = [
     "manual_evidence_to_json",
     "manual_run_outcome",
     "manual_trigger",
+    "model_uri",
     "replay_bank_uri",
     "trigger_outcome",
 ]
@@ -104,6 +106,8 @@ REPORTS_PREFIX: Final = "armrc://reports/task_1a_manual_v1"
 """Where this experiment's evidence lives in the store."""
 
 EVALUATION_SCHEMA_VERSION: Final = 1
+PROGRESS_FILE: Final = "progress.json"
+"""Run-granular progress beside a manifest, so an interrupted sweep keeps the runs it paid for."""
 MODEL_STATUSES: Final = ("feasible", "infeasible")
 """Every scenario is attempted, so a model is feasible or not; nothing is left unexecuted by an earlier failure."""
 
@@ -875,6 +879,66 @@ def _existing_manifest(store: StorageRoot, directory_uri: str) -> Path | None:
     return manifests[0] if manifests else None
 
 
+def model_uri(identity: str) -> str:
+    """The store directory of one model's evidence under one protocol."""
+    return f"{REPORTS_PREFIX}/model/{identity}"
+
+
+class _ManualProgress:
+    """The run-granular progress of one manifest, re-verified against the store before it is trusted."""
+
+    def __init__(self, store: StorageRoot, directory_uri: str, identity: str) -> None:
+        """Load any progress already recorded here, refusing one that belongs elsewhere."""
+        self.store = store
+        self.identity = identity
+        self.path = store.path(f"{directory_uri}/{PROGRESS_FILE}", mode="write")
+        self.pairs: list[ManualPairRecord] = []
+        if not self.path.exists():
+            return
+        mapping = cast("dict[str, object]", json.loads(self.path.read_text(encoding="utf-8")))
+        if mapping.get("identity") != identity or mapping.get("schema_version") != EVALUATION_SCHEMA_VERSION:
+            msg = f"{self.path} belongs to another evaluation or schema"
+            raise ValueError(msg)
+        self.pairs = [
+            from_mapping(cast("dict[str, object]", p), ManualPairRecord) for p in cast("list[object]", mapping["pairs"])
+        ]
+        self._verify_runs()
+
+    def _verify_runs(self) -> None:
+        """A completed run is served only while its stored arrays still match what the record claims."""
+        for pair in self.pairs:
+            if pair.run is None:
+                continue
+            path = self.store.path(pair.run.uri, mode="read")
+            if path.stat().st_size != pair.run.size or sha256_file(path) != pair.run.sha256:
+                msg = f"run {pair.run.artifact_id} of {pair.scenario_id} [{pair.tracker}] no longer matches its record"
+                raise ValueError(msg)
+
+    def get(self, scenario_id: str, tracker: str, arm: str) -> ManualPairRecord | None:
+        """The pair already recorded for this scenario, tracker, and arm, if any."""
+        for pair in self.pairs:
+            if (pair.scenario_id, pair.tracker, pair.arm) == (scenario_id, tracker, arm):
+                return pair
+        return None
+
+    def add(self, pair: ManualPairRecord) -> None:
+        """Record one completed pair; recorded evidence is never replaced."""
+        if self.get(pair.scenario_id, pair.tracker, pair.arm) is not None:
+            msg = f"{pair.scenario_id} [{pair.tracker}] {pair.arm} is already recorded; completed evidence is immutable"
+            raise ValueError(msg)
+        self.pairs.append(pair)
+        self.save()
+
+    def save(self) -> None:
+        """Write the progress atomically, so an interruption never leaves a half-written file."""
+        mapping = {
+            "schema_version": EVALUATION_SCHEMA_VERSION,
+            "identity": self.identity,
+            "pairs": [to_mapping(pair) for pair in self.pairs],
+        }
+        _write_atomic(self.path, json.dumps(mapping, indent=1, sort_keys=True))
+
+
 # --- the replay baselines of one demonstration -----------------------------------------------
 
 
@@ -1118,6 +1182,14 @@ class ManualEvaluationRunner:
             arrays_sha256=summary.arrays_sha256,
         )
 
+    def model_identity(self, entry: StudyModel, *, warmup_s: float) -> str:
+        """The key one model's evidence is stored under, without refitting it.
+
+        The study's own fit identity is the cache key of the fit, so the model
+        key is derivable from the manifest alone.
+        """
+        return sha256_bytes(f"{entry.fit_identity}:{self.conditions(warmup_s).identity}".encode("ascii"))
+
     def _configuration(self, entry: StudyModel) -> StudyConfiguration:
         """The inherited configuration of ``entry``, which carries its evaluation-side estimator cutoffs."""
         return self.inputs.configuration(entry)
@@ -1229,8 +1301,8 @@ class ManualEvaluationRunner:
         existing = self._models.get(identity)
         if existing is not None:
             return existing
-        model_uri = f"{REPORTS_PREFIX}/model/{identity}"
-        stored = _existing_manifest(self.store, model_uri)
+        uri = model_uri(identity)
+        stored = _existing_manifest(self.store, uri)
         if stored is not None:
             evidence = load_manual_model_evidence(stored)
             if evidence.identity != identity:
@@ -1241,21 +1313,26 @@ class ManualEvaluationRunner:
         assignment = entry.arm.assignment
         bank = None if assignment is None else self.replay_bank(assignment, warmup_s=warmup_s)
         controllers = self._controllers(entry, cached, warmup_s)
+        progress = _ManualProgress(self.store, uri, identity)
         pairs: list[ManualPairRecord] = []
         for index, case in enumerate(self.scenarios):
             for tracker in conditions.tracker_order:
+                recorded = progress.get(case.scenario_id, tracker, "rc")
+                if recorded is not None:
+                    pairs.append(recorded)
+                    continue
                 self.log(f"{entry.label}: {case.scenario_id} [{tracker}]")
-                pairs.append(
-                    self._rc_pair(
-                        index,
-                        case,
-                        tracker,
-                        controller=controllers[tracker],
-                        cached=cached,
-                        assignment=assignment,
-                        warmup_s=warmup_s,
-                    )
+                pair = self._rc_pair(
+                    index,
+                    case,
+                    tracker,
+                    controller=controllers[tracker],
+                    cached=cached,
+                    assignment=assignment,
+                    warmup_s=warmup_s,
                 )
+                progress.add(pair)
+                pairs.append(pair)
         counts = Counter(pair.status for pair in pairs)
         evidence = ManualModelEvidence(
             identity=identity,
@@ -1277,7 +1354,7 @@ class ManualEvaluationRunner:
             n_infeasible=counts["infeasible"],
             n_unexecuted=counts["unexecuted"],
         )
-        _install_manifest(self.store, model_uri, manual_evidence_to_json(evidence))
+        _install_manifest(self.store, uri, manual_evidence_to_json(evidence))
         self._models[identity] = evidence
         return evidence
 
@@ -1297,11 +1374,18 @@ class ManualEvaluationRunner:
                 raise ValueError(msg)
             self._banks[identity] = bank
             return bank
+        progress = _ManualProgress(self.store, uri, identity)
         pairs: list[ManualPairRecord] = []
         for index, case in enumerate(self.scenarios):
             for tracker in conditions.tracker_order:
-                self.log(f"replay {identity[:12]}: {case.scenario_id} [{tracker}] of {assignment}")
-                pairs.append(self._replay_pair(index, case, tracker, assignment=assignment, warmup_s=warmup_s))
+                recorded = progress.get(case.scenario_id, tracker, "replay")
+                if recorded is not None:
+                    pairs.append(recorded)
+                    continue
+                self.log(f"replay {identity[:_SHORT]}: {case.scenario_id} [{tracker}] of {assignment}")
+                pair = self._replay_pair(index, case, tracker, assignment=assignment, warmup_s=warmup_s)
+                progress.add(pair)
+                pairs.append(pair)
         bank = ManualReplayBank(conditions=conditions, assignment=assignment, pairs=tuple(pairs))
         _install_manifest(self.store, uri, manual_bank_to_json(bank))
         self._banks[identity] = bank
