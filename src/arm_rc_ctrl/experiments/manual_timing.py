@@ -19,30 +19,53 @@ infeasible model still costs its fit.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import json
+import resource
+from dataclasses import dataclass, field
 from statistics import mean, median
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Final, cast
 
+from arm_rc_ctrl.config import from_mapping, to_mapping
+from arm_rc_ctrl.execution import ExecutionRecord
+from arm_rc_ctrl.experiments.manual_evaluation import ManualModelTiming, ManualRunTiming
 from arm_rc_ctrl.experiments.manual_recipes import ASSIGNMENTS
-from arm_rc_ctrl.experiments.manual_study import ARM_COUNT, CONFIGURATION_COUNT
+from arm_rc_ctrl.experiments.manual_study import ARM_COUNT, CONFIGURATION_COUNT, EXPERIMENT_LABEL
+from arm_rc_ctrl.provenance import ProvenanceRecord, canonical_json
+from arm_rc_ctrl.validation import is_hex
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-
-    from arm_rc_ctrl.experiments.manual_evaluation import ManualModelTiming, ManualRunTiming
+    from pathlib import Path
 
 __all__ = [
     "PARENT_COUNT",
     "TIMING_SCHEMA_VERSION",
     "ManualRunStats",
     "ManualStudyProjection",
+    "ManualTimingReport",
+    "load_timing",
+    "peak_rss_bytes",
     "project_study",
+    "render_timing_markdown",
     "summarize_timings",
+    "timing_to_json",
 ]
 
 TIMING_SCHEMA_VERSION: Final = 1
 PARENT_COUNT: Final = len(ASSIGNMENTS)
 """The ten locked demonstrations; one replay bank per parent per configuration."""
+_SHA256_HEX: Final = 64
+
+
+def peak_rss_bytes() -> tuple[int, int]:
+    """Peak resident set size of this process and of its waited-for children (bytes).
+
+    Workers are separate interpreters, so the children's peak is what a bounded
+    parallel sweep actually needs beside this process's own.
+    """
+    own = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+    children = resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss
+    return int(own) * 1024, int(children) * 1024  # Linux reports KiB
 
 
 @dataclass(frozen=True)
@@ -171,3 +194,159 @@ def project_study(
         completed_models=completed_models,
         remaining_seconds=remaining,
     )
+
+
+@dataclass(frozen=True)
+class ManualTimingReport:
+    """The committed evidence of one timing smoke check."""
+
+    experiment: str
+    study_manifest_sha256: str
+    evaluation_sha256: str
+    entries: tuple[str, ...]
+    """The model labels this invocation measured, in the order it measured them."""
+    execution: ExecutionRecord
+    models: tuple[ManualModelTiming, ...]
+    runs: tuple[ManualRunTiming, ...]
+    run_stats: tuple[ManualRunStats, ...]
+    runs_this_invocation: int
+    """Runs this invocation simulated; anything else in ``runs`` was served from the store."""
+    replay_banks_built: int
+    wall_seconds: float
+    peak_rss_bytes: int
+    peak_rss_children_bytes: int
+    storage_bytes: int
+    projection: ManualStudyProjection
+    revised_estimate: str
+    provenance: ProvenanceRecord
+    schema_version: int = field(default=TIMING_SCHEMA_VERSION)
+
+    def __post_init__(self) -> None:
+        """The report is internally consistent and states what it was written to state."""
+        if self.schema_version != TIMING_SCHEMA_VERSION or self.experiment != EXPERIMENT_LABEL:
+            msg = f"unsupported timing schema {self.schema_version} or experiment {self.experiment!r}"
+            raise ValueError(msg)
+        for name in ("study_manifest_sha256", "evaluation_sha256"):
+            value = getattr(self, name)
+            if not is_hex(value, _SHA256_HEX):
+                msg = f"{name} must be 64 lowercase hex characters, got {value!r}"
+                raise ValueError(msg)
+        if self.runs_this_invocation > len(self.runs):
+            msg = f"runs_this_invocation {self.runs_this_invocation} exceeds the {len(self.runs)} runs measured"
+            raise ValueError(msg)
+        if not self.revised_estimate.strip():
+            msg = "the revised estimate must be stated: it is what this report exists to report"
+            raise ValueError(msg)
+        if min(self.runs_this_invocation, self.replay_banks_built, self.wall_seconds, self.storage_bytes) < 0:
+            msg = "a timing report has no negative figures"
+            raise ValueError(msg)
+
+
+def timing_to_json(report: ManualTimingReport) -> str:
+    """Canonical JSON of one smoke check."""
+    return canonical_json(to_mapping(report))
+
+
+def load_timing(path: Path) -> ManualTimingReport:
+    """Strictly rebuild a timing report from its JSON."""
+    return from_mapping(cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8"))), ManualTimingReport)
+
+
+def _hours(seconds: float) -> str:
+    return f"{seconds / 3600.0:.2f} h"
+
+
+def _gib(size: float) -> str:
+    return f"{size / 2**30:.1f} GiB"
+
+
+def _fit_source(model: ManualModelTiming) -> str:
+    return "cache hit" if model.fit_cache_hit else "fitted now"
+
+
+def render_timing_markdown(report: ManualTimingReport) -> str:
+    """The Markdown rendering of a smoke check, stating what it measured and what it projected."""
+    p = report.projection
+    lines = [
+        "# Task 1-a manual-demonstration timing smoke check (v1)",
+        "",
+        (
+            f"Experiment `{report.experiment}`, study manifest sha256 `{report.study_manifest_sha256[:12]}`, "
+            f"evaluation config sha256 `{report.evaluation_sha256[:12]}`, execution identity "
+            f"`{report.execution.identity[:12]}` "
+            f"({'canonical' if report.execution.canonical else 'NOT canonical'}), project commit "
+            f"`{report.provenance.project_commit[:12]}`{' (dirty)' if report.provenance.project_dirty else ''}."
+        ),
+        "",
+        "## Measured cost",
+        "",
+        (
+            f"- Wall time of this invocation: {_hours(report.wall_seconds)} ({report.wall_seconds:.0f} s); "
+            f"{report.runs_this_invocation} of {len(report.runs)} runs were simulated by it."
+        ),
+        (
+            f"- Measured {len(report.models)} model(s) over {len(report.entries)} entr(ies) and built "
+            f"{report.replay_banks_built} replay bank(s)."
+        ),
+        (
+            f"- Peak resident set size: {_gib(report.peak_rss_bytes)} for this process, "
+            f"{_gib(report.peak_rss_children_bytes)} for its waited-for children."
+        ),
+        f"- Storage of the measured runs and this invocation's manifests: {_gib(report.storage_bytes)}.",
+        "",
+        "| arm | runs | mean simulate s | median simulate s | max simulate s | mean persist s | mean bytes |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+    ]
+    lines.extend(
+        f"| {s.arm} | {s.runs} | {s.mean_simulate_s:.3f} | {s.median_simulate_s:.3f} | {s.max_simulate_s:.3f} "
+        f"| {s.mean_persist_s:.3f} | {s.mean_bytes:.0f} |"
+        for s in report.run_stats
+    )
+    lines += [
+        "",
+        "## Models",
+        "",
+        "| model | fit | fit s | sweep s | runs |",
+        "| --- | --- | ---: | ---: | ---: |",
+    ]
+    lines.extend(
+        f"| {m.label} | {_fit_source(m)} | {m.fit_seconds:.2f} | {m.sweep_seconds:.1f} | {m.runs} |"
+        for m in report.models
+    )
+    lines += [
+        "",
+        "## Full-study projection (measured means scaled to every run; an estimate, not a bound)",
+        "",
+        (
+            f"- {p.configurations} configurations x {p.arms} arms = {p.models:,} models x {p.pairs_per_model} pairs "
+            f"= {p.rc_runs:,} RC runs at {p.rc_run_seconds:.2f} s each."
+        ),
+        (
+            f"- {p.configurations} configurations x {p.parents} parents = {p.replay_banks} replay banks x "
+            f"{p.pairs_per_model} pairs = {p.replay_runs:,} replay runs at {p.replay_run_seconds:.2f} s each."
+        ),
+        f"- {p.total_runs:,} runs in total; fits {_hours(p.fit_seconds)}.",
+        f"- Projected total: {_hours(p.total_seconds)}; storage about {_gib(p.storage_bytes)}.",
+        (
+            f"- Already complete after this check: {p.completed_models} model(s); remaining about "
+            f"{_hours(p.remaining_seconds)}."
+        ),
+        "",
+        "## Revised estimate",
+        "",
+        report.revised_estimate,
+        "",
+        "## Limitations",
+        "",
+        (
+            "- The projection multiplies maximum run counts by means measured on a subset. It is an estimate and "
+            "not a guaranteed bound: reservoir sizes, recording lengths and storage overhead vary, an aborted run "
+            "costs less, and an infeasible model still costs its fit."
+        ),
+        (
+            "- Timings are wall-clock in the canonical single-threaded execution environment of this machine "
+            "(C10); another core type, thread setting, or machine measures differently."
+        ),
+        "",
+    ]
+    return "\n".join(lines)
