@@ -33,8 +33,10 @@ from arm_rc_ctrl.controllers.estimator import CausalDerivativeEstimator, Estimat
 from arm_rc_ctrl.controllers.tracking import LimitedTracker
 from arm_rc_ctrl.data.manual import DwellPredicate, continuous_dwell, dwell_runs
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario, manual_endpoint_positions
+from arm_rc_ctrl.data.records import load_record, write_record
 from arm_rc_ctrl.experiments.baselines import frozen_baseline_digest
 from arm_rc_ctrl.experiments.manual_fits import ManualFitStore
+from arm_rc_ctrl.experiments.manual_study import EXPERIMENT_LABEL
 from arm_rc_ctrl.experiments.recovery_search import RECOVERY_TRACKERS
 from arm_rc_ctrl.experiments.recovery_slice import HeldTaskReference
 from arm_rc_ctrl.experiments.run_record import write_run
@@ -64,11 +66,13 @@ if TYPE_CHECKING:
     from arm_rc_ctrl.storage import StorageRoot
 
 __all__ = [
+    "POINTER_SCHEMA",
     "PROGRESS_FILE",
     "GeneratedReferenceReport",
     "ManualDwellReport",
     "ManualEvaluationConfig",
     "ManualEvaluationRunner",
+    "ManualEvidencePointer",
     "ManualFitBinding",
     "ManualModelEvidence",
     "ManualPairRecord",
@@ -82,11 +86,13 @@ __all__ = [
     "horizon_completed",
     "load_manual_evaluation_config",
     "load_manual_model_evidence",
+    "load_manual_pointer",
     "load_manual_replay_bank",
     "manual_bank_to_json",
     "manual_conditions",
     "manual_dwell_report",
     "manual_evidence_to_json",
+    "manual_pointer_name",
     "manual_run_outcome",
     "manual_trigger",
     "model_uri",
@@ -107,6 +113,8 @@ REPORTS_PREFIX: Final = "armrc://reports/task_1a_manual_v1"
 
 EVALUATION_SCHEMA_VERSION: Final = 1
 PROGRESS_FILE: Final = "progress.json"
+POINTER_SCHEMA: Final = "task-1a-manual-evidence"
+POINTER_KINDS: Final = ("model", "replay")
 """Run-granular progress beside a manifest, so an interrupted sweep keeps the runs it paid for."""
 MODEL_STATUSES: Final = ("feasible", "infeasible")
 """Every scenario is attempted, so a model is feasible or not; nothing is left unexecuted by an earlier failure."""
@@ -782,6 +790,8 @@ class ManualModelEvidence:
     """Everything one model produced under one protocol, with its counts re-derived from its runs."""
 
     identity: str
+    label: str
+    """``<configuration>/<arm>``, the model this evidence is of."""
     conditions: ManualRunConditions
     fit: ManualFitBinding | None
     assignment: str | None
@@ -939,6 +949,77 @@ class _ManualProgress:
         _write_atomic(self.path, json.dumps(mapping, indent=1, sort_keys=True))
 
 
+# --- the Git-tracked pointers to stored evidence ---------------------------------------------
+
+
+@dataclass(frozen=True)
+class ManualEvidencePointer:
+    """The repository's pointer to one stored manifest: what it is, where it lives, and its digest.
+
+    Payloads stay in the external store, so this is what Git holds: enough to
+    find the evidence a report cites and to verify it is the evidence that was
+    recorded. Every field is required, because a pointer written to TOML drops
+    unset values and a half-described pointer is worse than none.
+    """
+
+    schema: str
+    experiment: str
+    kind: str
+    identity: str
+    label: str
+    status: str
+    payload: ArtifactReference
+    n_pairs: int
+    n_completed: int
+    n_infeasible: int
+
+    def __post_init__(self) -> None:
+        """The schema, experiment, and kind are known, and the counts agree with each other."""
+        if self.schema != POINTER_SCHEMA or self.kind not in POINTER_KINDS:
+            msg = f"unsupported evidence pointer {self.schema!r}/{self.kind!r}"
+            raise ValueError(msg)
+        if not is_hex(self.identity, _SHA256_HEX) or not self.label.strip() or not self.experiment.strip():
+            msg = "a pointer names its experiment, its identity, and its label"
+            raise ValueError(msg)
+        if self.n_completed + self.n_infeasible != self.n_pairs:
+            msg = f"{self.label}: {self.n_completed} completed and {self.n_infeasible} infeasible is not {self.n_pairs}"
+            raise ValueError(msg)
+
+
+def manual_pointer_name(kind: str, label: str) -> str:
+    """The pointer file name: ``<kind>__<label with / replaced by __>.toml``."""
+    return f"{kind}__{label.replace('/', '__')}.toml"
+
+
+def load_manual_pointer(path: Path) -> ManualEvidencePointer:
+    """Load one pointer record."""
+    return load_record(path, ManualEvidencePointer)
+
+
+def _pointer_of(
+    kind: str, label: str, identity: str, pairs: Sequence[ManualPairRecord], payload: ArtifactReference
+) -> ManualEvidencePointer:
+    """Describe one stored manifest for the repository."""
+    counts = Counter(pair.status for pair in pairs)
+    return ManualEvidencePointer(
+        schema=POINTER_SCHEMA,
+        experiment=EXPERIMENT_LABEL,
+        kind=kind,
+        identity=identity,
+        label=label,
+        status="feasible" if counts["completed"] == len(pairs) else "infeasible",
+        payload=payload,
+        n_pairs=len(pairs),
+        n_completed=counts["completed"],
+        n_infeasible=counts["infeasible"],
+    )
+
+
+def _reference_of(path: Path, store: StorageRoot) -> ArtifactReference:
+    """The store reference of an already-installed manifest."""
+    return ArtifactReference(str(store.uri_for(path)), sha256_file(path), path.stat().st_size)
+
+
 # --- the replay baselines of one demonstration -----------------------------------------------
 
 
@@ -1049,6 +1130,7 @@ class ManualEvaluationRunner:
         self.scenario = load_manual_scenario(config.scenario)
         self._banks: dict[str, ManualReplayBank] = {}
         self._models: dict[str, ManualModelEvidence] = {}
+        self._pointers: dict[tuple[str, str], ManualEvidencePointer] = {}
 
     def conditions(self, warmup_s: float) -> ManualRunConditions:
         """The protocol conditions at one warm-up; banks are shared by every model that shares it."""
@@ -1182,6 +1264,40 @@ class ManualEvaluationRunner:
             arrays_sha256=summary.arrays_sha256,
         )
 
+    @property
+    def pointers(self) -> tuple[ManualEvidencePointer, ...]:
+        """Every manifest this invocation produced or stood behind, in the order it was reached."""
+        return tuple(self._pointers.values())
+
+    def _register(
+        self,
+        evidence: ManualReplayBank | ManualModelEvidence,
+        payload: ArtifactReference,
+        *,
+        warmup_s: float | None = None,
+    ) -> None:
+        """Remember the pointer of one manifest, whether it was installed now or served from the store."""
+        if isinstance(evidence, ManualReplayBank):
+            kind, label = "replay", f"{evidence.assignment}-warmup-{warmup_s:g}s"
+        else:
+            kind, label = "model", evidence.label
+        self._pointers[kind, label] = _pointer_of(kind, label, evidence.identity, evidence.pairs, payload)
+
+    def write_pointers(self, evidence_dir: Path) -> list[Path]:
+        """Write the Git pointer of every manifest this runner reached; identical pointers are idempotent."""
+        written: list[Path] = []
+        for (kind, label), pointer in self._pointers.items():
+            path = evidence_dir / manual_pointer_name(kind, label)
+            if path.exists():
+                if load_manual_pointer(path) != pointer:
+                    msg = f"{path} exists with another pointer; completed evidence is never overwritten"
+                    raise FileExistsError(msg)
+                continue
+            path.parent.mkdir(parents=True, exist_ok=True)
+            write_record(path, pointer)
+            written.append(path)
+        return written
+
     def model_identity(self, entry: StudyModel, *, warmup_s: float) -> str:
         """The key one model's evidence is stored under, without refitting it.
 
@@ -1308,6 +1424,7 @@ class ManualEvaluationRunner:
             if evidence.identity != identity:
                 msg = f"{stored} holds the evidence {evidence.identity[:_SHORT]}, not {identity[:_SHORT]}"
                 raise ValueError(msg)
+            self._register(evidence, _reference_of(stored, self.store))
             self._models[identity] = evidence
             return evidence
         assignment = entry.arm.assignment
@@ -1336,6 +1453,7 @@ class ManualEvaluationRunner:
         counts = Counter(pair.status for pair in pairs)
         evidence = ManualModelEvidence(
             identity=identity,
+            label=entry.label,
             conditions=conditions,
             fit=ManualFitBinding(
                 identity=cached.record.identity,
@@ -1354,7 +1472,8 @@ class ManualEvaluationRunner:
             n_infeasible=counts["infeasible"],
             n_unexecuted=counts["unexecuted"],
         )
-        _install_manifest(self.store, uri, manual_evidence_to_json(evidence))
+        payload = _install_manifest(self.store, uri, manual_evidence_to_json(evidence))
+        self._register(evidence, payload)
         self._models[identity] = evidence
         return evidence
 
@@ -1372,6 +1491,7 @@ class ManualEvaluationRunner:
             if bank.identity != identity:
                 msg = f"{stored} holds the bank {bank.identity[:_SHORT]}, not {identity[:_SHORT]}"
                 raise ValueError(msg)
+            self._register(bank, _reference_of(stored, self.store), warmup_s=warmup_s)
             self._banks[identity] = bank
             return bank
         progress = _ManualProgress(self.store, uri, identity)
@@ -1387,6 +1507,7 @@ class ManualEvaluationRunner:
                 progress.add(pair)
                 pairs.append(pair)
         bank = ManualReplayBank(conditions=conditions, assignment=assignment, pairs=tuple(pairs))
-        _install_manifest(self.store, uri, manual_bank_to_json(bank))
+        payload = _install_manifest(self.store, uri, manual_bank_to_json(bank))
+        self._register(bank, payload, warmup_s=warmup_s)
         self._banks[identity] = bank
         return bank
