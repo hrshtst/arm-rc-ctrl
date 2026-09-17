@@ -62,6 +62,20 @@ WARMUP_SEPARATE = 5.0
 
 SCENARIOS = (RobustnessScenario("nominal", "nominal", (0.0, 0.0)),)
 
+_NUMERICS = threading.Lock()
+"""Serializes model construction across these in-process stand-ins.
+
+UP-005: the pinned ``rclib`` scales its reservoir with the C library's
+``rand()`` and never re-seeds it, so ``EsnModel`` re-seeds that generator
+immediately before construction. The generator is process-global, so two models
+built at once in one interpreter interleave on it and come out different --
+and every ``fit_or_load`` builds one, refitting to verify even when it serves a
+cached fit. Real workers are separate interpreters, which is precisely why the
+sweep spawns processes rather than threads; a stand-in that does the work in a
+thread has to serialize it itself. The scheduling assertions are unaffected: a
+worker is counted as live before it takes this lock.
+"""
+
 
 def _evaluation(f: ManualFixture) -> tuple[ManualEvaluationConfig, Path]:
     """The fixture's own evaluation configuration (written identically on every call)."""
@@ -128,7 +142,8 @@ class _Observed:
             self.peak = max(self.peak, self.live)
             self.labels.append(entry.label)
         try:
-            self.runner.evaluate(entry, warmup_s=warmup_s)
+            with _NUMERICS:
+                self.runner.evaluate(entry, warmup_s=warmup_s)
             time.sleep(self.dwell_s)
         finally:
             with self.lock:
@@ -213,7 +228,8 @@ class _BankWatcher:
         with self.lock:
             self.seen.append(stored)
             self.banks.append(uri)
-        self.runner.evaluate(entry, warmup_s=warmup_s)
+        with _NUMERICS:
+            self.runner.evaluate(entry, warmup_s=warmup_s)
 
 
 def test_shared_replay_banks_are_built_before_any_worker_starts(manual_fixture: ManualFixture) -> None:

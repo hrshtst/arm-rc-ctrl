@@ -1499,6 +1499,35 @@ class ManualEvaluationRunner:
         conditions = self.conditions(warmup_s, self.replay_cutoffs(entry))
         return sha256_bytes(f"{entry.fit_identity}:{conditions.identity}".encode("ascii"))
 
+    def _check_served_evidence(
+        self,
+        evidence: ManualModelEvidence,
+        *,
+        entry: StudyModel,
+        cached: CachedFit,
+        conditions: ManualRunConditions,
+        stored: Path,
+    ) -> None:
+        """Check a stored manifest against what was asked for, never against itself.
+
+        The recorded identity binds the fit and the conditions and nothing
+        else, so every other recorded field is unconstrained by it: an
+        alteration that rewrote them together would be checked against its own
+        claims and pass. Each is compared with the trusted source instead --
+        the study entry that was requested, the fit this runner loaded, and the
+        conditions it derived.
+        """
+        checks: tuple[tuple[str, object, object], ...] = (
+            ("label", evidence.label, entry.label),
+            ("assignment", evidence.assignment, entry.arm.assignment),
+            ("conditions", evidence.conditions.identity, conditions.identity),
+            ("fit", None if evidence.fit is None else evidence.fit.identity, cached.record.identity),
+        )
+        for field, found, expected in checks:
+            if found != expected:
+                msg = f"{stored} records {field} {found!r}, not the {expected!r} this study entry demands"
+                raise ValueError(msg)
+
     def _verify_sources(self, pairs: Sequence[ManualPairRecord], assignment: str | None, described: str) -> None:
         """Check served runs still name the demonstrations their arm trained on.
 
@@ -1638,13 +1667,20 @@ class ManualEvaluationRunner:
             if evidence.identity != identity:
                 msg = f"{stored} holds the evidence {evidence.identity[:_SHORT]}, not {identity[:_SHORT]}"
                 raise ValueError(msg)
+            self._check_served_evidence(evidence, entry=entry, cached=cached, conditions=conditions, stored=stored)
             _verify_stored_runs(self.store, evidence.pairs)
-            self._verify_sources(evidence.pairs, evidence.assignment, f"the evidence of {evidence.label}")
-            if evidence.assignment is not None:
+            self._verify_sources(evidence.pairs, entry.arm.assignment, f"the evidence of {entry.label}")
+            if entry.arm.assignment is not None:
                 # Also point at the baselines this model was compared against: they are equally
                 # part of the evidence, and a served model would otherwise cite a bank the
                 # repository has no pointer to.
-                self.replay_bank(evidence.assignment, warmup_s=warmup_s, replay_cutoffs=cutoffs)
+                served = self.replay_bank(entry.arm.assignment, warmup_s=warmup_s, replay_cutoffs=cutoffs)
+                if evidence.replay_bank != served.identity:
+                    msg = f"{stored} cites another replay bank than its parent and protocol produce"
+                    raise ValueError(msg)
+            elif evidence.replay_bank is not None:
+                msg = f"{stored} cites a replay bank, but the all-ten arm is paired against no single one"
+                raise ValueError(msg)
             self._register(evidence, _reference_of(stored, self.store))
             self._models[identity] = evidence
             return evidence
@@ -1714,7 +1750,9 @@ class ManualEvaluationRunner:
                 msg = f"{stored} holds the bank {bank.identity[:_SHORT]}, not {identity[:_SHORT]}"
                 raise ValueError(msg)
             _verify_stored_runs(self.store, bank.pairs)
-            self._verify_sources(bank.pairs, bank.assignment, f"the replay bank of {assignment}")
+            # The requested parent, not the stored one: the bank identity already pins them together,
+            # and deriving the expectation from the file being checked would be circular.
+            self._verify_sources(bank.pairs, assignment, f"the replay bank of {assignment}")
             self._register(bank, _reference_of(stored, self.store), warmup_s=warmup_s)
             self._banks[identity] = bank
             return bank

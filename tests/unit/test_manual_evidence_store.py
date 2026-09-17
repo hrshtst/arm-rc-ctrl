@@ -63,6 +63,8 @@ HOLD_S, PULSE_S, HORIZON_S, WARMUP_S = 0.05, 0.02, 1.0, 0.25
 CONFIGURATION, ARM_LABEL = "feasible-best", "S/D01"
 ARM_CORRUPTED = "S/D02"
 ARM_ALL_TEN = "M10"
+WARMUP_TRUSTED = 0.3
+"""A warm-up of its own for the combined alteration, so it starts from an evidence directory of its own."""
 ARM_RENAMED = "S/D04"
 """A model of its own for the corruption case, so it never serves another test's stored evidence."""
 
@@ -386,3 +388,38 @@ def test_an_interrupted_sweep_is_refused_when_its_recorded_sources_were_altered(
             "D08", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS
         )
     assert not list(directory.glob("manifest-*.json")), "nothing may be installed from altered records"
+
+
+def _retarget_to_one_parent(path: Path, artifact_id: str) -> str:
+    """The review's combined alteration: claim a single parent, and rewrite every binding to agree with it."""
+    document = cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
+    assert document["assignment"] is None, "this alteration only means something on the all-ten arm"
+    document["assignment"] = "D01"
+    pairs = cast("list[dict[str, object]]", document["pairs"])
+    runs = [cast("dict[str, object]", pair["run"]) for pair in pairs if pair.get("run") is not None]
+    assert runs, "the manifest must carry runs for this alteration to mean anything"
+    for run in runs:
+        run["sources"] = [artifact_id]
+    return json.dumps(document, indent=1, sort_keys=True)
+
+
+def test_evidence_claiming_another_parent_is_refused(manual_fixture: ManualFixture) -> None:
+    """What evidence must contain is decided by the requested study entry, never by the manifest being checked.
+
+    Deriving the expectation from the manifest's own ``assignment`` lets an
+    alteration move the goalposts with it: claim one parent, rewrite every
+    binding to that parent, rename to the new digest, and the evidence checks
+    out against itself. The all-ten arm has no single parent, so a manifest
+    claiming one is not this entry's evidence whatever it says.
+    """
+    f = manual_fixture
+    scenario_config = load_manual_scenario(f.scenario_file)
+    entry = _entry(f, ARM_ALL_TEN)
+    assert entry.arm.assignment is None, "M10 trains on the whole bank"
+    evidence = _runner(f, _CountingSimulator(scenario_config)).evaluate(entry, warmup_s=WARMUP_TRUSTED)
+    path = _manifest_of(f, model_uri(evidence.identity))
+    _rename_to_own_digest(path, _retarget_to_one_parent(path, f.manifest.sources["D01"].artifact_id))
+    fresh = _runner(f, _CountingSimulator(scenario_config))
+    with pytest.raises(ValueError, match="assignment"):
+        fresh.evaluate(entry, warmup_s=WARMUP_TRUSTED)
+    assert fresh.pointers == (), "altered evidence must not be pointed at either"
