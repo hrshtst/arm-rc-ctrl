@@ -24,12 +24,18 @@ from typing import TYPE_CHECKING, Final
 
 import numpy as np
 
-from arm_rc_ctrl.config import load_config
+from arm_rc_ctrl.config import load_config, to_mapping
 from arm_rc_ctrl.data.manual import continuous_dwell, dwell_runs
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
+from arm_rc_ctrl.experiments.baselines import frozen_baseline_digest
+from arm_rc_ctrl.experiments.recovery_search import RECOVERY_TRACKERS
 from arm_rc_ctrl.experiments.simulation import DwellTrigger
+from arm_rc_ctrl.provenance import canonical_json, sha256_bytes, sha256_file
+from arm_rc_ctrl.validation import is_hex
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from numpy.typing import NDArray
 
     from arm_rc_ctrl.data.manual import DwellPredicate
@@ -40,16 +46,19 @@ if TYPE_CHECKING:
 __all__ = [
     "ManualDwellReport",
     "ManualEvaluationConfig",
+    "ManualRunConditions",
     "ManualSimulationLimits",
     "ManualTriggerRule",
     "TriggerOutcome",
     "horizon_completed",
     "load_manual_evaluation_config",
+    "manual_conditions",
     "manual_dwell_report",
     "manual_trigger",
     "trigger_outcome",
 ]
 
+_SHA256_HEX: Final = 64
 _GRID_TOLERANCE_S: Final = 1e-9
 """Slack for comparing times that are exact multiples of the control period."""
 
@@ -297,4 +306,153 @@ def manual_trigger(
         duration_s=config.trigger.duration_s,
         magnitude_n=config.trigger.magnitude_n,
         direction_deg=direction_deg,
+    )
+
+
+# --- the conditions every run is keyed by ----------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ManualRunConditions:
+    """Everything the revised protocol decides about a run; the identity of these keys every cache.
+
+    Historical scenario identities and replay caches cannot be reused here
+    (plan section 6), and the reason is exactly this: a cached run is only the
+    same run if the horizon, the dwell rule, the trigger, the abort, the
+    trackers, the bound files, and the environment are all the same. Each of
+    those is a field, so changing any of them changes the key rather than
+    silently serving a run from a different experiment.
+    """
+
+    evaluation_name: str
+    evaluation_file: str
+    evaluation_sha256: str
+    development_file: str
+    development_sha256: str
+    """The locked draws, bound by digest: the scenarios are only these if this file is."""
+    scenario_file: str
+    scenario_sha256: str
+    horizon_s: float
+    trigger_hold_s: float
+    trigger_duration_s: float
+    trigger_magnitude_n: float
+    dwell_min_duration_s: float
+    dwell_tolerance_m: float
+    dwell_max_velocity_rad_s: float
+    """The acquisition dwell rule, carried explicitly so a run records the rule it was judged by."""
+    velocity_abort: tuple[float, ...]
+    trackers: dict[str, str]
+    """SHA-256 of each frozen tracker's gains, by name."""
+    tracker_order: tuple[str, ...]
+    """The trackers in evaluation order (the JSON form sorts mapping keys, so the order is explicit)."""
+    scenario_ids: tuple[str, ...]
+    warmup_s: float
+    execution_identity: str
+
+    def __post_init__(self) -> None:
+        """Digests, quantities, and the evaluated set are each checked in turn."""
+        self._check_digests()
+        self._check_quantities()
+        self._check_evaluated_set()
+
+    def _check_digests(self) -> None:
+        """Every bound file, the environment, and each tracker is named by a full digest."""
+        for name in ("evaluation_sha256", "development_sha256", "scenario_sha256", "execution_identity"):
+            value = getattr(self, name)
+            if not is_hex(value, _SHA256_HEX):
+                msg = f"{name} must be 64 lowercase hex characters, got {value!r}"
+                raise ValueError(msg)
+        for name, digest in self.trackers.items():
+            if not is_hex(digest, _SHA256_HEX):
+                msg = f"trackers[{name!r}] must be 64 lowercase hex characters, got {digest!r}"
+                raise ValueError(msg)
+
+    def _check_quantities(self) -> None:
+        """The protocol's own quantities are real positive durations, rates, and bounds."""
+        if not self.velocity_abort or any(not (math.isfinite(v) and v > 0) for v in self.velocity_abort):
+            msg = f"velocity_abort must be positive finite per-joint bounds, got {self.velocity_abort!r}"
+            raise ValueError(msg)
+        for name, value in (
+            ("horizon_s", self.horizon_s),
+            ("trigger_hold_s", self.trigger_hold_s),
+            ("trigger_duration_s", self.trigger_duration_s),
+            ("trigger_magnitude_n", self.trigger_magnitude_n),
+            ("dwell_min_duration_s", self.dwell_min_duration_s),
+            ("dwell_tolerance_m", self.dwell_tolerance_m),
+            ("dwell_max_velocity_rad_s", self.dwell_max_velocity_rad_s),
+        ):
+            if not (value > 0 and math.isfinite(value)):
+                msg = f"{name} must be positive and finite, got {value!r}"
+                raise ValueError(msg)
+        if not (math.isfinite(self.warmup_s) and self.warmup_s >= 0):
+            msg = f"warmup_s must be finite and non-negative, got {self.warmup_s!r}"
+            raise ValueError(msg)
+
+    def _check_evaluated_set(self) -> None:
+        """Each case is attempted once per tracker, in a declared order."""
+        if not self.trackers or not self.scenario_ids or len(set(self.scenario_ids)) != len(self.scenario_ids):
+            msg = "conditions need at least one tracker and distinct scenario ids"
+            raise ValueError(msg)
+        if len(self.tracker_order) != len(self.trackers) or set(self.tracker_order) != set(self.trackers):
+            msg = "tracker_order must list every tracker exactly once"
+            raise ValueError(msg)
+
+    @property
+    def identity(self) -> str:
+        """SHA-256 of the canonical JSON of these conditions (the cache key of every run under them)."""
+        return sha256_bytes(canonical_json(to_mapping(self)).encode("utf-8"))
+
+    @property
+    def pairs(self) -> tuple[tuple[str, str], ...]:
+        """Every ``(scenario_id, tracker)`` in evaluation order: scenario major, tracker minor."""
+        return tuple((scenario, tracker) for scenario in self.scenario_ids for tracker in self.tracker_order)
+
+
+def _relative(path: Path, root: Path) -> str:
+    """``path`` as a repository-relative POSIX path; recorded evidence never carries a machine path."""
+    resolved, base = path.resolve(), root.resolve()
+    if not resolved.is_relative_to(base):
+        msg = f"{path} lies outside the repository {root}"
+        raise ValueError(msg)
+    return resolved.relative_to(base).as_posix()
+
+
+def manual_conditions(
+    config: ManualEvaluationConfig,
+    evaluation_file: Path,
+    *,
+    scenario_ids: Sequence[str],
+    warmup_s: float,
+    execution_identity: str,
+    root: Path,
+) -> ManualRunConditions:
+    """Assemble the conditions of one evaluation from the files it binds and the environment it runs in.
+
+    The dwell rule is copied from the task configuration and the tracker
+    digests are derived from the frozen gains, so neither can be passed in
+    wrongly; the caller supplies only what it has itself verified, namely the
+    cases to run, the warm-up of the entry, and the environment identity.
+    """
+    scenario = load_manual_scenario(config.scenario)
+    return ManualRunConditions(
+        evaluation_name=config.name,
+        evaluation_file=_relative(evaluation_file, root),
+        evaluation_sha256=sha256_file(evaluation_file),
+        development_file=_relative(config.development, root),
+        development_sha256=sha256_file(config.development),
+        scenario_file=_relative(config.scenario, root),
+        scenario_sha256=sha256_file(config.scenario),
+        horizon_s=config.horizon_s,
+        trigger_hold_s=config.trigger.hold_s,
+        trigger_duration_s=config.trigger.duration_s,
+        trigger_magnitude_n=config.trigger.magnitude_n,
+        dwell_min_duration_s=scenario.task.dwell_min_duration_s,
+        dwell_tolerance_m=scenario.task.tolerance,
+        dwell_max_velocity_rad_s=scenario.task.dwell_max_velocity,
+        velocity_abort=config.simulation.velocity_abort,
+        trackers={name: frozen_baseline_digest(name) for name in RECOVERY_TRACKERS},
+        tracker_order=tuple(RECOVERY_TRACKERS),
+        scenario_ids=tuple(scenario_ids),
+        warmup_s=warmup_s,
+        execution_identity=execution_identity,
     )
