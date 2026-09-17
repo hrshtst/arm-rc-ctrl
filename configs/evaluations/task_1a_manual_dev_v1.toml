@@ -1,0 +1,39 @@
+# Evaluation configuration of the task 1-a manual-demonstration pilot, version 1
+# (docs/TASKS.md M3MAN-008; manual plan section 6, decisions D2/D3/D6, clarifications I5 and I6).
+#
+# The 65 development scenarios come unchanged from the locked recovery development levels
+# named below: the same posture draws and the same force directions, reused by REFERENCE as
+# development diagnostics. This pilot therefore introduces no seed of its own and is not a
+# new held-out test. What is new is the protocol the scenarios are evaluated under, which is
+# why the historical scenario identities and replay caches cannot be reused:
+#
+#   * horizon_s -- the D2 common evaluation horizon from activation, for every arm and
+#     scenario. Completion is judged against it, never against the demonstration's length
+#     (I5); it is a finite timeout for non-convergence, not a trajectory deadline.
+#   * [trigger] -- the pulse is armed by the measured motion rather than the clock. With
+#     natural movement durations a fixed task time could land in the pre-roll, the movement,
+#     or the dwell, so it fires once the arm has satisfied the target predicate continuously
+#     for hold_s, and its realised timestamp is recorded. The magnitude and duration are the
+#     inherited 12 N over 0.2 s; only the timing rule changes, so the development file's own
+#     force.start_s = 1.0 is superseded and never applied here.
+#   * [simulation] -- the D3 canonical 6 rad/s per-joint abort, equal to the task
+#     configuration's own limit. The repetition pilot's twofold relaxation to 12 rad/s was
+#     approved for that panel alone and does not carry over.
+#
+# The dwell rule itself is not repeated here: it lives in the task configuration below
+# (1.0 s inside 1 cm at joint speeds of at most 0.05 rad/s), so evaluation and acquisition
+# cannot drift apart. tests/regression/test_manual_evaluation_config.py binds all of this.
+name = "task-1a-manual-dev-v1"
+development = "task_1a_recovery_dev_v1.toml"
+scenario = "../tasks/task_1a_manual_v2.toml"
+horizon_s = 30.0
+
+[trigger]
+# Continuous target dwell that arms the pulse (s), then the inherited pulse itself.
+hold_s = 0.5
+duration_s = 0.2
+magnitude_n = 12.0
+
+[simulation]
+# Per-joint measured speed abort (rad/s), symmetric, applied to every arm and matched replay.
+velocity_abort = [6.0, 6.0]

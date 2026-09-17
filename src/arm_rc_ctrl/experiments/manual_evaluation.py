@@ -17,25 +17,36 @@ for the final dwell it is meant to disturb.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
+from pathlib import Path  # a run-time import: the configuration loader resolves field types at run time
 from typing import TYPE_CHECKING, Final
 
 import numpy as np
 
+from arm_rc_ctrl.config import load_config
 from arm_rc_ctrl.data.manual import continuous_dwell, dwell_runs
+from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
+from arm_rc_ctrl.experiments.simulation import DwellTrigger
 
 if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from arm_rc_ctrl.data.manual import DwellPredicate
+    from arm_rc_ctrl.data.manual_scenario import ManualScenarioConfig
     from arm_rc_ctrl.experiments.disturbances import ForcePulse
     from arm_rc_ctrl.experiments.termination import Termination
 
 __all__ = [
     "ManualDwellReport",
+    "ManualEvaluationConfig",
+    "ManualSimulationLimits",
+    "ManualTriggerRule",
     "TriggerOutcome",
     "horizon_completed",
+    "load_manual_evaluation_config",
     "manual_dwell_report",
+    "manual_trigger",
     "trigger_outcome",
 ]
 
@@ -175,3 +186,115 @@ def trigger_outcome(
             ),
         )
     return TriggerOutcome(ok=True, triggered=True, pulse_start_s=pulse.start_s, pulse_end_s=pulse.end_s, reason=None)
+
+
+# --- the evaluation configuration (I6) -------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class ManualTriggerRule:
+    """The state trigger that supersedes the development levels' fixed pulse start (plan section 6)."""
+
+    hold_s: float
+    """Continuous target dwell that arms the pulse."""
+    duration_s: float
+    magnitude_n: float
+
+    def __post_init__(self) -> None:
+        """Every part of the rule is a real positive quantity."""
+        for name, value in (
+            ("hold_s", self.hold_s),
+            ("duration_s", self.duration_s),
+            ("magnitude_n", self.magnitude_n),
+        ):
+            if not (value > 0 and math.isfinite(value)):
+                msg = f"trigger.{name} must be positive and finite, got {value!r}"
+                raise ValueError(msg)
+
+
+@dataclass(frozen=True)
+class ManualSimulationLimits:
+    """The D3 abort of this protocol: the task configuration's own per-joint bound, never a relaxation."""
+
+    velocity_abort: tuple[float, ...]
+
+    def __post_init__(self) -> None:
+        """Positive, finite bounds."""
+        if not self.velocity_abort or any(not (math.isfinite(v) and v > 0) for v in self.velocity_abort):
+            msg = f"simulation.velocity_abort must be positive finite per-joint bounds, got {self.velocity_abort!r}"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
+class ManualEvaluationConfig:
+    """``configs/evaluations/task_1a_manual_dev_v1.toml``: the locked draws under the revised protocol."""
+
+    name: str
+    development: Path
+    """The locked development levels, reused by reference so this pilot adds no seed of its own."""
+    scenario: Path
+    """The manual task configuration, which also carries the continuous dwell rule."""
+    horizon_s: float
+    """The D2 common evaluation horizon from activation (I5), never the demonstration's length."""
+    trigger: ManualTriggerRule
+    simulation: ManualSimulationLimits
+
+    def __post_init__(self) -> None:
+        """Named, pointed at development levels, and running for a real horizon."""
+        if not self.name.strip():
+            msg = "name must not be empty"
+            raise ValueError(msg)
+        if "confirmatory" in self.development.name:
+            msg = f"the pilot evaluates development levels only, not {self.development.name!r}"
+            raise ValueError(msg)
+        if not (self.horizon_s > 0 and math.isfinite(self.horizon_s)):
+            msg = f"horizon_s must be positive and finite, got {self.horizon_s!r}"
+            raise ValueError(msg)
+
+
+def load_manual_evaluation_config(path: Path) -> ManualEvaluationConfig:
+    """Load the configuration and check it against the task configuration it names.
+
+    The two cross-checks are the ones a wrong file would otherwise pass
+    silently: an abort that quietly relaxes the approved limit, and a horizon
+    too short for a force case to complete the dwell the pulse disturbs.
+    """
+    config = load_config(path, ManualEvaluationConfig)
+    scenario = load_manual_scenario(config.scenario)
+    canonical = tuple(float(v) for v in scenario.limits.velocity)
+    if config.simulation.velocity_abort != canonical:
+        msg = (
+            f"simulation.velocity_abort {list(config.simulation.velocity_abort)} is not the canonical per-joint "
+            f"limit {list(canonical)} of {config.scenario.name}: D3 applies the scenario's own bound to all "
+            "evaluation, and the repetition pilot's relaxation does not carry over"
+        )
+        raise ValueError(msg)
+    needed = config.trigger.hold_s + config.trigger.duration_s + scenario.task.dwell_min_duration_s
+    if config.horizon_s <= needed:
+        msg = (
+            f"horizon_s {config.horizon_s} leaves a force case no room: the trigger hold ({config.trigger.hold_s} s), "
+            f"the pulse ({config.trigger.duration_s} s) and the final dwell "
+            f"({scenario.task.dwell_min_duration_s} s) need more than {needed} s"
+        )
+        raise ValueError(msg)
+    return config
+
+
+def manual_trigger(
+    config: ManualEvaluationConfig, scenario: ManualScenarioConfig, *, direction_deg: float
+) -> DwellTrigger:
+    """The dwell trigger of one force case: the scenario's predicate with the configuration's hold and pulse.
+
+    The predicate is read from the task configuration rather than restated
+    here, so the rule that arms the pulse cannot drift from the one the takes
+    were accepted under.
+    """
+    return DwellTrigger.from_polar(
+        target=scenario.task.target,
+        tolerance_m=scenario.task.tolerance,
+        max_velocity_rad_s=scenario.task.dwell_max_velocity,
+        hold_s=config.trigger.hold_s,
+        duration_s=config.trigger.duration_s,
+        magnitude_n=config.trigger.magnitude_n,
+        direction_deg=direction_deg,
+    )
