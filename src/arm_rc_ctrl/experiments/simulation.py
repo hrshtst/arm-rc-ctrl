@@ -22,6 +22,7 @@ import numpy as np
 from numpy.typing import NDArray
 from skelarm import Skeleton, compute_forward_kinematics, compute_jacobian, integrate_with_limits
 
+from arm_rc_ctrl.experiments.disturbances import ForcePulse
 from arm_rc_ctrl.experiments.run_record import RunArrays
 from arm_rc_ctrl.experiments.termination import (
     FAILURE_KINDS,
@@ -32,12 +33,12 @@ from arm_rc_ctrl.experiments.termination import (
     invalid_state,
     limit_violation,
 )
-from arm_rc_ctrl.scenario import ScenarioConfig, build_skeleton
+from arm_rc_ctrl.scenario import build_robot_skeleton
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from arm_rc_ctrl.experiments.disturbances import ForcePulse
+    from arm_rc_ctrl.scenario import TaskScenario
 
 __all__ = [
     "GENERATOR_CHANNELS",
@@ -45,12 +46,16 @@ __all__ = [
     "TRACKER_CHANNELS",
     "ChannelMap",
     "CheckedState",
+    "DwellCounter",
+    "DwellTrigger",
     "TelemetryController",
     "check_state",
     "endpoint",
     "resolve_velocity_abort",
     "simulate",
 ]
+
+_PLANE: Final = 2
 
 DIVERGENCE_BOUND: Final = 1e3
 """Joint angles or velocities beyond this magnitude are treated as divergence (rad, rad/s)."""
@@ -151,7 +156,7 @@ class CheckedState:
     dq: NDArray[np.float64]
 
 
-def resolve_velocity_abort(scenario: ScenarioConfig, velocity_abort: Sequence[float] | None) -> tuple[float, ...]:
+def resolve_velocity_abort(scenario: TaskScenario, velocity_abort: Sequence[float] | None) -> tuple[float, ...]:
     """The per-joint speed abort bound in force: the evaluation override when given, else the scenario limit.
 
     The override is a simulation-only relaxation (repetition plan D5, C2): it never
@@ -167,7 +172,7 @@ def resolve_velocity_abort(scenario: ScenarioConfig, velocity_abort: Sequence[fl
 
 
 def check_state(
-    scenario: ScenarioConfig,
+    scenario: TaskScenario,
     skeleton: Skeleton,
     t: float,
     step: int,
@@ -201,13 +206,184 @@ def _channel(last: dict[str, NDArray[np.float64]], name: str, t: float) -> NDArr
         raise KeyError(msg) from None
 
 
+class DwellCounter:
+    """Counts consecutive qualifying samples and reports the one that first completes the hold.
+
+    The rule is a *continuous* run, as in acquisition: any sample that fails
+    the predicate restarts the count, and the counter fires exactly once so a
+    scenario can never carry two disturbances.
+    """
+
+    def __init__(self, hold_samples: int) -> None:
+        """Require at least one qualifying sample."""
+        if hold_samples < 1:
+            msg = f"hold_samples must be at least 1, got {hold_samples}"
+            raise ValueError(msg)
+        self._hold = hold_samples
+        self._run = 0
+        self._fired = False
+
+    @property
+    def fired(self) -> bool:
+        """Whether the hold has already completed."""
+        return self._fired
+
+    def update(self, *, qualifies: bool) -> bool:
+        """Advance by one sample; ``True`` on the sample that completes the hold for the first time."""
+        if not qualifies:
+            self._run = 0
+            return False
+        self._run += 1
+        if self._fired or self._run < self._hold:
+            return False
+        self._fired = True
+        return True
+
+
+@dataclass(frozen=True)
+class DwellTrigger:
+    """A force pulse armed by the measured motion rather than by the clock (plan section 6).
+
+    With natural movement durations a fixed task time could land in the
+    pre-roll, the movement, or the dwell, so the pulse fires once the arm has
+    satisfied the target predicate continuously for ``hold_s``. The realised
+    timestamp is recorded, because it differs between methods by design.
+    """
+
+    target: tuple[float, float]
+    tolerance_m: float
+    max_velocity_rad_s: float
+    hold_s: float
+    duration_s: float
+    force: tuple[float, float]
+
+    def __post_init__(self) -> None:
+        """Validate the predicate, the hold, and the pulse."""
+        if len(self.target) != _PLANE or len(self.force) != _PLANE:
+            msg = f"target and force are planar vectors, got {self.target!r} and {self.force!r}"
+            raise ValueError(msg)
+        for name, value in (
+            ("tolerance_m", self.tolerance_m),
+            ("max_velocity_rad_s", self.max_velocity_rad_s),
+            ("hold_s", self.hold_s),
+            ("duration_s", self.duration_s),
+        ):
+            if not (value > 0 and math.isfinite(value)):
+                msg = f"{name} must be positive and finite, got {value!r}"
+                raise ValueError(msg)
+        if not all(math.isfinite(v) for v in (*self.target, *self.force)):
+            msg = "target and force must be finite"
+            raise ValueError(msg)
+
+    @classmethod
+    def from_polar(
+        cls,
+        *,
+        target: Sequence[float],
+        tolerance_m: float,
+        max_velocity_rad_s: float,
+        hold_s: float,
+        duration_s: float,
+        magnitude_n: float,
+        direction_deg: float,
+    ) -> DwellTrigger:
+        """Build a trigger whose pulse is described by a magnitude and a direction from the base x axis."""
+        if magnitude_n < 0 or not math.isfinite(magnitude_n) or not math.isfinite(direction_deg):
+            msg = (
+                f"magnitude_n must be finite and >= 0 and direction_deg finite, got {magnitude_n!r}, {direction_deg!r}"
+            )
+            raise ValueError(msg)
+        angle = math.radians(direction_deg)
+        goal = tuple(float(v) for v in target)
+        if len(goal) != _PLANE:
+            msg = f"target must be planar, got {target!r}"
+            raise ValueError(msg)
+        return cls(
+            target=(goal[0], goal[1]),
+            tolerance_m=tolerance_m,
+            max_velocity_rad_s=max_velocity_rad_s,
+            hold_s=hold_s,
+            duration_s=duration_s,
+            force=(magnitude_n * math.cos(angle), magnitude_n * math.sin(angle)),
+        )
+
+    def hold_samples(self, dt: float) -> int:
+        """Consecutive samples the hold spans on a ``dt`` grid (the duration plus the sample that starts it)."""
+        if not (dt > 0 and math.isfinite(dt)):
+            msg = f"dt must be positive and finite, got {dt!r}"
+            raise ValueError(msg)
+        return round(self.hold_s / dt) + 1
+
+    def qualifies(self, tip: NDArray[np.float64], dq: NDArray[np.float64]) -> bool:
+        """Whether this measured sample satisfies the target position and speed predicate (closed bounds)."""
+        distance = math.hypot(float(tip[0]) - self.target[0], float(tip[1]) - self.target[1])
+        speed = float(np.max(np.abs(dq))) if dq.shape[0] else 0.0
+        return distance <= self.tolerance_m and speed <= self.max_velocity_rad_s
+
+    def pulse_at(self, t: float) -> ForcePulse:
+        """The pulse this trigger applies once armed at time ``t``."""
+        return ForcePulse(start_s=t, duration_s=self.duration_s, force=self.force)
+
+
+class _Disturbance:
+    """The external force acting on a run: a fixed schedule, a state trigger, or nothing at all.
+
+    Keeping the schedule, the trigger, its counter, and the pulse it armed in
+    one place lets the loop ask only what force acts at this sample, and makes
+    the two rules mutually exclusive by construction.
+    """
+
+    def __init__(
+        self,
+        force: ForcePulse | None,
+        trigger: DwellTrigger | None,
+        dt: float,
+        sink: list[ForcePulse] | None,
+    ) -> None:
+        """Refuse a run that carries both rules."""
+        if force is not None and trigger is not None:
+            msg = "force and force_trigger cannot both be given: a run carries one disturbance rule"
+            raise ValueError(msg)
+        self._force = force
+        self._trigger = trigger
+        self._counter = None if trigger is None else DwellCounter(trigger.hold_samples(dt))
+        self._sink = sink
+        self._armed: ForcePulse | None = None
+
+    @property
+    def active(self) -> bool:
+        """Whether this run carries a disturbance at all (and therefore logs ``ext_force``)."""
+        return self._force is not None or self._trigger is not None
+
+    def _maybe_arm(self, skeleton: Skeleton, t: float) -> None:
+        """Advance the trigger on the measured state and arm the pulse on the sample that completes the hold."""
+        if self._armed is not None or self._trigger is None or self._counter is None:
+            return
+        # The trigger reads the measured motion, never the commanded one, so every method is
+        # disturbed at the state the protocol names rather than at a shared wall time.
+        if self._counter.update(qualifies=self._trigger.qualifies(endpoint(skeleton), skeleton.dq)):
+            self._armed = self._trigger.pulse_at(t)
+            if self._sink is not None:
+                self._sink.append(self._armed)
+
+    def step(self, skeleton: Skeleton, t: float) -> NDArray[np.float64] | None:
+        """The force applied at this sample, or ``None`` when the run carries no disturbance."""
+        if not self.active:
+            return None
+        self._maybe_arm(skeleton, t)
+        applied = self._force if self._force is not None else self._armed
+        return np.zeros(_PLANE, dtype=np.float64) if applied is None else applied.at(t)
+
+
 def simulate(
-    scenario: ScenarioConfig,
+    scenario: TaskScenario,
     controller: TelemetryController,
     *,
     duration_s: float,
     initial_q: tuple[float, ...] | None = None,
     force: ForcePulse | None = None,
+    force_trigger: DwellTrigger | None = None,
+    triggered: list[ForcePulse] | None = None,
     channels: ChannelMap = TRACKER_CHANNELS,
     velocity_abort: Sequence[float] | None = None,
     checked_states: list[CheckedState] | None = None,
@@ -220,18 +396,19 @@ def simulate(
     state that never enters the telemetry (no controller output exists for it).
     """
     dt = scenario.timing.dt
+    disturbance = _Disturbance(force, force_trigger, dt, triggered)
     abort_bounds = resolve_velocity_abort(scenario, velocity_abort)
     steps = round(duration_s / dt)
     if steps < 1:
         msg = f"duration {duration_s} s is shorter than one control period {dt} s"
         raise ValueError(msg)
     posture = np.asarray(scenario.task.initial_q if initial_q is None else initial_q, dtype=np.float64)
-    skeleton = build_skeleton(scenario, posture)
+    skeleton = build_robot_skeleton(scenario.robot, posture)
     controller.reset(skeleton)
     lower = np.array([link.q_min for link in scenario.robot.links])
     upper = np.array([link.q_max for link in scenario.robot.links])
     gravity = np.asarray(scenario.robot.gravity, dtype=np.float64)
-    rows: dict[str, list[NDArray[np.float64]]] = {name: [] for name in _row_names(channels, force=force is not None)}
+    rows: dict[str, list[NDArray[np.float64]]] = {name: [] for name in _row_names(channels, force=disturbance.active)}
     termination: Termination | None = None
     t = 0.0
     for step in range(steps + 1):
@@ -250,8 +427,8 @@ def simulate(
             break
         tau = command
         _append_sample(rows, channels, controller.last, skeleton, t)
-        if force is not None:
-            external = force.at(t)
+        external = disturbance.step(skeleton, t)
+        if external is not None:
             rows["ext_force"].append(external)
             tau = tau + compute_jacobian(skeleton).T @ external
         if step == steps:
@@ -270,7 +447,7 @@ def simulate(
 
 
 def _command(
-    controller: TelemetryController, scenario: ScenarioConfig, skeleton: Skeleton, t: float, step: int
+    controller: TelemetryController, scenario: TaskScenario, skeleton: Skeleton, t: float, step: int
 ) -> NDArray[np.float64] | Termination:
     """The controller's torque for this sample, or the structured termination its failure warrants."""
     try:

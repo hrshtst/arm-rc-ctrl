@@ -129,6 +129,7 @@ __all__ = [
     "continuous_dwell",
     "derive_manual_dataset",
     "derive_manual_take",
+    "dwell_runs",
     "import_manual_take",
     "load_manual_derive_config",
     "load_manual_take",
@@ -243,26 +244,19 @@ def _runs(mask: NDArray[np.bool_]) -> list[tuple[int, int]]:
     return runs
 
 
-def continuous_dwell(
+def _qualify(
     t: NDArray[np.float64],
     tip: NDArray[np.float64],
     dq: NDArray[np.float64],
-    *,
     target: NDArray[np.float64],
     predicate: DwellPredicate,
-) -> DwellMeasurement:
-    """Measure the uninterrupted final dwell of a take on its grid.
+) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64], NDArray[np.bool_]]:
+    """Validate the arrays and apply the dwell rule sample by sample.
 
-    A sample qualifies when its endpoint lies within ``tolerance_m`` of the
-    target (closed bound) and every joint speed is at most
-    ``max_velocity_rad_s`` (closed bound); any excursion restarts the run. The
-    rule holds when the run ending at the last sample spans at least
-    ``min_samples`` samples.
-
-    Raises
-    ------
-    ValueError
-        If the arrays disagree in length or shape or are not finite.
+    The single place the rule is expressed: the endpoint within ``tolerance_m``
+    of the target and every joint speed at most ``max_velocity_rad_s``, both
+    closed bounds. Acquisition and evaluation share it, so a run is judged by
+    exactly the predicate the takes were accepted under.
     """
     times = np.asarray(t, dtype=np.float64)
     tips = np.asarray(tip, dtype=np.float64)
@@ -285,6 +279,44 @@ def continuous_dwell(
     distance = np.hypot(tips[:, 0] - goal[0], tips[:, 1] - goal[1])
     speed = np.max(np.abs(speeds), axis=1) if speeds.shape[1] else np.zeros(n)
     inside = (distance <= predicate.tolerance_m) & (speed <= predicate.max_velocity_rad_s)
+    return times, distance, speed, inside
+
+
+def dwell_runs(
+    t: NDArray[np.float64],
+    tip: NDArray[np.float64],
+    dq: NDArray[np.float64],
+    *,
+    target: NDArray[np.float64],
+    predicate: DwellPredicate,
+) -> tuple[tuple[int, int], ...]:
+    """Half-open ``[start, end)`` index ranges of the uninterrupted runs that satisfy the dwell rule."""
+    return tuple(_runs(_qualify(t, tip, dq, target, predicate)[3]))
+
+
+def continuous_dwell(
+    t: NDArray[np.float64],
+    tip: NDArray[np.float64],
+    dq: NDArray[np.float64],
+    *,
+    target: NDArray[np.float64],
+    predicate: DwellPredicate,
+) -> DwellMeasurement:
+    """Measure the uninterrupted final dwell of a take on its grid.
+
+    A sample qualifies when its endpoint lies within ``tolerance_m`` of the
+    target (closed bound) and every joint speed is at most
+    ``max_velocity_rad_s`` (closed bound); any excursion restarts the run. The
+    rule holds when the run ending at the last sample spans at least
+    ``min_samples`` samples.
+
+    Raises
+    ------
+    ValueError
+        If the arrays disagree in length or shape or are not finite.
+    """
+    times, distance, speed, inside = _qualify(t, tip, dq, target, predicate)
+    n = times.shape[0]
     runs = _runs(inside)
     final = runs[-1] if runs and runs[-1][1] == n else None
     final_samples = final[1] - final[0] if final is not None else 0

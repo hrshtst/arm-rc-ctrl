@@ -8,6 +8,7 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Protocol
 
 import numpy as np
 from numpy.typing import NDArray
@@ -290,7 +291,73 @@ def endpoint_positions(config: ScenarioConfig, q: NDArray[np.float64]) -> NDArra
     return robot_endpoint_positions(config.robot, q)
 
 
-def joint_target(config: ScenarioConfig, *, elbow_up: bool = True) -> tuple[float, ...]:
+class TaskTarget(Protocol):
+    """The task members every scenario schema shares: where the arm starts and what it must reach."""
+
+    @property
+    def initial_q(self) -> tuple[float, ...]:
+        """Start posture (rad)."""
+        ...
+
+    @property
+    def target(self) -> tuple[float, ...]:
+        """Endpoint target (m)."""
+        ...
+
+    @property
+    def tolerance(self) -> float:
+        """Radius (m) of the target region."""
+        ...
+
+
+class TaskTiming(Protocol):
+    """The timing members every scenario schema shares."""
+
+    @property
+    def dt(self) -> float:
+        """Control period (s)."""
+        ...
+
+
+class TaskScenario(Protocol):
+    """A scenario the simulator and the closed-form kinematics can work from, whichever schema declared it.
+
+    The historical :class:`ScenarioConfig` and the manual protocol's own
+    configuration carry the same robot, limits, start posture, target, and
+    control period but differ in what else they require: the historical schema
+    prescribes recording intervals and an occupancy fraction, which the manual
+    protocol replaces with a continuous dwell rule (plan section 6). Reading
+    the shared members structurally lets one simulator serve both without
+    either schema growing a field its protocol does not define.
+    """
+
+    @property
+    def robot(self) -> RobotConfig:
+        """Link geometry and inertias."""
+        ...
+
+    @property
+    def limits(self) -> LimitsConfig:
+        """Joint speed, torque, and endpoint bounds."""
+        ...
+
+    @property
+    def task(self) -> TaskTarget:
+        """Start posture and endpoint target."""
+        ...
+
+    @property
+    def timing(self) -> TaskTiming:
+        """Control period."""
+        ...
+
+    @property
+    def dof(self) -> int:
+        """Number of actuated joints."""
+        ...
+
+
+def joint_target(config: TaskScenario, *, elbow_up: bool = True) -> tuple[float, ...]:
     """Closed-form inverse kinematics of the task target for a planar 2-DOF arm (rad).
 
     Raises
