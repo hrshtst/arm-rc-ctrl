@@ -956,15 +956,74 @@ def _outcome_criteria(outcome: ManualRunOutcome) -> dict[str, bool]:
     }
 
 
+def _verify_run_summary(where: str, summary: Path, run: ManualRunArtifact) -> RunSummary:
+    """The stored summary a record cites, checked against the digest that record kept for it."""
+    if not summary.is_file():
+        msg = f"{where}: {RUN_SUMMARY_FILE} is missing from the store"
+        raise ValueError(msg)
+    if summary.stat().st_size != run.size or sha256_file(summary) != run.sha256:
+        msg = f"{where}: {RUN_SUMMARY_FILE} no longer matches its record"
+        raise ValueError(msg)
+    return RunSummary.from_json(summary.read_text(encoding="utf-8"))
+
+
+def _verify_run_arrays(where: str, arrays: Path, run: ManualRunArtifact, stored: RunSummary) -> None:
+    """The arrays, against both references that describe them.
+
+    The manifest keeps its own copy of the digest, so it cannot answer for the
+    arrays alone; the run's summary carries an independent reference, and the
+    payload has to satisfy both of them.
+    """
+    if not arrays.is_file():
+        msg = f"{where}: {RUN_ARRAYS_FILE} is missing from the store"
+        raise ValueError(msg)
+    digest = sha256_file(arrays)
+    if digest != run.arrays_sha256:
+        msg = f"{where}: {RUN_ARRAYS_FILE} no longer matches its record"
+        raise ValueError(msg)
+    if digest != stored.arrays_sha256:
+        msg = f"{where}: {RUN_ARRAYS_FILE} no longer matches its run summary"
+        raise ValueError(msg)
+
+
+def _verify_run_verdict(where: str, pair: ManualPairRecord, stored: RunSummary) -> None:
+    """The recorded verdict, grounded in the run rather than in the record's agreement with itself.
+
+    Digests bind a payload to what a record says its digest is, and re-derived
+    counts only make a record agree with its own pairs. So the status is checked
+    against the pair's own outcome, and that outcome against the verdict its
+    summary computes: ``success`` is a stored field, and cannot vouch for itself.
+    """
+    outcome = pair.outcome
+    if outcome is None:
+        return
+    expected_status = "completed" if outcome.success else "infeasible"
+    if pair.status != expected_status:
+        msg = f"{where}: recorded status {pair.status!r}, but its own outcome gives the verdict {expected_status!r}"
+        raise ValueError(msg)
+    if outcome.success != stored.outcome.success:
+        msg = (
+            f"{where}: the pair records success {outcome.success}, but the verdict its run summary "
+            f"computes is {stored.outcome.success}"
+        )
+        raise ValueError(msg)
+    recorded = _outcome_criteria(outcome)
+    criteria = dict(stored.outcome.criteria)
+    if criteria != recorded:
+        msg = f"{where}: the recorded verdict {recorded} is not the run's own stored verdict {criteria}"
+        raise ValueError(msg)
+
+
 def _verify_run_payload(store: StorageRoot, pair: ManualPairRecord) -> None:
     """Check one recorded run is still in the store exactly as the record describes it.
 
     A manifest cites runs; it does not contain them. Serving evidence whose
     payloads were deleted or rewritten would report an experiment that can no
     longer be inspected, so both files are checked: the summary the record is
-    digest-bound to, and the arrays that summary is bound to in turn. The
-    verdict is then checked against the summary itself, which is what makes a
-    recorded success answerable to the run that produced it.
+    digest-bound to, and the arrays, which that summary references independently
+    of the record citing them. The verdict is then checked against the summary
+    too, which is what makes a recorded success answerable to the run that
+    produced it.
     """
     run = pair.run
     if run is None:
@@ -975,30 +1034,9 @@ def _verify_run_payload(store: StorageRoot, pair: ManualPairRecord) -> None:
     except FileNotFoundError as error:
         msg = f"{where}: {RUN_SUMMARY_FILE} is missing from the store"
         raise ValueError(msg) from error
-    for path, digest, size in (
-        (summary, run.sha256, run.size),
-        (summary.parent / RUN_ARRAYS_FILE, run.arrays_sha256, None),
-    ):
-        if not path.is_file():
-            msg = f"{where}: {path.name} is missing from the store"
-            raise ValueError(msg)
-        if (size is not None and path.stat().st_size != size) or sha256_file(path) != digest:
-            msg = f"{where}: {path.name} no longer matches its record"
-            raise ValueError(msg)
-    if pair.outcome is None:
-        return
-    # Digests bind the payload to what the record says its digest is; they say nothing about whether
-    # the verdict beside them is the verdict that run reached. Re-derived counts only make a record
-    # agree with itself, so the pair is checked against its own outcome and then against the run.
-    expected_status = "completed" if pair.outcome.success else "infeasible"
-    if pair.status != expected_status:
-        msg = f"{where}: recorded status {pair.status!r}, but its own outcome gives the verdict {expected_status!r}"
-        raise ValueError(msg)
-    recorded = _outcome_criteria(pair.outcome)
-    stored = dict(RunSummary.from_json(summary.read_text(encoding="utf-8")).outcome.criteria)
-    if stored != recorded:
-        msg = f"{where}: the recorded verdict {recorded} is not the run's own stored verdict {stored}"
-        raise ValueError(msg)
+    stored = _verify_run_summary(where, summary, run)
+    _verify_run_arrays(where, summary.parent / RUN_ARRAYS_FILE, run, stored)
+    _verify_run_verdict(where, pair, stored)
 
 
 def _verify_stored_runs(store: StorageRoot, pairs: Sequence[ManualPairRecord]) -> None:

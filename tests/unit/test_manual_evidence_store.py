@@ -39,7 +39,7 @@ from arm_rc_ctrl.experiments.manual_evaluation import (
 from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
 from arm_rc_ctrl.experiments.run_record import RUN_ARRAYS_FILE, RunArrays
 from arm_rc_ctrl.experiments.termination import completed
-from arm_rc_ctrl.provenance import sha256_bytes
+from arm_rc_ctrl.provenance import sha256_bytes, sha256_file
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import joint_target
 
@@ -543,3 +543,122 @@ def test_an_interrupted_sweep_with_an_altered_verdict_is_refused(manual_fixture:
             "D09", warmup_s=WARMUP_RESUMED, replay_cutoffs=REPLAY_CUTOFFS
         )
     assert not list(directory.glob("manifest-*.json")), "nothing may be installed from altered records"
+
+
+WARMUP_CLAIMED_SUCCESS = 0.43
+WARMUP_RESUMED_SUCCESS = 0.44
+WARMUP_ARRAYS = 0.45
+WARMUP_ARRAYS_RESUMED = 0.46
+"""A warm-up of its own per case, so each starts from a directory of its own."""
+
+
+def _arrays_of(f: ManualFixture, uri: str) -> Path:
+    """The stored arrays beside one run's summary."""
+    return f.store.path(uri, mode="read").parent / RUN_ARRAYS_FILE
+
+
+def _claim_outcome_success(path: Path) -> str:
+    """Claim a failed pair's own outcome succeeded, leaving the criteria that failed untouched.
+
+    ``success`` is a stored field tied only to ``reason``, so this stays
+    internally valid: the criteria still record the failure, and they still
+    agree with the run summary.
+    """
+    document = cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
+    pairs = cast("list[dict[str, object]]", document["pairs"])
+    target = next((pair for pair in pairs if pair["status"] == "infeasible"), None)
+    assert target is not None, "the record must contain a failed pair for this alteration to mean anything"
+    outcome = cast("dict[str, object]", target["outcome"])
+    assert outcome["success"] is False, "the pair must actually have failed"
+    outcome["success"] = True
+    outcome["reason"] = None
+    target["status"] = "completed"
+    if "n_completed" in document:  # a model manifest re-derives its counts; a progress file has none
+        completed_n = sum(1 for pair in pairs if pair["status"] == "completed")
+        document["n_completed"] = completed_n
+        document["n_infeasible"] = sum(1 for pair in pairs if pair["status"] == "infeasible")
+        document["status"] = "feasible" if completed_n == len(pairs) else "infeasible"
+    return json.dumps(document, indent=1, sort_keys=True)
+
+
+def _alter_arrays_and_record(path: Path, arrays: Path, uri: str) -> str:
+    """Change the stored arrays and update only the record's own copy of their digest."""
+    arrays.write_bytes(arrays.read_bytes() + b"\x00")
+    digest = sha256_file(arrays)
+    document = cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
+    pairs = cast("list[dict[str, object]]", document["pairs"])
+    runs = [cast("dict[str, object]", p["run"]) for p in pairs if p.get("run") is not None]
+    target = next((run for run in runs if run["uri"] == uri), None)
+    assert target is not None, f"no recorded run for {uri}"
+    assert target["arrays_sha256"] != digest, "the alteration has to change the digest"
+    target["arrays_sha256"] = digest
+    return json.dumps(document, indent=1, sort_keys=True)
+
+
+def test_evidence_claiming_its_own_outcome_succeeded_is_refused(manual_fixture: ManualFixture) -> None:
+    """A stored success is checked against the verdict its run computed, not only against the status beside it."""
+    f = manual_fixture
+    scenario_config = load_manual_scenario(f.scenario_file)
+    entry = _entry(f)
+    evidence = _runner(f, _CountingSimulator(scenario_config, reaches=False)).evaluate(
+        entry, warmup_s=WARMUP_CLAIMED_SUCCESS
+    )
+    assert evidence.n_infeasible > 0, "the crafted runs must fail before one can claim success"
+    path = _manifest_of(f, model_uri(evidence.identity))
+    _rename_to_own_digest(path, _claim_outcome_success(path))
+    fresh = _runner(f, _CountingSimulator(scenario_config, reaches=False))
+    with pytest.raises(ValueError, match="verdict"):
+        fresh.evaluate(entry, warmup_s=WARMUP_CLAIMED_SUCCESS)
+    assert fresh.pointers == (), "altered evidence must not be pointed at either"
+
+
+def test_an_interrupted_sweep_claiming_success_is_refused(manual_fixture: ManualFixture) -> None:
+    """The recovery path checks the stored success against the run's own verdict too."""
+    f = manual_fixture
+    scenario_config = load_manual_scenario(f.scenario_file)
+    runner = _runner(f, _CountingSimulator(scenario_config, reaches=False))
+    runner.replay_bank("D10", warmup_s=WARMUP_RESUMED_SUCCESS, replay_cutoffs=REPLAY_CUTOFFS)
+    directory = _bank_directory(f, runner, "D10", warmup_s=WARMUP_RESUMED_SUCCESS)
+    for manifest in directory.glob("manifest-*.json"):
+        manifest.unlink()
+    progress = directory / PROGRESS_FILE
+    progress.write_text(_claim_outcome_success(progress), encoding="utf-8")
+    with pytest.raises(ValueError, match="verdict"):
+        _runner(f, _CountingSimulator(scenario_config, reaches=False)).replay_bank(
+            "D10", warmup_s=WARMUP_RESUMED_SUCCESS, replay_cutoffs=REPLAY_CUTOFFS
+        )
+
+
+def test_arrays_contradicting_their_run_summary_are_refused(manual_fixture: ManualFixture) -> None:
+    """The run summary holds its own reference to the arrays, so the manifest's copy cannot answer alone."""
+    f = manual_fixture
+    scenario_config = load_manual_scenario(f.scenario_file)
+    entry = _entry(f)
+    evidence = _runner(f, _CountingSimulator(scenario_config)).evaluate(entry, warmup_s=WARMUP_ARRAYS)
+    run = evidence.pairs[0].run
+    assert run is not None
+    path = _manifest_of(f, model_uri(evidence.identity))
+    _rename_to_own_digest(path, _alter_arrays_and_record(path, _arrays_of(f, run.uri), run.uri))
+    fresh = _runner(f, _CountingSimulator(scenario_config))
+    with pytest.raises(ValueError, match="run summary"):
+        fresh.evaluate(entry, warmup_s=WARMUP_ARRAYS)
+    assert fresh.pointers == ()
+
+
+def test_an_interrupted_sweep_with_arrays_contradicting_its_summary_is_refused(manual_fixture: ManualFixture) -> None:
+    """The same independent reference is required when recorded progress is resumed."""
+    f = manual_fixture
+    scenario_config = load_manual_scenario(f.scenario_file)
+    runner = _runner(f, _CountingSimulator(scenario_config))
+    bank = runner.replay_bank("D10", warmup_s=WARMUP_ARRAYS_RESUMED, replay_cutoffs=REPLAY_CUTOFFS)
+    run = bank.pairs[0].run
+    assert run is not None
+    directory = _bank_directory(f, runner, "D10", warmup_s=WARMUP_ARRAYS_RESUMED)
+    for manifest in directory.glob("manifest-*.json"):
+        manifest.unlink()
+    progress = directory / PROGRESS_FILE
+    progress.write_text(_alter_arrays_and_record(progress, _arrays_of(f, run.uri), run.uri), encoding="utf-8")
+    with pytest.raises(ValueError, match="run summary"):
+        _runner(f, _CountingSimulator(scenario_config)).replay_bank(
+            "D10", warmup_s=WARMUP_ARRAYS_RESUMED, replay_cutoffs=REPLAY_CUTOFFS
+        )
