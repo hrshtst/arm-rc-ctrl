@@ -20,34 +20,48 @@ from __future__ import annotations
 import math
 from dataclasses import dataclass
 from pathlib import Path  # a run-time import: the configuration loader resolves field types at run time
-from typing import TYPE_CHECKING, Final
+from typing import TYPE_CHECKING, Any, Final, cast
 
 import numpy as np
 
 from arm_rc_ctrl.config import load_config, to_mapping
+from arm_rc_ctrl.controllers.tracking import LimitedTracker
 from arm_rc_ctrl.data.manual import DwellPredicate, continuous_dwell, dwell_runs
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario, manual_endpoint_positions
 from arm_rc_ctrl.experiments.baselines import frozen_baseline_digest
 from arm_rc_ctrl.experiments.recovery_search import RECOVERY_TRACKERS
-from arm_rc_ctrl.experiments.simulation import DwellTrigger
+from arm_rc_ctrl.experiments.recovery_slice import HeldTaskReference
+from arm_rc_ctrl.experiments.run_record import write_run
+from arm_rc_ctrl.experiments.simulation import DwellTrigger, simulate
+from arm_rc_ctrl.experiments.termination import Outcome
 from arm_rc_ctrl.metrics.recovery import SATURATION_BOUND
 from arm_rc_ctrl.provenance import canonical_json, sha256_bytes, sha256_file
 from arm_rc_ctrl.validation import is_hex
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from numpy.typing import NDArray
 
+    from arm_rc_ctrl.controllers.tracking import TrackerConfig
     from arm_rc_ctrl.data.manual_scenario import ManualScenarioConfig
+    from arm_rc_ctrl.data.samples import SampleSet
+    from arm_rc_ctrl.execution import ExecutionRecord
     from arm_rc_ctrl.experiments.disturbances import ForcePulse
+    from arm_rc_ctrl.experiments.manual_fits import ManualFitInputs
+    from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
     from arm_rc_ctrl.experiments.run_record import RunArrays
     from arm_rc_ctrl.experiments.termination import Termination
+    from arm_rc_ctrl.provenance import ProvenanceRecord
+    from arm_rc_ctrl.storage import StorageRoot
 
 __all__ = [
     "GeneratedReferenceReport",
     "ManualDwellReport",
     "ManualEvaluationConfig",
+    "ManualEvaluationRunner",
+    "ManualPairRecord",
+    "ManualReplayBank",
     "ManualRunConditions",
     "ManualRunOutcome",
     "ManualSimulationLimits",
@@ -59,6 +73,7 @@ __all__ = [
     "manual_dwell_report",
     "manual_run_outcome",
     "manual_trigger",
+    "replay_bank_uri",
     "trigger_outcome",
 ]
 
@@ -699,3 +714,253 @@ def manual_run_outcome(
         success=reason is None,
         reason=reason,
     )
+
+
+# --- the replay baselines of one demonstration -----------------------------------------------
+
+REPORTS_PREFIX: Final = "armrc://reports/task_1a_manual_v1"
+"""Where this experiment's evidence lives in the store."""
+
+
+def replay_bank_uri(conditions: ManualRunConditions, assignment: str) -> str:
+    """The store directory of one parent's replay baselines under one protocol."""
+    return f"{REPORTS_PREFIX}/replay/{_bank_identity(conditions, assignment)}"
+
+
+def _bank_identity(conditions: ManualRunConditions, assignment: str) -> str:
+    """Conditions and parent together: the same protocol over another recording is another bank."""
+    return sha256_bytes(f"{conditions.identity}:{assignment}".encode("ascii"))
+
+
+@dataclass(frozen=True)
+class ManualRunArtifact:
+    """Where one persisted run lives and what it contains."""
+
+    artifact_id: str
+    uri: str
+    sha256: str
+    size: int
+    arrays_sha256: str
+
+
+@dataclass(frozen=True)
+class ManualPairRecord:
+    """One (scenario, tracker) run of one arm, with the posture it started from and how it was judged."""
+
+    index: int
+    scenario_id: str
+    kind: str
+    tracker: str
+    arm: str
+    status: str
+    initial_q: tuple[float, ...]
+    outcome: ManualRunOutcome | None
+    run: ManualRunArtifact | None
+    pulse_start_s: float | None
+    """When the pulse actually fired on the run clock, or ``None`` when none did."""
+
+
+@dataclass(frozen=True)
+class ManualReplayBank:
+    """Every direct-replay baseline of one demonstration under one set of conditions."""
+
+    conditions: ManualRunConditions
+    assignment: str
+    pairs: tuple[ManualPairRecord, ...]
+
+    @property
+    def identity(self) -> str:
+        """The key this bank is stored and served under."""
+        return _bank_identity(self.conditions, self.assignment)
+
+
+class ManualEvaluationRunner:
+    """Runs the manual protocol's scenarios, paired against direct replay of each demonstration.
+
+    Every scenario is attempted independently from a fresh reset, so an unsafe
+    run aborts alone and the next scenario still runs (D6); the sweep never
+    stops at the first infeasible case the way the predecessor's model sweep
+    did.
+    """
+
+    def __init__(
+        self,
+        *,
+        store: StorageRoot,
+        inputs: ManualFitInputs,
+        config: ManualEvaluationConfig,
+        evaluation_file: Path,
+        scenarios: Sequence[RobustnessScenario],
+        trackers: dict[str, TrackerConfig],
+        root: Path,
+        execution: ExecutionRecord,
+        provenance: ProvenanceRecord,
+        log: Callable[[str], None] = lambda _message: None,
+        license_label: str = "LicenseRef-Private",
+        access: str = "private",
+        command: str = "python -m arm_rc_ctrl.experiments.manual_evaluation",
+    ) -> None:
+        """Bind the store, the frozen study inputs, and the protocol this sweep runs under."""
+        self.store = store
+        self.inputs = inputs
+        self.config = config
+        self.evaluation_file = evaluation_file
+        self.scenarios = tuple(scenarios)
+        self.trackers = dict(trackers)
+        self.root = root
+        self.execution = execution
+        self.provenance = provenance
+        self.log = log
+        self.license_label = license_label
+        self.access = access
+        self.command = command
+        self.scenario = load_manual_scenario(config.scenario)
+        self._banks: dict[str, ManualReplayBank] = {}
+
+    def conditions(self, warmup_s: float) -> ManualRunConditions:
+        """The protocol conditions at one warm-up; banks are shared by every model that shares it."""
+        return manual_conditions(
+            self.config,
+            self.evaluation_file,
+            scenario_ids=tuple(case.scenario_id for case in self.scenarios),
+            warmup_s=warmup_s,
+            execution_identity=self.execution.identity,
+            root=self.root,
+        )
+
+    def _start(self, case: RobustnessScenario) -> tuple[float, ...]:
+        """The perturbed reset posture: every take begins at the configured one, so the offsets are shared."""
+        return case.initial_q(self.scenario.task.initial_q)
+
+    def _samples(self, assignment: str) -> SampleSet:
+        """The locked demonstration of one bank position."""
+        return self.inputs.samples[self.inputs.sources[assignment].artifact_id]
+
+    def _replay_pair(
+        self, index: int, case: RobustnessScenario, tracker: str, *, assignment: str, warmup_s: float
+    ) -> ManualPairRecord:
+        """Replay one demonstration through one tracker under one scenario, from a fresh reset."""
+        start = self._start(case)
+        samples = self._samples(assignment)
+        held = HeldTaskReference.from_samples(
+            samples,
+            activation_s=warmup_s,
+            interpolation=cast("Any", self.inputs.preprocessing.interpolation),
+            hold=np.asarray(start, dtype=np.float64),
+        )
+        controller = LimitedTracker(cast("Any", held), self.trackers[tracker], self.scenario.limits.torque)
+        trigger = (
+            None
+            if case.pulse is None
+            else manual_trigger(self.config, self.scenario, direction_deg=case.direction_deg or 0.0)
+        )
+        fired: list[ForcePulse] = []
+        arrays, termination = simulate(
+            self.scenario,
+            controller,
+            duration_s=warmup_s + self.config.horizon_s,
+            initial_q=start,
+            force_trigger=trigger,
+            triggered=fired,
+            velocity_abort=self.config.simulation.velocity_abort,
+        )
+        pulse = fired[0] if fired else None
+        outcome = manual_run_outcome(
+            arrays,
+            termination,
+            scenario=self.scenario,
+            activation_s=warmup_s,
+            horizon_s=self.config.horizon_s,
+            pulse=pulse,
+            force_case=case.pulse is not None,
+        )
+        run = self._persist(
+            arrays,
+            termination,
+            outcome=outcome,
+            case=case,
+            tracker=tracker,
+            arm="replay",
+            assignment=assignment,
+            warmup_s=warmup_s,
+            pulse=pulse,
+        )
+        return ManualPairRecord(
+            index=index,
+            scenario_id=case.scenario_id,
+            kind=str(case.kind),
+            tracker=tracker,
+            arm="replay",
+            status="completed" if outcome.success else "infeasible",
+            initial_q=start,
+            outcome=outcome,
+            run=run,
+            pulse_start_s=None if pulse is None else pulse.start_s,
+        )
+
+    def _persist(
+        self,
+        arrays: RunArrays,
+        termination: Termination,
+        *,
+        outcome: ManualRunOutcome,
+        case: RobustnessScenario,
+        tracker: str,
+        arm: str,
+        assignment: str,
+        warmup_s: float,
+        pulse: ForcePulse | None,
+    ) -> ManualRunArtifact:
+        """Store the run with the disturbance that actually fired, not the one the levels prescribed."""
+        criteria = {
+            "completed": outcome.completed,
+            "dwell": outcome.dwell.ok if outcome.post_pulse_dwell is None else outcome.post_pulse_dwell.ok,
+            "generated_reference": outcome.generated is None or outcome.generated.ok,
+            "trigger": outcome.trigger is None or outcome.trigger.ok,
+        }
+        pointer, summary, directory = write_run(
+            self.store,
+            arrays,
+            kind="simulation",
+            method=f"{arm}+{tracker}",
+            scenario=self.scenario.name,
+            control_period_s=self.scenario.timing.dt,
+            duration_s=warmup_s + self.config.horizon_s,
+            target=self.scenario.task.target,
+            task_code=(),
+            disturbances=() if pulse is None else (pulse.to_disturbance(),),
+            termination=termination,
+            outcome=Outcome(termination, criteria),
+            provenance=self.provenance,
+            license_label=self.license_label,
+            access=cast("Any", self.access),
+            command=self.command,
+            sources=(self.inputs.sources[assignment].artifact_id,),
+            activation_s=warmup_s,
+            reuse_identical=True,
+            notes=f"{self.config.name} {arm} arm: {case.scenario_id} [{tracker}] of {assignment}.",
+        )
+        del directory
+        return ManualRunArtifact(
+            artifact_id=pointer.artifact.artifact_id,
+            uri=pointer.artifact.payload.uri,
+            sha256=pointer.artifact.payload.sha256,
+            size=pointer.artifact.payload.size,
+            arrays_sha256=summary.arrays_sha256,
+        )
+
+    def replay_bank(self, assignment: str, *, warmup_s: float) -> ManualReplayBank:
+        """Every replay baseline of one demonstration, run once and shared by the models that pair against it."""
+        conditions = self.conditions(warmup_s)
+        identity = _bank_identity(conditions, assignment)
+        cached = self._banks.get(identity)
+        if cached is not None:
+            return cached
+        pairs: list[ManualPairRecord] = []
+        for index, case in enumerate(self.scenarios):
+            for tracker in conditions.tracker_order:
+                self.log(f"replay {identity[:12]}: {case.scenario_id} [{tracker}] of {assignment}")
+                pairs.append(self._replay_pair(index, case, tracker, assignment=assignment, warmup_s=warmup_s))
+        bank = ManualReplayBank(conditions=conditions, assignment=assignment, pairs=tuple(pairs))
+        self._banks[identity] = bank
+        return bank
