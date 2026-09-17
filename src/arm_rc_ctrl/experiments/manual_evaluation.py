@@ -24,6 +24,7 @@ import math
 import os
 import subprocess
 import sys
+import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -99,10 +100,12 @@ __all__ = [
     "ManualEvidencePointer",
     "ManualFitBinding",
     "ManualModelEvidence",
+    "ManualModelTiming",
     "ManualPairRecord",
     "ManualReplayBank",
     "ManualRunConditions",
     "ManualRunOutcome",
+    "ManualRunTiming",
     "ManualSimulationLimits",
     "ManualTriggerRule",
     "SimulateFn",
@@ -1259,6 +1262,43 @@ def _bank_identity(conditions: ManualRunConditions, assignment: str) -> str:
 
 
 @dataclass(frozen=True)
+class ManualRunTiming:
+    """What one run this invocation simulated cost, in wall time and stored bytes.
+
+    Kept out of the evidence on purpose: wall time describes this machine, not
+    the experiment, and a content-addressed manifest carrying it would differ
+    between machines and between re-runs of the same sweep.
+    """
+
+    arm: str
+    scenario_id: str
+    tracker: str
+    rows: int
+    simulate_seconds: float
+    persist_seconds: float
+    run_bytes: int
+    """The run's summary and its arrays together: what storing it actually costs."""
+
+    def __post_init__(self) -> None:
+        """Figures are non-negative."""
+        if min(self.rows, self.simulate_seconds, self.persist_seconds, self.run_bytes) < 0:
+            msg = f"run timings are non-negative, got {self}"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
+class ManualModelTiming:
+    """What one model cost this invocation: its fit, and the sweep over its pairs."""
+
+    label: str
+    fit_seconds: float
+    """As the fit cache recorded it: measured now for a miss, at its original fitting for a hit."""
+    fit_cache_hit: bool
+    sweep_seconds: float
+    runs: int
+
+
+@dataclass(frozen=True)
 class ManualRunArtifact:
     """Where one persisted run lives and what it contains."""
 
@@ -1358,6 +1398,9 @@ class ManualEvaluationRunner:
         self._banks: dict[str, ManualReplayBank] = {}
         self._models: dict[str, ManualModelEvidence] = {}
         self._pointers: dict[tuple[str, str], ManualEvidencePointer] = {}
+        self._run_timings: list[ManualRunTiming] = []
+        self._model_timings: dict[str, ManualModelTiming] = {}
+        self._manifest_bytes = 0
 
     def conditions(self, warmup_s: float, replay_cutoffs: tuple[float, float]) -> ManualRunConditions:
         """The protocol conditions at one warm-up and derivative policy.
@@ -1425,6 +1468,7 @@ class ManualEvaluationRunner:
             else manual_trigger(self.config, self.scenario, direction_deg=case.direction_deg or 0.0)
         )
         fired: list[ForcePulse] = []
+        started = time.perf_counter()
         arrays, termination = self.simulate(
             self.scenario,
             controller,
@@ -1434,6 +1478,7 @@ class ManualEvaluationRunner:
             triggered=fired,
             velocity_abort=self.config.simulation.velocity_abort,
         )
+        simulated = time.perf_counter() - started
         pulse = fired[0] if fired else None
         outcome = manual_run_outcome(
             arrays,
@@ -1454,6 +1499,7 @@ class ManualEvaluationRunner:
             assignment=assignment,
             warmup_s=warmup_s,
             pulse=pulse,
+            simulate_seconds=simulated,
         )
         return ManualPairRecord(
             index=index,
@@ -1480,6 +1526,7 @@ class ManualEvaluationRunner:
         assignment: str | None,
         warmup_s: float,
         pulse: ForcePulse | None,
+        simulate_seconds: float,
     ) -> ManualRunArtifact:
         """Store the run with the disturbance that actually fired, not the one the levels prescribed."""
         # The stored verdict must be the pair record's verdict: every criterion the outcome judges
@@ -1487,6 +1534,7 @@ class ManualEvaluationRunner:
         criteria = _outcome_criteria(outcome)
         trained_on = ASSIGNMENTS if assignment is None else (assignment,)
         described = "the whole bank" if assignment is None else assignment
+        persist_started = time.perf_counter()
         pointer, summary, directory = write_run(
             self.store,
             arrays,
@@ -1509,8 +1557,9 @@ class ManualEvaluationRunner:
             reuse_identical=True,
             notes=f"{self.config.name} {arm} arm: {case.scenario_id} [{tracker}] of {described}.",
         )
+        persisted = time.perf_counter() - persist_started
         del directory
-        return ManualRunArtifact(
+        artifact = ManualRunArtifact(
             artifact_id=pointer.artifact.artifact_id,
             uri=pointer.artifact.payload.uri,
             sha256=pointer.artifact.payload.sha256,
@@ -1518,6 +1567,34 @@ class ManualEvaluationRunner:
             arrays_sha256=summary.arrays_sha256,
             sources=tuple(self.inputs.sources[name].artifact_id for name in trained_on),
         )
+        stored_arrays = self.store.path(artifact.uri, mode="read").parent / RUN_ARRAYS_FILE
+        self._run_timings.append(
+            ManualRunTiming(
+                arm=arm,
+                scenario_id=case.scenario_id,
+                tracker=tracker,
+                rows=arrays.n_samples,
+                simulate_seconds=simulate_seconds,
+                persist_seconds=persisted,
+                run_bytes=artifact.size + stored_arrays.stat().st_size,
+            )
+        )
+        return artifact
+
+    @property
+    def run_timings(self) -> tuple[ManualRunTiming, ...]:
+        """Every run this invocation simulated, in the order it simulated them."""
+        return tuple(self._run_timings)
+
+    @property
+    def model_timings(self) -> dict[str, ManualModelTiming]:
+        """What each model reached in this invocation cost, by label."""
+        return dict(self._model_timings)
+
+    @property
+    def manifest_bytes(self) -> int:
+        """Bytes of evidence this invocation installed."""
+        return self._manifest_bytes
 
     @property
     def pointers(self) -> tuple[ManualEvidencePointer, ...]:
@@ -1684,6 +1761,7 @@ class ManualEvaluationRunner:
         )
         fired: list[ForcePulse] = []
         channels = RESIDUAL_CHANNELS if cached.recipe.output == "increment" else GENERATOR_CHANNELS
+        started = time.perf_counter()
         arrays, termination = self.simulate(
             self.scenario,
             controller,
@@ -1694,6 +1772,7 @@ class ManualEvaluationRunner:
             channels=channels,
             velocity_abort=self.config.simulation.velocity_abort,
         )
+        simulated = time.perf_counter() - started
         pulse = fired[0] if fired else None
         outcome = manual_run_outcome(
             arrays,
@@ -1714,6 +1793,7 @@ class ManualEvaluationRunner:
             assignment=assignment,
             warmup_s=warmup_s,
             pulse=pulse,
+            simulate_seconds=simulated,
         )
         return ManualPairRecord(
             index=index,
@@ -1739,6 +1819,14 @@ class ManualEvaluationRunner:
         cutoffs = self.replay_cutoffs(entry)
         conditions = self.conditions(warmup_s, cutoffs)
         cached = ManualFitStore(self.store).fit_or_load(entry, self.inputs)
+        sweep_started = time.perf_counter()
+        self._model_timings[entry.label] = ManualModelTiming(
+            label=entry.label,
+            fit_seconds=cached.record.fit_seconds,
+            fit_cache_hit=cached.cache_hit,
+            sweep_seconds=0.0,
+            runs=0,
+        )
         identity = sha256_bytes(f"{cached.record.identity}:{conditions.identity}".encode("ascii"))
         existing = self._models.get(identity)
         if existing is not None:
@@ -1790,6 +1878,13 @@ class ManualEvaluationRunner:
                 )
                 progress.add(pair)
                 pairs.append(pair)
+        self._model_timings[entry.label] = ManualModelTiming(
+            label=entry.label,
+            fit_seconds=cached.record.fit_seconds,
+            fit_cache_hit=cached.cache_hit,
+            sweep_seconds=time.perf_counter() - sweep_started,
+            runs=sum(1 for pair in pairs if pair.run is not None),
+        )
         self._verify_sources(pairs, assignment, f"the evidence of {entry.label}")
         counts = Counter(pair.status for pair in pairs)
         evidence = ManualModelEvidence(
@@ -1807,6 +1902,7 @@ class ManualEvaluationRunner:
             n_unexecuted=counts["unexecuted"],
         )
         payload = _install_manifest(self.store, uri, manual_evidence_to_json(evidence))
+        self._manifest_bytes += payload.size
         self._register(evidence, payload)
         self._models[identity] = evidence
         return evidence
@@ -1851,6 +1947,7 @@ class ManualEvaluationRunner:
         self._verify_sources(pairs, assignment, f"the replay bank of {assignment}")
         bank = ManualReplayBank(conditions=conditions, assignment=assignment, pairs=tuple(pairs))
         payload = _install_manifest(self.store, uri, manual_bank_to_json(bank))
+        self._manifest_bytes += payload.size
         self._register(bank, payload, warmup_s=warmup_s)
         self._banks[identity] = bank
         return bank
