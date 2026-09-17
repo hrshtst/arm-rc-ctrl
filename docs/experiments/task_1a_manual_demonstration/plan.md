@@ -541,10 +541,13 @@ predecessor's accepted numerical exception is not blanket approval here.
 | Optional `M100` per configuration | +6 | +780 |
 
 The approved core plus contractive comparison is **186 models and at most
-24,180 RC runs**, plus replay and numerical checks. Replay of ten takes at
-three distinct panel warm-ups, 65 scenarios, and two trackers adds at most
-3,900 runs. Variable training lengths and the longer evaluation horizon change
-compute cost; old four-second timing estimates do not apply. A timing smoke
+24,180 RC runs**, plus replay and numerical checks. Replay is driven through
+the same causal derivative policy as the configuration it is paired against,
+so a baseline is shared only by models that share a parent, a warm-up and that
+policy; the six inherited configurations carry six distinct policies, which
+makes at most 6 × 10 × 130 = 7,800 replay runs and 31,980 in total. Variable
+training lengths and the longer evaluation horizon change compute cost; old
+four-second timing estimates do not apply. A timing smoke
 test must estimate memory, storage, and elapsed time before the full pilot.
 Run a deterministic nominal subset first as an
 implementation check, without dropping panel members based on performance.
@@ -552,9 +555,10 @@ implementation check, without dropping panel members based on performance.
 **Execution budget projection (I1).** At the per-run rates of the repetition
 pilot's [timing smoke check](../task_1a_repeated_demonstration/timing_smoke_check_v1.md)
 (one configuration, 4.25 s runs: 0.22 s and 126 KB per RC run, 0.19 s and
-94 KB per replay run), the 30 s horizon projects to roughly 12 hours of serial
-simulation and 24–25 GB of run data before training, reproduction, and other
-artifacts. This is a planning estimate, not an upper bound: the rates came
+94 KB per replay run), the 30 s horizon and the revised 7,800 replay runs
+project to roughly 13 hours of serial simulation and 26–27 GB of run data
+before training, reproduction, and other artifacts. This is a planning
+estimate, not an upper bound: the rates came
 from one configuration, while reservoir sizes and recording lengths vary, and
 the timing report carries that limitation. The approved horizon and full
 telemetry stay. Bounded process-based parallel execution is explicit
@@ -802,7 +806,7 @@ approved simply because they appear in this draft.
 | D2 | Approved | Save all takes without experiment-specific acceptance checks in the recorder. Batch validation afterward requires at least 1 s continuously inside 1 cm with joint speeds at most 0.05 rad/s. Repeat collection/validation until ten takes pass, with no total attempt cap. Recording/evaluation timeouts are 30 s; the per-take timeout does not limit the number of takes. Pilot-1 revision (approved 2026-09-15, I13): acquisition at 50 Hz; the dwell stays one actual second. |
 | D3 | Approved | Start from 6 rad/s per joint for recording validation and evaluation; use a stricter common bound if the acquisition pilot supports it, fixed and recorded before study collection. |
 | D4 | Approved | All ten singleton choices plus all-ten, ten-copy controls, and nine contractive additions per singleton; defer optional whole-bank copies and fixed-alpha diagnostics unless requested. |
-| D5 | Approved | Equal total loss weight per episode; six inherited ESN configurations, absolute output, no new search: 186 models, at most 24,180 RC evaluations plus 3,900 replay runs. |
+| D5 | Approved | Equal total loss weight per episode; six inherited ESN configurations, absolute output, no new search: 186 models, at most 24,180 RC evaluations plus 7,800 replay runs, 31,980 in total. Owner decision 2026-09-17 (configuration-matched cutoffs): replay uses the causal derivative policy of the configuration it is paired against, so a baseline is shared only by models sharing a parent, a warm-up and that policy; the six frozen configurations are unchanged. |
 | D6 | Approved | Both frozen trackers and all 65 development cases; force pulses after 0.5 s target dwell; every scenario evaluated independently through the common 30 s horizon, requiring at least 1 s continuous final dwell under D2's predicate. |
 | D7 | Approved | Complete the ten-take closed-loop comparison; defer extra held-out human recordings and a later tuning/separate confirmatory study. The current experiment's evaluation and assistant-authored report remain in scope. |
 
@@ -823,7 +827,7 @@ and the ledger rows fold them into their acceptance criteria.
 
 | ID | Topic | Clarification | Section | Tasks |
 | --- | --- | --- | --- | --- |
-| I1 | Execution budget | Roughly 12 h serial and 24–25 GB of run data at the previous pilot's one-configuration rates; a planning estimate, not an upper bound. Horizon and telemetry unchanged; bounded process-based parallel execution with a serial-versus-parallel equivalence check is explicit scope. | 5 | M3MAN-008, M3MAN-009 |
+| I1 | Execution budget | Roughly 13 h serial and 26–27 GB of run data at the previous pilot's one-configuration rates; a planning estimate, not an upper bound. Horizon and telemetry unchanged; bounded process-based parallel execution with a serial-versus-parallel equivalence check is explicit scope. | 5 | M3MAN-008, M3MAN-009 |
 | I2 | Acquisition clock | The pinned recorder updates the pose once per 20 ms tick and repeats it at every elapsed sample boundary. UP-008 defines the acquisition clock and never assigns several timestamps to one update; the acquisition pilot verifies the realized rate before 100 Hz is claimed; I13 revises the acquisition rate to 50 Hz. | 2, 2.1 | UP-008, M3MAN-003 |
 | I3 | Weighted ridge | Disable the library's implicit bias, append an explicit ones column, scale the whole row and target by the square root of the weight, append an unscaled one at inference, cover every prediction path, keep the implicit-bias path for historical recipes. | 4 | M3MAN-005 |
 | I4 | Recipe contract | A new recipe schema version preserving the old semantics: variable row counts, hold rows in the loss, separate warm-up, source multiplicities, row weights, augmentation parents, transform provenance, complete fit identities. | 4 | M3MAN-005 |

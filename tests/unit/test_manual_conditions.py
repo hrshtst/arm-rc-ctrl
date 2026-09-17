@@ -34,6 +34,8 @@ EXECUTION_IDENTITY = "e" * 64
 """A stand-in environment: the builder binds whatever the caller verified, it does not probe."""
 
 WARMUP_S = 0.25
+REPLAY_CUTOFFS = (6.66946, 5.59031)
+"""``feasible-best``'s own estimator cutoffs: replay filters exactly as its paired generator does."""
 
 DIGEST_A = "a" * 64
 DIGEST_B = "b" * 64
@@ -55,6 +57,7 @@ def _committed_conditions() -> ManualRunConditions:
         EVALUATION,
         scenario_ids=tuple(case.scenario_id for case in cases),
         warmup_s=WARMUP_S,
+        replay_cutoffs=REPLAY_CUTOFFS,
         execution_identity=EXECUTION_IDENTITY,
         root=REPO_ROOT,
     )
@@ -77,6 +80,8 @@ def _conditions(**changes: object) -> ManualRunConditions:
         "dwell_min_duration_s": 1.0,
         "dwell_tolerance_m": 0.01,
         "dwell_max_velocity_rad_s": 0.05,
+        "replay_velocity_cutoff_hz": 6.66946,
+        "replay_acceleration_cutoff_hz": 5.59031,
         "velocity_abort": (6.0, 6.0),
         "trackers": dict(TRACKERS),
         "tracker_order": ("pd_v2", "computed_torque"),
@@ -101,6 +106,8 @@ def _conditions(**changes: object) -> ManualRunConditions:
         ("dwell_min_duration_s", 1.5),
         ("dwell_tolerance_m", 0.02),
         ("dwell_max_velocity_rad_s", 0.1),
+        ("replay_velocity_cutoff_hz", 21.8537),
+        ("replay_acceleration_cutoff_hz", 9.33166),
         ("velocity_abort", (12.0, 12.0)),
         ("warmup_s", 0.5),
         ("execution_identity", DIGEST_C),
@@ -165,6 +172,33 @@ def test_an_abort_that_is_not_per_joint_is_refused() -> None:
     """The abort covers every joint with a positive finite bound."""
     with pytest.raises(ValueError, match="positive finite"):
         _conditions(velocity_abort=(6.0, 0.0))
+
+
+def test_two_configurations_sharing_a_warm_up_but_not_a_policy_are_different_conditions() -> None:
+    """Replay derives its own derivatives, so its filter is part of what produced the run.
+
+    Six of the study's configurations share three warm-ups but each carries its
+    own estimator cutoffs, so a bank may only be shared where the whole policy
+    matches; keying on warm-up alone would serve one configuration's baselines
+    to another whose replay was filtered differently.
+    """
+    best = _conditions(replay_velocity_cutoff_hz=6.66946, replay_acceleration_cutoff_hz=5.59031)
+    dwell = _conditions(replay_velocity_cutoff_hz=28.4575, replay_acceleration_cutoff_hz=5.73043)
+    assert best.warmup_s == dwell.warmup_s
+    assert best.identity != dwell.identity
+
+
+def test_the_replay_policy_is_part_of_what_a_run_records() -> None:
+    """A stored run states the filter its reference was driven through, not merely a path to a config."""
+    conditions = _conditions()
+    assert conditions.replay_velocity_cutoff_hz == pytest.approx(6.66946)
+    assert conditions.replay_acceleration_cutoff_hz == pytest.approx(5.59031)
+
+
+def test_a_non_positive_replay_cutoff_is_refused() -> None:
+    """A cutoff is a real filter frequency; zero would mean something else entirely."""
+    with pytest.raises(ValueError, match="positive and finite"):
+        _conditions(replay_velocity_cutoff_hz=0.0)
 
 
 # --- the conditions the committed protocol produces ------------------------------------------

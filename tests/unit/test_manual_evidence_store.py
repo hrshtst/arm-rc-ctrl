@@ -16,11 +16,13 @@ import shutil
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
+import pytest
 
 from arm_rc_ctrl.config import to_mapping
 from arm_rc_ctrl.controllers.tracking import TrackerConfig
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario, manual_endpoint_positions
 from arm_rc_ctrl.experiments.manual_evaluation import (
+    PROGRESS_FILE,
     ManualEvaluationConfig,
     ManualEvaluationRunner,
     ManualModelEvidence,
@@ -30,9 +32,10 @@ from arm_rc_ctrl.experiments.manual_evaluation import (
     load_manual_replay_bank,
     manual_bank_to_json,
     manual_evidence_to_json,
+    replay_bank_uri,
 )
 from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
-from arm_rc_ctrl.experiments.run_record import RunArrays
+from arm_rc_ctrl.experiments.run_record import RUN_ARRAYS_FILE, RunArrays
 from arm_rc_ctrl.experiments.termination import completed
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import joint_target
@@ -51,8 +54,12 @@ if TYPE_CHECKING:
 REPO_ROOT = repository_root()
 DEVELOPMENT_SOURCE = REPO_ROOT / "configs" / "evaluations" / "task_1a_recovery_dev_v1.toml"
 TRACKER = TrackerConfig(type="pd", kp=(10.0, 5.0), kd=(1.5, 0.8))
+REPLAY_CUTOFFS = (20.0, 20.0)
+"""The causal derivative policy replay is driven through; a bank belongs to one policy."""
 HOLD_S, PULSE_S, HORIZON_S, WARMUP_S = 0.05, 0.02, 1.0, 0.25
 CONFIGURATION, ARM_LABEL = "feasible-best", "S/D01"
+ARM_CORRUPTED = "S/D02"
+"""A model of its own for the corruption case, so it never serves another test's stored evidence."""
 
 SCENARIOS = (
     RobustnessScenario("nominal", "nominal", (0.0, 0.0)),
@@ -130,8 +137,8 @@ def _crafted(scenario_config: ManualScenarioConfig, rows: int, start: tuple[floa
     return RunArrays(data)
 
 
-def _entry(f: ManualFixture) -> StudyModel:
-    return next(e for e in f.manifest.entries if (e.configuration, e.arm.label) == (CONFIGURATION, ARM_LABEL))
+def _entry(f: ManualFixture, arm_label: str = ARM_LABEL) -> StudyModel:
+    return next(e for e in f.manifest.entries if (e.configuration, e.arm.label) == (CONFIGURATION, arm_label))
 
 
 def _runner(f: ManualFixture, simulate_fn: SimulateFn) -> ManualEvaluationRunner:
@@ -171,10 +178,10 @@ def test_a_stored_bank_is_served_without_simulating_again(manual_fixture: Manual
     """A completed bank is immutable evidence: a fresh runner over the same store reuses it."""
     scenario_config = load_manual_scenario(manual_fixture.scenario_file)
     first_sim = _CountingSimulator(scenario_config)
-    first = _runner(manual_fixture, first_sim).replay_bank("D03", warmup_s=WARMUP_S)
+    first = _runner(manual_fixture, first_sim).replay_bank("D03", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS)
     assert first_sim.calls == len(SCENARIOS) * 2
     second_sim = _CountingSimulator(scenario_config)
-    second = _runner(manual_fixture, second_sim).replay_bank("D03", warmup_s=WARMUP_S)
+    second = _runner(manual_fixture, second_sim).replay_bank("D03", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS)
     assert second_sim.calls == 0
     assert second.identity == first.identity
     assert [(p.scenario_id, p.tracker) for p in second.pairs] == [(p.scenario_id, p.tracker) for p in first.pairs]
@@ -201,7 +208,9 @@ def test_stored_model_evidence_is_served_without_simulating_again(manual_fixture
 def test_a_bank_rebuilds_from_its_manifest(manual_fixture: ManualFixture, tmp_path: Path) -> None:
     """Every field survives the round trip, including the ones that are unset on a replay run."""
     scenario_config = load_manual_scenario(manual_fixture.scenario_file)
-    bank = _runner(manual_fixture, _CountingSimulator(scenario_config)).replay_bank("D04", warmup_s=WARMUP_S)
+    bank = _runner(manual_fixture, _CountingSimulator(scenario_config)).replay_bank(
+        "D04", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS
+    )
     rebuilt = _rebuilt_bank(tmp_path, bank)
     assert to_mapping(rebuilt) == to_mapping(bank)
     assert rebuilt.identity == bank.identity
@@ -215,3 +224,62 @@ def test_model_evidence_rebuilds_from_its_manifest(manual_fixture: ManualFixture
     rebuilt = _rebuilt_evidence(tmp_path, evidence)
     assert to_mapping(rebuilt) == to_mapping(evidence)
     assert rebuilt.identity == evidence.identity
+
+
+# --- served only while the runs behind it are still intact -------------------------------------
+
+
+def _bank_directory(f: ManualFixture, runner: ManualEvaluationRunner, assignment: str) -> Path:
+    """Where one bank keeps its manifest and its run-granular progress."""
+    uri = replay_bank_uri(runner.conditions(WARMUP_S, REPLAY_CUTOFFS), assignment)
+    return f.store.path(f"{uri}/{PROGRESS_FILE}", mode="write").parent
+
+
+def _run_directory(f: ManualFixture, bank: ManualReplayBank) -> Path:
+    """The stored run of the bank's first pair."""
+    run = bank.pairs[0].run
+    assert run is not None
+    return f.store.path(run.uri, mode="read").parent
+
+
+def test_a_stored_bank_is_refused_when_a_run_payload_is_missing(manual_fixture: ManualFixture) -> None:
+    """Completed evidence is only evidence while the runs it cites exist: a lost payload is not servable."""
+    f = manual_fixture
+    scenario_config = load_manual_scenario(f.scenario_file)
+    bank = _runner(f, _CountingSimulator(scenario_config)).replay_bank(
+        "D05", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS
+    )
+    (_run_directory(f, bank) / RUN_ARRAYS_FILE).unlink()
+    with pytest.raises(ValueError, match="missing"):
+        _runner(f, _CountingSimulator(scenario_config)).replay_bank(
+            "D05", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS
+        )
+
+
+def test_stored_model_evidence_is_refused_when_a_run_summary_is_corrupted(manual_fixture: ManualFixture) -> None:
+    """A summary that no longer hashes to what the manifest recorded is not the run that was evaluated."""
+    f = manual_fixture
+    scenario_config = load_manual_scenario(f.scenario_file)
+    entry = _entry(f, ARM_CORRUPTED)
+    evidence = _runner(f, _CountingSimulator(scenario_config)).evaluate(entry, warmup_s=WARMUP_S)
+    run = evidence.pairs[0].run
+    assert run is not None
+    summary = f.store.path(run.uri, mode="read")
+    summary.write_text(summary.read_text(encoding="utf-8").replace('"notes"', '"notes_"', 1), encoding="utf-8")
+    with pytest.raises(ValueError, match="no longer matches"):
+        _runner(f, _CountingSimulator(scenario_config)).evaluate(entry, warmup_s=WARMUP_S)
+
+
+def test_an_interrupted_sweep_is_refused_when_its_arrays_are_missing(manual_fixture: ManualFixture) -> None:
+    """The recovery path verifies too: resuming must not build a manifest on runs that are already gone."""
+    f = manual_fixture
+    scenario_config = load_manual_scenario(f.scenario_file)
+    runner = _runner(f, _CountingSimulator(scenario_config))
+    bank = runner.replay_bank("D06", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS)
+    for manifest in _bank_directory(f, runner, "D06").glob("manifest-*.json"):
+        manifest.unlink()  # an interrupted sweep: progress recorded, no completed manifest
+    (_run_directory(f, bank) / RUN_ARRAYS_FILE).unlink()
+    with pytest.raises(ValueError, match="missing"):
+        _runner(f, _CountingSimulator(scenario_config)).replay_bank(
+            "D06", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS
+        )

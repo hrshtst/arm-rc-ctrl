@@ -37,6 +37,7 @@ import numpy as np
 from arm_rc_ctrl.config import from_mapping, load_config, to_mapping
 from arm_rc_ctrl.controllers.adapter import GeneratorTrackingController
 from arm_rc_ctrl.controllers.estimator import CausalDerivativeEstimator, EstimatorConfig
+from arm_rc_ctrl.controllers.reference import DemonstrationReference
 from arm_rc_ctrl.controllers.tracking import LimitedTracker
 from arm_rc_ctrl.data.manual import DwellPredicate, continuous_dwell, dwell_runs
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario, manual_endpoint_positions
@@ -45,11 +46,11 @@ from arm_rc_ctrl.execution import collect_execution, require_canonical
 from arm_rc_ctrl.experiments.baselines import frozen_baseline_digest, load_frozen_baseline
 from arm_rc_ctrl.experiments.manual_fits import ManualFitStore
 from arm_rc_ctrl.experiments.manual_numerics import ManualStudyContext
+from arm_rc_ctrl.experiments.manual_recipes import ASSIGNMENTS
 from arm_rc_ctrl.experiments.manual_study import EXPERIMENT_LABEL
 from arm_rc_ctrl.experiments.perturbations import load_development_robustness, robustness_scenarios
 from arm_rc_ctrl.experiments.recovery_search import RECOVERY_TRACKERS
-from arm_rc_ctrl.experiments.recovery_slice import HeldTaskReference
-from arm_rc_ctrl.experiments.run_record import write_run
+from arm_rc_ctrl.experiments.run_record import RUN_ARRAYS_FILE, RUN_SUMMARY_FILE, write_run
 from arm_rc_ctrl.experiments.simulation import GENERATOR_CHANNELS, RESIDUAL_CHANNELS, DwellTrigger, simulate
 from arm_rc_ctrl.experiments.termination import Outcome
 from arm_rc_ctrl.metrics.recovery import SATURATION_BOUND
@@ -73,6 +74,7 @@ if TYPE_CHECKING:
 
     from numpy.typing import NDArray
 
+    from arm_rc_ctrl.controllers.estimator import DerivativeEstimate
     from arm_rc_ctrl.controllers.tracking import TrackerConfig
     from arm_rc_ctrl.data.manual_scenario import ManualScenarioConfig
     from arm_rc_ctrl.data.samples import SampleSet
@@ -89,6 +91,7 @@ if TYPE_CHECKING:
 __all__ = [
     "POINTER_SCHEMA",
     "PROGRESS_FILE",
+    "CausalReplayReference",
     "GeneratedReferenceReport",
     "ManualDwellReport",
     "ManualEvaluationConfig",
@@ -131,9 +134,6 @@ _SHA256_HEX: Final = 64
 _SHORT: Final = 12
 _GRID_TOLERANCE_S: Final = 1e-9
 """Slack for comparing times that are exact multiples of the control period."""
-
-ASSIGNMENT_ALL: Final = "M10"
-"""The all-ten arm trains on the whole bank, so its runs are sourced from it rather than one parent."""
 
 REPORTS_PREFIX: Final = "armrc://reports/task_1a_manual_v1"
 """Where this experiment's evidence lives in the store."""
@@ -426,6 +426,10 @@ class ManualRunConditions:
     dwell_tolerance_m: float
     dwell_max_velocity_rad_s: float
     """The acquisition dwell rule, carried explicitly so a run records the rule it was judged by."""
+    replay_velocity_cutoff_hz: float
+    replay_acceleration_cutoff_hz: float
+    """The causal derivative policy replay is driven through: its model configuration's own cutoffs, so both
+    arms of a pair filter alike and a difference between them is the generator's, not the filter's."""
     velocity_abort: tuple[float, ...]
     trackers: dict[str, str]
     """SHA-256 of each frozen tracker's gains, by name."""
@@ -466,6 +470,8 @@ class ManualRunConditions:
             ("dwell_min_duration_s", self.dwell_min_duration_s),
             ("dwell_tolerance_m", self.dwell_tolerance_m),
             ("dwell_max_velocity_rad_s", self.dwell_max_velocity_rad_s),
+            ("replay_velocity_cutoff_hz", self.replay_velocity_cutoff_hz),
+            ("replay_acceleration_cutoff_hz", self.replay_acceleration_cutoff_hz),
         ):
             if not (value > 0 and math.isfinite(value)):
                 msg = f"{name} must be positive and finite, got {value!r}"
@@ -509,6 +515,7 @@ def manual_conditions(
     *,
     scenario_ids: Sequence[str],
     warmup_s: float,
+    replay_cutoffs: tuple[float, float],
     execution_identity: str,
     root: Path,
 ) -> ManualRunConditions:
@@ -535,6 +542,8 @@ def manual_conditions(
         dwell_min_duration_s=scenario.task.dwell_min_duration_s,
         dwell_tolerance_m=scenario.task.tolerance,
         dwell_max_velocity_rad_s=scenario.task.dwell_max_velocity,
+        replay_velocity_cutoff_hz=replay_cutoffs[0],
+        replay_acceleration_cutoff_hz=replay_cutoffs[1],
         velocity_abort=config.simulation.velocity_abort,
         trackers={name: frozen_baseline_digest(name) for name in RECOVERY_TRACKERS},
         tracker_order=tuple(RECOVERY_TRACKERS),
@@ -921,6 +930,41 @@ def model_uri(identity: str) -> str:
     return f"{REPORTS_PREFIX}/model/{identity}"
 
 
+def _verify_run_payload(store: StorageRoot, pair: ManualPairRecord) -> None:
+    """Check one recorded run is still in the store exactly as the record describes it.
+
+    A manifest cites runs; it does not contain them. Serving evidence whose
+    payloads were deleted or rewritten would report an experiment that can no
+    longer be inspected, so both files are checked: the summary the record is
+    digest-bound to, and the arrays that summary is bound to in turn.
+    """
+    run = pair.run
+    if run is None:
+        return
+    where = f"run {run.artifact_id} of {pair.scenario_id} [{pair.tracker}] {pair.arm}"
+    try:
+        summary = store.path(run.uri, mode="read")
+    except FileNotFoundError as error:
+        msg = f"{where}: {RUN_SUMMARY_FILE} is missing from the store"
+        raise ValueError(msg) from error
+    for path, digest, size in (
+        (summary, run.sha256, run.size),
+        (summary.parent / RUN_ARRAYS_FILE, run.arrays_sha256, None),
+    ):
+        if not path.is_file():
+            msg = f"{where}: {path.name} is missing from the store"
+            raise ValueError(msg)
+        if (size is not None and path.stat().st_size != size) or sha256_file(path) != digest:
+            msg = f"{where}: {path.name} no longer matches its record"
+            raise ValueError(msg)
+
+
+def _verify_stored_runs(store: StorageRoot, pairs: Sequence[ManualPairRecord]) -> None:
+    """Every run behind a set of pairs, before they are served as completed evidence."""
+    for pair in pairs:
+        _verify_run_payload(store, pair)
+
+
 class _ManualProgress:
     """The run-granular progress of one manifest, re-verified against the store before it is trusted."""
 
@@ -942,14 +986,8 @@ class _ManualProgress:
         self._verify_runs()
 
     def _verify_runs(self) -> None:
-        """A completed run is served only while its stored arrays still match what the record claims."""
-        for pair in self.pairs:
-            if pair.run is None:
-                continue
-            path = self.store.path(pair.run.uri, mode="read")
-            if path.stat().st_size != pair.run.size or sha256_file(path) != pair.run.sha256:
-                msg = f"run {pair.run.artifact_id} of {pair.scenario_id} [{pair.tracker}] no longer matches its record"
-                raise ValueError(msg)
+        """A recorded run is resumed onto only while its stored payloads still match what it claims."""
+        _verify_stored_runs(self.store, self.pairs)
 
     def get(self, scenario_id: str, tracker: str, arm: str) -> ManualPairRecord | None:
         """The pair already recorded for this scenario, tracker, and arm, if any."""
@@ -1047,6 +1085,86 @@ def _reference_of(path: Path, store: StorageRoot) -> ArtifactReference:
     return ArtifactReference(str(store.uri_for(path)), sha256_file(path), path.stat().st_size)
 
 
+# --- the replay reference (its derivative policy is the generator's) -------------------------
+
+
+class CausalReplayReference:
+    """Command a recording's positions, deriving velocity and acceleration causally from them.
+
+    The paired comparison is only about the generator when both arms are driven
+    the same way. A reference that hands the tracker the recording's own
+    ``dq``/``ddq`` would give replay derivatives computed from the whole
+    trajectory, including its future, which the generator cannot have -- and
+    would then switch them to zero the instant the log ends. Here the tracker
+    receives derivatives of the positions actually commanded, in every regime:
+    the hold before activation, the recording itself, and the continuation at
+    the final recorded posture afterwards.
+    """
+
+    def __init__(
+        self,
+        reference: DemonstrationReference,
+        *,
+        activation_s: float,
+        hold: NDArray[np.float64],
+        estimator: CausalDerivativeEstimator,
+    ) -> None:
+        """Bind the recording, the activation boundary, the held posture, and the estimator."""
+        if not (math.isfinite(activation_s) and activation_s >= 0):
+            msg = f"activation_s must be finite and non-negative, got {activation_s!r}"
+            raise ValueError(msg)
+        posture = np.asarray(hold, dtype=np.float64)
+        if posture.shape != (reference.dof,) or not bool(np.all(np.isfinite(posture))):
+            msg = f"hold must be a finite ({reference.dof},) posture, got {posture!r}"
+            raise ValueError(msg)
+        if estimator.dof != reference.dof:
+            msg = f"the estimator covers {estimator.dof} joints and the recording {reference.dof}: same dof required"
+            raise ValueError(msg)
+        self._reference = reference
+        self._activation = activation_s
+        self._hold: NDArray[np.float64] = np.array(posture, dtype=np.float64)
+        self._estimator = estimator
+        self._last: tuple[float, DerivativeEstimate] | None = None
+
+    @classmethod
+    def from_samples(
+        cls,
+        samples: SampleSet,
+        *,
+        activation_s: float,
+        hold: NDArray[np.float64],
+        estimator: CausalDerivativeEstimator,
+        interpolation: str = "linear",
+    ) -> CausalReplayReference:
+        """Build from a processed take, reusing the repository's own interpolation of its positions."""
+        reference = DemonstrationReference.from_samples(samples, cast("Any", interpolation))
+        return cls(reference, activation_s=activation_s, hold=hold, estimator=estimator)
+
+    @property
+    def activation_s(self) -> float:
+        """The activation boundary on the run clock."""
+        return self._activation
+
+    def sample(self, t: float) -> tuple[NDArray[np.float64], NDArray[np.float64], NDArray[np.float64]]:
+        """The commanded posture at ``t`` with its causally estimated derivatives."""
+        if t < self._activation:
+            q = self._hold
+        else:
+            # Past the end of the log this clips to the final recorded sample, so the continuation
+            # commands the final posture and its derivatives follow from that, not from a jump.
+            q, _dq, _ddq = self._reference.sample(t - self._activation)
+        # LimitedTracker samples the reference for telemetry and the skelarm tracker it wraps samples
+        # the same instant again, so a causal estimator must not advance on a repeated question: it
+        # answers with what it already estimated, and only a new instant moves it forward.
+        cached = self._last
+        if cached is not None and t == cached[0]:
+            estimate = cached[1]
+        else:
+            estimate = self._estimator.update(t, np.asarray(q, dtype=np.float64))
+            self._last = (t, estimate)
+        return estimate.q, estimate.dq, estimate.ddq
+
+
 # --- the replay baselines of one demonstration -----------------------------------------------
 
 
@@ -1069,6 +1187,8 @@ class ManualRunArtifact:
     sha256: str
     size: int
     arrays_sha256: str
+    sources: tuple[str, ...] = ()
+    """The demonstrations this run's model trained on: all ten for the all-ten arm, one otherwise."""
 
 
 @dataclass(frozen=True)
@@ -1159,16 +1279,26 @@ class ManualEvaluationRunner:
         self._models: dict[str, ManualModelEvidence] = {}
         self._pointers: dict[tuple[str, str], ManualEvidencePointer] = {}
 
-    def conditions(self, warmup_s: float) -> ManualRunConditions:
-        """The protocol conditions at one warm-up; banks are shared by every model that shares it."""
+    def conditions(self, warmup_s: float, replay_cutoffs: tuple[float, float]) -> ManualRunConditions:
+        """The protocol conditions at one warm-up and derivative policy.
+
+        Baselines are shared only by models that share both: replay derives its
+        own velocity and acceleration, so a different filter is a different run.
+        """
         return manual_conditions(
             self.config,
             self.evaluation_file,
             scenario_ids=tuple(case.scenario_id for case in self.scenarios),
             warmup_s=warmup_s,
+            replay_cutoffs=replay_cutoffs,
             execution_identity=self.execution.identity,
             root=self.root,
         )
+
+    def replay_cutoffs(self, entry: StudyModel) -> tuple[float, float]:
+        """The causal estimator cutoffs of ``entry``'s configuration, used by both arms of its pairs."""
+        configuration = self._configuration(entry)
+        return (configuration.velocity_cutoff_hz, configuration.acceleration_cutoff_hz)
 
     def _start(self, case: RobustnessScenario) -> tuple[float, ...]:
         """The perturbed reset posture: every take begins at the configured one, so the offsets are shared."""
@@ -1179,16 +1309,34 @@ class ManualEvaluationRunner:
         return self.inputs.samples[self.inputs.sources[assignment].artifact_id]
 
     def _replay_pair(
-        self, index: int, case: RobustnessScenario, tracker: str, *, assignment: str, warmup_s: float
+        self,
+        index: int,
+        case: RobustnessScenario,
+        tracker: str,
+        *,
+        assignment: str,
+        warmup_s: float,
+        replay_cutoffs: tuple[float, float],
     ) -> ManualPairRecord:
         """Replay one demonstration through one tracker under one scenario, from a fresh reset."""
         start = self._start(case)
         samples = self._samples(assignment)
-        held = HeldTaskReference.from_samples(
+        # Replay is driven through the same causal derivative policy as the generator it is paired
+        # against: handing the tracker the recording's own derivatives would give it the trajectory's
+        # future, which the generator never has.
+        held = CausalReplayReference.from_samples(
             samples,
             activation_s=warmup_s,
-            interpolation=cast("Any", self.inputs.preprocessing.interpolation),
             hold=np.asarray(start, dtype=np.float64),
+            estimator=CausalDerivativeEstimator(
+                EstimatorConfig(
+                    nominal_dt_s=self.scenario.timing.dt,
+                    velocity_cutoff_hz=replay_cutoffs[0],
+                    acceleration_cutoff_hz=replay_cutoffs[1],
+                ),
+                self.inputs.dof,
+            ),
+            interpolation=cast("Any", self.inputs.preprocessing.interpolation),
         )
         controller = LimitedTracker(cast("Any", held), self.trackers[tracker], self.scenario.limits.torque)
         trigger = (
@@ -1249,17 +1397,22 @@ class ManualEvaluationRunner:
         case: RobustnessScenario,
         tracker: str,
         arm: str,
-        assignment: str,
+        assignment: str | None,
         warmup_s: float,
         pulse: ForcePulse | None,
     ) -> ManualRunArtifact:
         """Store the run with the disturbance that actually fired, not the one the levels prescribed."""
+        # The stored verdict must be the pair record's verdict: every criterion the outcome judges
+        # appears here, or a run this sweep calls infeasible reads as a success in its own record.
         criteria = {
             "completed": outcome.completed,
             "dwell": outcome.dwell.ok if outcome.post_pulse_dwell is None else outcome.post_pulse_dwell.ok,
             "generated_reference": outcome.generated is None or outcome.generated.ok,
             "trigger": outcome.trigger is None or outcome.trigger.ok,
+            "saturation": outcome.saturation_fraction <= SATURATION_BOUND,
         }
+        trained_on = ASSIGNMENTS if assignment is None else (assignment,)
+        described = "the whole bank" if assignment is None else assignment
         pointer, summary, directory = write_run(
             self.store,
             arrays,
@@ -1277,10 +1430,10 @@ class ManualEvaluationRunner:
             license_label=self.license_label,
             access=cast("Any", self.access),
             command=self.command,
-            sources=(self.inputs.sources[assignment].artifact_id,),
+            sources=tuple(self.inputs.sources[name].artifact_id for name in trained_on),
             activation_s=warmup_s,
             reuse_identical=True,
-            notes=f"{self.config.name} {arm} arm: {case.scenario_id} [{tracker}] of {assignment}.",
+            notes=f"{self.config.name} {arm} arm: {case.scenario_id} [{tracker}] of {described}.",
         )
         del directory
         return ManualRunArtifact(
@@ -1289,6 +1442,7 @@ class ManualEvaluationRunner:
             sha256=pointer.artifact.payload.sha256,
             size=pointer.artifact.payload.size,
             arrays_sha256=summary.arrays_sha256,
+            sources=tuple(self.inputs.sources[name].artifact_id for name in trained_on),
         )
 
     @property
@@ -1305,7 +1459,9 @@ class ManualEvaluationRunner:
     ) -> None:
         """Remember the pointer of one manifest, whether it was installed now or served from the store."""
         if isinstance(evidence, ManualReplayBank):
-            kind, label = "replay", f"{evidence.assignment}-warmup-{warmup_s:g}s"
+            # The policy is part of the bank, so two banks of one parent and warm-up that filtered
+            # differently must not collide on one pointer name.
+            kind, label = "replay", f"{evidence.assignment}-warmup-{warmup_s:g}s-{evidence.identity[:8]}"
         else:
             kind, label = "model", evidence.label
         self._pointers[kind, label] = _pointer_of(kind, label, evidence.identity, evidence.pairs, payload)
@@ -1331,7 +1487,8 @@ class ManualEvaluationRunner:
         The study's own fit identity is the cache key of the fit, so the model
         key is derivable from the manifest alone.
         """
-        return sha256_bytes(f"{entry.fit_identity}:{self.conditions(warmup_s).identity}".encode("ascii"))
+        conditions = self.conditions(warmup_s, self.replay_cutoffs(entry))
+        return sha256_bytes(f"{entry.fit_identity}:{conditions.identity}".encode("ascii"))
 
     def _configuration(self, entry: StudyModel) -> StudyConfiguration:
         """The inherited configuration of ``entry``, which carries its evaluation-side estimator cutoffs."""
@@ -1413,7 +1570,7 @@ class ManualEvaluationRunner:
             case=case,
             tracker=tracker,
             arm="rc",
-            assignment=assignment or ASSIGNMENT_ALL,
+            assignment=assignment,
             warmup_s=warmup_s,
             pulse=pulse,
         )
@@ -1438,7 +1595,8 @@ class ManualEvaluationRunner:
         exist. The predecessor's sweep stopped at the first infeasible pair and
         marked the rest unexecuted; nothing here does.
         """
-        conditions = self.conditions(warmup_s)
+        cutoffs = self.replay_cutoffs(entry)
+        conditions = self.conditions(warmup_s, cutoffs)
         cached = ManualFitStore(self.store).fit_or_load(entry, self.inputs)
         identity = sha256_bytes(f"{cached.record.identity}:{conditions.identity}".encode("ascii"))
         existing = self._models.get(identity)
@@ -1451,16 +1609,17 @@ class ManualEvaluationRunner:
             if evidence.identity != identity:
                 msg = f"{stored} holds the evidence {evidence.identity[:_SHORT]}, not {identity[:_SHORT]}"
                 raise ValueError(msg)
+            _verify_stored_runs(self.store, evidence.pairs)
             if evidence.assignment is not None:
                 # Also point at the baselines this model was compared against: they are equally
                 # part of the evidence, and a served model would otherwise cite a bank the
                 # repository has no pointer to.
-                self.replay_bank(evidence.assignment, warmup_s=warmup_s)
+                self.replay_bank(evidence.assignment, warmup_s=warmup_s, replay_cutoffs=cutoffs)
             self._register(evidence, _reference_of(stored, self.store))
             self._models[identity] = evidence
             return evidence
         assignment = entry.arm.assignment
-        bank = None if assignment is None else self.replay_bank(assignment, warmup_s=warmup_s)
+        bank = None if assignment is None else self.replay_bank(assignment, warmup_s=warmup_s, replay_cutoffs=cutoffs)
         controllers = self._controllers(entry, cached, warmup_s)
         progress = _ManualProgress(self.store, uri, identity)
         pairs: list[ManualPairRecord] = []
@@ -1509,9 +1668,9 @@ class ManualEvaluationRunner:
         self._models[identity] = evidence
         return evidence
 
-    def replay_bank(self, assignment: str, *, warmup_s: float) -> ManualReplayBank:
-        """Every replay baseline of one demonstration, run once and shared by the models that pair against it."""
-        conditions = self.conditions(warmup_s)
+    def replay_bank(self, assignment: str, *, warmup_s: float, replay_cutoffs: tuple[float, float]) -> ManualReplayBank:
+        """Every replay baseline of one demonstration under one protocol and derivative policy."""
+        conditions = self.conditions(warmup_s, replay_cutoffs)
         identity = _bank_identity(conditions, assignment)
         cached = self._banks.get(identity)
         if cached is not None:
@@ -1523,6 +1682,7 @@ class ManualEvaluationRunner:
             if bank.identity != identity:
                 msg = f"{stored} holds the bank {bank.identity[:_SHORT]}, not {identity[:_SHORT]}"
                 raise ValueError(msg)
+            _verify_stored_runs(self.store, bank.pairs)
             self._register(bank, _reference_of(stored, self.store), warmup_s=warmup_s)
             self._banks[identity] = bank
             return bank
@@ -1535,7 +1695,9 @@ class ManualEvaluationRunner:
                     pairs.append(recorded)
                     continue
                 self.log(f"replay {identity[:_SHORT]}: {case.scenario_id} [{tracker}] of {assignment}")
-                pair = self._replay_pair(index, case, tracker, assignment=assignment, warmup_s=warmup_s)
+                pair = self._replay_pair(
+                    index, case, tracker, assignment=assignment, warmup_s=warmup_s, replay_cutoffs=replay_cutoffs
+                )
                 progress.add(pair)
                 pairs.append(pair)
         bank = ManualReplayBank(conditions=conditions, assignment=assignment, pairs=tuple(pairs))
@@ -1578,6 +1740,16 @@ def evaluate_in_parallel(
         raise ValueError(msg)
     selected = tuple(entries)
     if selected:
+        # Shared replay banks are built here, in this process, before any worker starts. Two models
+        # of one parent, warm-up and derivative policy are paired against the same bank, and two
+        # workers building it at once interleave their runs into one progress file and install two
+        # differing manifests -- after which the bank can no longer be read at all.
+        for assignment, cutoffs in dict.fromkeys(
+            (entry.arm.assignment, runner.replay_cutoffs(entry))
+            for entry in selected
+            if entry.arm.assignment is not None
+        ):
+            runner.replay_bank(assignment, warmup_s=warmup_s, replay_cutoffs=cutoffs)
         with ThreadPoolExecutor(max_workers=workers) as pool:
             futures = [pool.submit(spawn, entry, warmup_s=warmup_s, env=dict(env)) for entry in selected]
             for future in futures:
@@ -1732,8 +1904,9 @@ def _run(args: argparse.Namespace) -> int:
     if workers == 1:
         evidences = [runner.evaluate(entry, warmup_s=context.inputs.configuration(entry).warmup_s) for entry in entries]
     else:
-        # Models are grouped by their inherited warm-up: it is part of the conditions, and a group
-        # shares the replay baselines its models are paired against.
+        # Models are dispatched by their inherited warm-up, which is part of the conditions. Within
+        # a group, replay baselines are shared only by models that also share a parent and a
+        # derivative policy, so a group may need several banks; the parallel path builds them first.
         groups: dict[float, list[StudyModel]] = {}
         for entry in entries:
             groups.setdefault(context.inputs.configuration(entry).warmup_s, []).append(entry)

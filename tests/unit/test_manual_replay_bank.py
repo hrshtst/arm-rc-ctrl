@@ -37,6 +37,8 @@ REPO_ROOT = repository_root()
 DEVELOPMENT_SOURCE = REPO_ROOT / "configs" / "evaluations" / "task_1a_recovery_dev_v1.toml"
 
 TRACKER = TrackerConfig(type="pd", kp=(10.0, 5.0), kd=(1.5, 0.8))
+REPLAY_CUTOFFS = (20.0, 20.0)
+"""The causal derivative policy replay is driven through; a bank belongs to one policy."""
 """Gains under which the fixture's replay tracks without saturating."""
 
 HOLD_S = 0.05
@@ -107,7 +109,7 @@ def _runner(f: ManualFixture, log: list[str] | None = None) -> ManualEvaluationR
 
 def test_a_bank_covers_every_scenario_and_tracker_in_evaluation_order(manual_fixture: ManualFixture) -> None:
     """Both trackers of one scenario before the next scenario begins, each with a stored run."""
-    bank = _runner(manual_fixture).replay_bank("D01", warmup_s=WARMUP_S)
+    bank = _runner(manual_fixture).replay_bank("D01", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS)
     assert [(p.scenario_id, p.tracker) for p in bank.pairs] == [
         (case.scenario_id, tracker) for case in SCENARIOS for tracker in ("pd_v2", "computed_torque")
     ]
@@ -118,7 +120,7 @@ def test_a_bank_covers_every_scenario_and_tracker_in_evaluation_order(manual_fix
 
 def test_each_scenario_starts_from_its_own_reset_posture(manual_fixture: ManualFixture) -> None:
     """Every case is attempted independently from a fresh reset, at the configured posture plus its offset."""
-    bank = _runner(manual_fixture).replay_bank("D01", warmup_s=WARMUP_S)
+    bank = _runner(manual_fixture).replay_bank("D01", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS)
     nominal = next(p for p in bank.pairs if p.scenario_id == "nominal")
     offset = next(p for p in bank.pairs if p.scenario_id == "small-1")
     assert offset.initial_q != nominal.initial_q
@@ -129,7 +131,7 @@ def test_each_scenario_starts_from_its_own_reset_posture(manual_fixture: ManualF
 
 def test_a_force_case_records_the_realised_trigger_not_the_inherited_start(manual_fixture: ManualFixture) -> None:
     """The pulse fires when the measured motion holds the target, so its timestamp is its own, not 1.0 s."""
-    bank = _runner(manual_fixture).replay_bank("D01", warmup_s=WARMUP_S)
+    bank = _runner(manual_fixture).replay_bank("D01", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS)
     forced = [p for p in bank.pairs if p.scenario_id == "force-000deg"]
     assert len(forced) == 2
     for pair in forced:
@@ -152,10 +154,10 @@ def test_a_force_case_records_the_realised_trigger_not_the_inherited_start(manua
 def test_the_bank_identity_binds_the_conditions_and_the_parent(manual_fixture: ManualFixture) -> None:
     """Two parents under one protocol are two banks; the same parent under one protocol is one."""
     runner = _runner(manual_fixture)
-    first = runner.replay_bank("D01", warmup_s=WARMUP_S)
-    second = runner.replay_bank("D02", warmup_s=WARMUP_S)
+    first = runner.replay_bank("D01", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS)
+    second = runner.replay_bank("D02", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS)
     assert first.identity != second.identity
     assert first.conditions.identity == second.conditions.identity
     assert replay_bank_uri(first.conditions, "D01") != replay_bank_uri(second.conditions, "D02")
-    again = runner.replay_bank("D01", warmup_s=WARMUP_S)
+    again = runner.replay_bank("D01", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS)
     assert again.identity == first.identity

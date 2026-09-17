@@ -222,6 +222,8 @@ def test_each_pair_names_the_replay_baseline_it_is_compared_against(manual_fixtu
     runner, _ = _crafted_runner(manual_fixture)
     entry = _entry(manual_fixture)
     evidence = runner.evaluate(entry, warmup_s=WARMUP_S)
-    bank = runner.replay_bank(entry.arm.assignment or "D01", warmup_s=WARMUP_S)
+    bank = runner.replay_bank(
+        entry.arm.assignment or "D01", warmup_s=WARMUP_S, replay_cutoffs=runner.replay_cutoffs(entry)
+    )
     assert evidence.replay_bank == bank.identity
     assert evidence.assignment == entry.arm.assignment

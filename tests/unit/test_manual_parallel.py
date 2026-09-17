@@ -27,13 +27,16 @@ import pytest
 from arm_rc_ctrl.controllers.tracking import TrackerConfig
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
 from arm_rc_ctrl.experiments.manual_evaluation import (
+    PROGRESS_FILE,
     ManualEvaluationConfig,
     ManualEvaluationRunner,
     evaluate_in_parallel,
     load_manual_evaluation_config,
+    replay_bank_uri,
 )
 from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
 from arm_rc_ctrl.repo import repository_root
+from arm_rc_ctrl.storage import StorageRoot
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -47,10 +50,14 @@ TRACKER = TrackerConfig(type="pd", kp=(10.0, 5.0), kd=(1.5, 0.8))
 HOLD_S, PULSE_S, HORIZON_S = 0.05, 0.02, 1.0
 CONFIGURATION = "feasible-best"
 ARMS = ("S/D07", "S/D08")
+SHARED_ARMS = ("S/D01", "R10/D01")
+"""Two arms of one parent in one configuration: one warm-up, one derivative policy, so one shared bank."""
 
 WARMUP_SERVED = 4.0
 WARMUP_TWO = 4.25
 WARMUP_ONE = 4.5
+WARMUP_SHARED = 4.75
+WARMUP_SEPARATE = 5.0
 """A warm-up of its own per test, so each starts from a store holding no evidence of its protocol."""
 
 SCENARIOS = (RobustnessScenario("nominal", "nominal", (0.0, 0.0)),)
@@ -77,15 +84,21 @@ def _evaluation(f: ManualFixture) -> tuple[ManualEvaluationConfig, Path]:
     return load_manual_evaluation_config(target), target
 
 
-def _entries(f: ManualFixture) -> tuple[StudyModel, ...]:
-    wanted = {(CONFIGURATION, arm) for arm in ARMS}
+def _entries(f: ManualFixture, arms: tuple[str, ...] = ARMS) -> tuple[StudyModel, ...]:
+    wanted = {(CONFIGURATION, arm) for arm in arms}
     return tuple(e for e in f.manifest.entries if (e.configuration, e.arm.label) in wanted)
 
 
-def _runner(f: ManualFixture) -> ManualEvaluationRunner:
+def _empty_store(path: Path) -> StorageRoot:
+    """A storage root holding nothing, so a sweep into it must produce every piece of its own evidence."""
+    path.mkdir(parents=True)
+    return StorageRoot(path, repositories=(REPO_ROOT,))
+
+
+def _runner(f: ManualFixture, store: StorageRoot | None = None) -> ManualEvaluationRunner:
     config, file = _evaluation(f)
     return ManualEvaluationRunner(
-        store=f.store,
+        store=f.store if store is None else store,
         inputs=f.inputs,
         config=config,
         evaluation_file=file,
@@ -176,3 +189,73 @@ def test_a_non_positive_worker_count_is_refused(manual_fixture: ManualFixture) -
         evaluate_in_parallel(
             _runner(f), _entries(f), warmup_s=WARMUP_ONE, workers=0, env=f.env, spawn=_Observed(_runner(f))
         )
+
+
+# --- the shared replay banks (the one thing two workers could collide over) ---------------------
+
+
+class _BankWatcher:
+    """A stand-in worker that records whether its model's replay bank was already stored when it began."""
+
+    def __init__(self, runner: ManualEvaluationRunner) -> None:
+        self.runner = runner
+        self.lock = threading.Lock()
+        self.seen: list[bool] = []
+        self.banks: list[str] = []
+
+    def __call__(self, entry: StudyModel, *, warmup_s: float, env: dict[str, str]) -> None:
+        del env
+        assignment = entry.arm.assignment
+        assert assignment is not None, "this worker is only given models that have a parent"
+        uri = replay_bank_uri(self.runner.conditions(warmup_s, self.runner.replay_cutoffs(entry)), assignment)
+        directory = self.runner.store.path(f"{uri}/{PROGRESS_FILE}", mode="write").parent
+        stored = directory.exists() and any(directory.glob("manifest-*.json"))
+        with self.lock:
+            self.seen.append(stored)
+            self.banks.append(uri)
+        self.runner.evaluate(entry, warmup_s=warmup_s)
+
+
+def test_shared_replay_banks_are_built_before_any_worker_starts(manual_fixture: ManualFixture) -> None:
+    """Models of one parent share one bank, and the parent completes it before any worker can race for it."""
+    f = manual_fixture
+    entries = _entries(f, SHARED_ARMS)
+    watcher = _BankWatcher(_runner(f))
+    evaluate_in_parallel(_runner(f), entries, warmup_s=WARMUP_SHARED, workers=2, env=f.env, spawn=watcher)
+    assert len(watcher.banks) == len(entries)
+    assert len(set(watcher.banks)) == 1, "one parent, one warm-up and one policy is one bank"
+    assert watcher.seen == [True] * len(entries)
+
+
+def test_serial_and_parallel_sweeps_agree_in_separate_empty_stores(
+    manual_fixture: ManualFixture, tmp_path: Path
+) -> None:
+    """The same models, evaluated serially and in parallel into stores that start empty, agree completely.
+
+    Separate empty stores are what makes this a comparison rather than a reuse:
+    neither sweep can serve anything the other produced, so each simulates every
+    run itself and the two sets of evidence are independent witnesses.
+    """
+    f = manual_fixture
+    entries = _entries(f, SHARED_ARMS)
+    serial_runner = _runner(f, _empty_store(tmp_path / "serial"))
+    serial = [serial_runner.evaluate(entry, warmup_s=WARMUP_SEPARATE) for entry in entries]
+    parallel_store = _empty_store(tmp_path / "parallel")
+    produced = evaluate_in_parallel(
+        _runner(f, parallel_store),
+        entries,
+        warmup_s=WARMUP_SEPARATE,
+        workers=2,
+        env=f.env,
+        spawn=_Observed(_runner(f, parallel_store)),
+    )
+    assert [e.identity for e in produced] == [e.identity for e in serial]
+    assert [e.replay_bank for e in produced] == [e.replay_bank for e in serial]
+    assert [e.status for e in produced] == [e.status for e in serial]
+    assert [(e.n_pairs, e.n_completed, e.n_infeasible) for e in produced] == [
+        (e.n_pairs, e.n_completed, e.n_infeasible) for e in serial
+    ]
+    for made, expected in zip(produced, serial, strict=True):
+        assert [(p.scenario_id, p.tracker, p.arm, p.status) for p in made.pairs] == [
+            (p.scenario_id, p.tracker, p.arm, p.status) for p in expected.pairs
+        ]

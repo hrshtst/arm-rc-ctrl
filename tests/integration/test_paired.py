@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from pathlib import Path
 from typing import cast
 
@@ -17,6 +17,7 @@ from arm_rc_ctrl.config import load_config, to_mapping
 from arm_rc_ctrl.controllers.tracking import TrackerConfig
 from arm_rc_ctrl.data.preprocess import PreprocessResult, preprocess_demonstration
 from arm_rc_ctrl.data.records import RawDemonstrationRecord, load_record
+from arm_rc_ctrl.experiments import paired as paired_module
 from arm_rc_ctrl.experiments.closed_loop import EstimatorSpec
 from arm_rc_ctrl.experiments.paired import (
     MetricComparison,
@@ -50,6 +51,26 @@ RAW_LOG = REPO_ROOT / "tests" / "fixtures" / "raw" / "demo.sklog.npz"
 SCENARIO = REPO_ROOT / "tests" / "fixtures" / "configs" / "planar_2dof_fixture.toml"
 PREPROCESS = REPO_ROOT / "configs" / "preprocessing" / "default.toml"
 FIXED_TIME = datetime(2026, 9, 1, 18, 0, 0, tzinfo=UTC)
+
+
+class _Clock:
+    """A deterministic stand-in for the module clock, one distinct minute per run it stamps.
+
+    The CLI stamps its runs from the wall clock, and a run is content-addressed
+    partly by that stamp, so two invocations inside one second collide on an
+    immutable run id. The immutability is the property under test elsewhere and
+    stays; what these tests must not depend on is how fast the machine is.
+    """
+
+    def __init__(self, base: datetime) -> None:
+        self.base = base
+        self.calls = 0
+
+    def now(self, tz: tzinfo | None = None) -> datetime:
+        """The next stamp; ``tz`` is ignored because ``base`` already carries one."""
+        del tz
+        self.calls += 1
+        return self.base.replace(minute=self.calls)
 
 
 @pytest.fixture(scope="module")
@@ -182,6 +203,7 @@ def test_command_line_writes_json_and_markdown(
     """The CLI runs both arms, writes a loadable paired report and its table, and refuses to overwrite."""
     store, records, processed, _, recipe_file = trained
     monkeypatch.setenv("ARM_RC_CTRL_STORAGE_ROOT", str(store.root))
+    monkeypatch.setattr(paired_module, "datetime", _Clock(FIXED_TIME.replace(hour=22)))
     config = tmp_path / "nominal_fixture.toml"
     config.write_text(
         NOMINAL.read_text().replace('tracker = "../controllers/task_1a_pd_v2.toml"', f'tracker = "{DEV_PD.as_posix()}"')
@@ -291,6 +313,7 @@ def test_suite_command_line(
     """The suite CLI combines two paired reports into a loadable suite and a Markdown table."""
     store, records, processed, _, recipe_file = trained
     monkeypatch.setenv("ARM_RC_CTRL_STORAGE_ROOT", str(store.root))
+    monkeypatch.setattr(paired_module, "datetime", _Clock(FIXED_TIME.replace(hour=23)))
     outputs: dict[str, Path] = {}
     for label, tracker in (("pd", DEV_PD), ("ct", REPO_ROOT / "configs" / "controllers" / "computed_torque.toml")):
         config = tmp_path / f"nominal_{label}.toml"

@@ -316,9 +316,9 @@ regularization; verify copy equivalence before interpreting results. Synthetic e
 human recordings, new tuning, and a confirmatory study are deferred.
 
 Use both frozen trackers and 65 development scenarios, with a common 30 s
-evaluation horizon: at most 24,180 RC runs and 3,900 replay runs. Success
-requires bounded motion and at least 1 s continuous final target dwell within
-1 cm at joint speeds no greater than 0.05 rad/s. The starting velocity bound
+evaluation horizon: at most 24,180 RC runs and 7,800 replay runs, 31,980 in
+total. Success requires bounded motion and at least 1 s continuous final
+target dwell within 1 cm at joint speeds no greater than 0.05 rad/s. The starting velocity bound
 is 6 rad/s per joint; any stricter acquisition-pilot bound is frozen before
 study collection and used consistently. Force cases apply a 12 N, 0.2 s pulse
 after 0.5 s qualifying target dwell and require recovery afterward. Abort
@@ -337,8 +337,8 @@ recording have not begun.
 
 Implementation clarifications I1–I9, recorded in the experiment plan's
 Section 9 on 2026-09-15 after the implementability review, qualify that
-registration. The 30 s horizon projects to roughly 12 hours of serial
-simulation and 24–25 GB of run data at the previous pilot's rates, so bounded
+registration. The 30 s horizon projects to roughly 13 hours of serial
+simulation and 26–27 GB of run data at the previous pilot's rates, so bounded
 process-based parallel execution with a serial-versus-parallel equivalence
 check is explicit scope. The recorder's acquisition clock is defined upstream
 and verified in the acquisition pilot before 100 Hz is claimed. The weighted
@@ -910,7 +910,7 @@ path. Complete acquisition readiness and freeze resolved settings before the own
 panel only after its data, weighting, augmentation, and numerical controls
 are validated. A timing smoke check that benchmarks serial against bounded parallel
 execution precedes the full 186-model evaluation; the projected serial cost is
-about 12 hours and 24–25 GB of run data (I1).
+about 13 hours and 26–27 GB of run data (I1).
 
 **Gate:** Every prescribed model/run is accounted for with verified provenance,
 failures, and raw metrics; quality gates and clean-checkout reproduction pass;
