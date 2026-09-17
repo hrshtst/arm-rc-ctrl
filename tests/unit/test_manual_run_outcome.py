@@ -155,6 +155,26 @@ def test_saturation_above_the_bound_fails() -> None:
     assert "saturation" in outcome.reason
 
 
+def test_a_run_that_aborts_before_activation_measures_nothing_yet_is_still_reported() -> None:
+    """An abort during the warm-up hold leaves no active sample at all.
+
+    That is an ordinary outcome in the sweep, not a pathology, so the effort is
+    reported as unmeasured rather than averaged over an empty slice, and the
+    generated reference is left unjudged rather than called valid for a
+    trajectory it never produced.
+    """
+    rows = round((ACTIVATION_S / 2) / DT) + 1
+    arrays = _run(rows=rows, hold_from=rows)
+    termination = limit_violation(float(arrays.arrays["t"][-1]), rows - 1, "joint_velocity", 9.0, 6.0, joint=0)
+    outcome = _outcome(arrays, termination)
+    assert not outcome.completed
+    assert outcome.torque_rms is None
+    assert outcome.generated is None
+    assert outcome.dwell.final_samples == 0
+    assert outcome.reason is not None
+    assert "limit_violation" in outcome.reason
+
+
 # --- force cases -----------------------------------------------------------------------------
 
 

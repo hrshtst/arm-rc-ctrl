@@ -17,7 +17,9 @@ for the final dwell it is meant to disturb.
 
 from __future__ import annotations
 
+import json
 import math
+import os
 from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path  # a run-time import: the configuration loader resolves field types at run time
@@ -25,7 +27,7 @@ from typing import TYPE_CHECKING, Any, Final, cast
 
 import numpy as np
 
-from arm_rc_ctrl.config import load_config, to_mapping
+from arm_rc_ctrl.config import from_mapping, load_config, to_mapping
 from arm_rc_ctrl.controllers.adapter import GeneratorTrackingController
 from arm_rc_ctrl.controllers.estimator import CausalDerivativeEstimator, EstimatorConfig
 from arm_rc_ctrl.controllers.tracking import LimitedTracker
@@ -39,7 +41,7 @@ from arm_rc_ctrl.experiments.run_record import write_run
 from arm_rc_ctrl.experiments.simulation import GENERATOR_CHANNELS, RESIDUAL_CHANNELS, DwellTrigger, simulate
 from arm_rc_ctrl.experiments.termination import Outcome
 from arm_rc_ctrl.metrics.recovery import SATURATION_BOUND
-from arm_rc_ctrl.provenance import canonical_json, sha256_bytes, sha256_file
+from arm_rc_ctrl.provenance import ArtifactReference, canonical_json, sha256_bytes, sha256_file
 from arm_rc_ctrl.rc.generator import RcTargetGenerator
 from arm_rc_ctrl.validation import is_hex
 
@@ -78,8 +80,12 @@ __all__ = [
     "TriggerOutcome",
     "horizon_completed",
     "load_manual_evaluation_config",
+    "load_manual_model_evidence",
+    "load_manual_replay_bank",
+    "manual_bank_to_json",
     "manual_conditions",
     "manual_dwell_report",
+    "manual_evidence_to_json",
     "manual_run_outcome",
     "manual_trigger",
     "replay_bank_uri",
@@ -87,6 +93,7 @@ __all__ = [
 ]
 
 _SHA256_HEX: Final = 64
+_SHORT: Final = 12
 _GRID_TOLERANCE_S: Final = 1e-9
 """Slack for comparing times that are exact multiples of the control period."""
 
@@ -589,6 +596,9 @@ def _generated_report(
     active = run_t >= activation_s - _GRID_TOLERANCE_S
     generated_q = np.asarray(readout, dtype=np.float64)[active]
     generated_dq = np.asarray(arrays.arrays["dq_desired"], dtype=np.float64)[active]
+    if not generated_q.shape[0]:
+        # The run ended before activation, so the readout never produced anything to judge.
+        return None
     if not np.all(np.isfinite(generated_q)):
         msg = "the generated reference is not finite over the active segment"
         raise ValueError(msg)
@@ -711,8 +721,8 @@ def manual_run_outcome(
     generated = _generated_report(arrays, scenario=scenario, activation_s=activation_s, predicate=predicate)
     flags = np.asarray(arrays.arrays["saturation"], dtype=np.float64)[active]
     saturation_fraction = float(np.mean(flags)) if flags.shape[0] else 0.0
-    torque = arrays.arrays.get("tau_applied", arrays.arrays["tau_requested"])
-    torque_rms = float(np.sqrt(np.mean(np.sum(np.asarray(torque, dtype=np.float64)[active] ** 2, axis=1))))
+    torque = np.asarray(arrays.arrays.get("tau_applied", arrays.arrays["tau_requested"]), dtype=np.float64)[active]
+    torque_rms = float(np.sqrt(np.mean(np.sum(torque**2, axis=1)))) if torque.shape[0] else None
     completed = horizon_completed(run_t, termination, activation_s=activation_s, horizon_s=horizon_s)
     deciding = dwell if post_pulse is None else post_pulse
     reason = _reason(
@@ -803,6 +813,68 @@ class ManualModelEvidence:
             raise ValueError(msg)
 
 
+# --- storing and rebuilding the evidence -----------------------------------------------------
+
+
+def manual_bank_to_json(bank: ManualReplayBank) -> str:
+    """The canonical JSON of one replay bank."""
+    return canonical_json(to_mapping(bank)) + "\n"
+
+
+def manual_evidence_to_json(evidence: ManualModelEvidence) -> str:
+    """The canonical JSON of one model's evidence."""
+    return canonical_json(to_mapping(evidence)) + "\n"
+
+
+def load_manual_replay_bank(path: Path) -> ManualReplayBank:
+    """Strictly rebuild a replay bank from its manifest."""
+    return from_mapping(cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8"))), ManualReplayBank)
+
+
+def load_manual_model_evidence(path: Path) -> ManualModelEvidence:
+    """Strictly rebuild one model's evidence from its manifest."""
+    return from_mapping(cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8"))), ManualModelEvidence)
+
+
+def _write_atomic(path: Path, text: str) -> None:
+    """Stage beside the target and replace it, so a reader never sees a half-written manifest."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    staged = path.with_name(f".{path.name}.staging-{os.getpid()}")
+    staged.write_text(text, encoding="utf-8")
+    staged.replace(path)
+
+
+def _manifest_dir(store: StorageRoot, directory_uri: str) -> Path:
+    return store.path(f"{directory_uri}/manifest.json", mode="write").parent
+
+
+def _install_manifest(store: StorageRoot, directory_uri: str, text: str) -> ArtifactReference:
+    """Install a content-addressed manifest; identical content is reused and differing content refused."""
+    data = text.encode("utf-8")
+    digest = sha256_bytes(data)
+    uri = f"{directory_uri}/manifest-{digest[:_SHORT]}.json"
+    target = store.path(uri, mode="write")
+    if target.exists():
+        if sha256_file(target) != digest:
+            msg = f"{uri} exists with other content; completed evidence is never overwritten"
+            raise ValueError(msg)
+    else:
+        _write_atomic(target, text)
+    return ArtifactReference(uri, digest, len(data))
+
+
+def _existing_manifest(store: StorageRoot, directory_uri: str) -> Path | None:
+    """The manifest already stored for these conditions, if any; two would be a corrupted store."""
+    directory = _manifest_dir(store, directory_uri)
+    if not directory.exists():
+        return None
+    manifests = sorted(directory.glob("manifest-*.json"))
+    if len(manifests) > 1:
+        msg = f"{directory} holds {len(manifests)} manifests; completed evidence is written once"
+        raise ValueError(msg)
+    return manifests[0] if manifests else None
+
+
 # --- the replay baselines of one demonstration -----------------------------------------------
 
 
@@ -838,10 +910,20 @@ class ManualPairRecord:
     arm: str
     status: str
     initial_q: tuple[float, ...]
-    outcome: ManualRunOutcome | None
-    run: ManualRunArtifact | None
-    pulse_start_s: float | None
+    outcome: ManualRunOutcome | None = None
+    run: ManualRunArtifact | None = None
+    pulse_start_s: float | None = None
     """When the pulse actually fired on the run clock, or ``None`` when none did."""
+
+    def __post_init__(self) -> None:
+        """A simulated pair carries the run it produced and the verdict it was given."""
+        if self.arm not in ("rc", "replay"):
+            msg = f"arm must be 'rc' or 'replay', got {self.arm!r}"
+            raise ValueError(msg)
+        simulated = self.status in ("completed", "infeasible")
+        if simulated != (self.run is not None) or simulated != (self.outcome is not None):
+            msg = f"{self.scenario_id} [{self.tracker}] {self.arm}: a simulated pair carries its run and outcome"
+            raise ValueError(msg)
 
 
 @dataclass(frozen=True)
@@ -1147,6 +1229,15 @@ class ManualEvaluationRunner:
         existing = self._models.get(identity)
         if existing is not None:
             return existing
+        model_uri = f"{REPORTS_PREFIX}/model/{identity}"
+        stored = _existing_manifest(self.store, model_uri)
+        if stored is not None:
+            evidence = load_manual_model_evidence(stored)
+            if evidence.identity != identity:
+                msg = f"{stored} holds the evidence {evidence.identity[:_SHORT]}, not {identity[:_SHORT]}"
+                raise ValueError(msg)
+            self._models[identity] = evidence
+            return evidence
         assignment = entry.arm.assignment
         bank = None if assignment is None else self.replay_bank(assignment, warmup_s=warmup_s)
         controllers = self._controllers(entry, cached, warmup_s)
@@ -1186,6 +1277,7 @@ class ManualEvaluationRunner:
             n_infeasible=counts["infeasible"],
             n_unexecuted=counts["unexecuted"],
         )
+        _install_manifest(self.store, model_uri, manual_evidence_to_json(evidence))
         self._models[identity] = evidence
         return evidence
 
@@ -1196,11 +1288,21 @@ class ManualEvaluationRunner:
         cached = self._banks.get(identity)
         if cached is not None:
             return cached
+        uri = replay_bank_uri(conditions, assignment)
+        stored = _existing_manifest(self.store, uri)
+        if stored is not None:
+            bank = load_manual_replay_bank(stored)
+            if bank.identity != identity:
+                msg = f"{stored} holds the bank {bank.identity[:_SHORT]}, not {identity[:_SHORT]}"
+                raise ValueError(msg)
+            self._banks[identity] = bank
+            return bank
         pairs: list[ManualPairRecord] = []
         for index, case in enumerate(self.scenarios):
             for tracker in conditions.tracker_order:
                 self.log(f"replay {identity[:12]}: {case.scenario_id} [{tracker}] of {assignment}")
                 pairs.append(self._replay_pair(index, case, tracker, assignment=assignment, warmup_s=warmup_s))
         bank = ManualReplayBank(conditions=conditions, assignment=assignment, pairs=tuple(pairs))
+        _install_manifest(self.store, uri, manual_bank_to_json(bank))
         self._banks[identity] = bank
         return bank

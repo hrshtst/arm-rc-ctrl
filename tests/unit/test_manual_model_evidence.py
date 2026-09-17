@@ -48,6 +48,9 @@ DEVELOPMENT_SOURCE = REPO_ROOT / "configs" / "evaluations" / "task_1a_recovery_d
 TRACKER = TrackerConfig(type="pd", kp=(10.0, 5.0), kd=(1.5, 0.8))
 
 HOLD_S, PULSE_S, HORIZON_S, WARMUP_S = 0.05, 0.02, 1.0, 0.25
+SWEEP_WARMUP_S = WARMUP_S + 0.75
+"""A warm-up of its own for the sweep test: completed evidence is served rather than re-simulated,
+so a test that counts simulations must not depend on what an earlier test left in the shared store."""
 CONFIGURATION = "feasible-best"
 ARM_LABEL = "S/D01"
 FAILING = "small-1"
@@ -190,7 +193,7 @@ def test_a_model_is_evaluated_over_every_scenario_and_tracker(manual_fixture: Ma
 def test_an_infeasible_scenario_does_not_stop_the_sweep(manual_fixture: ManualFixture) -> None:
     """D6: the unsafe run aborts alone and every later scenario is still attempted from a fresh reset."""
     runner, crafted = _crafted_runner(manual_fixture)
-    evidence = runner.evaluate(_entry(manual_fixture), warmup_s=WARMUP_S)
+    evidence = runner.evaluate(_entry(manual_fixture), warmup_s=SWEEP_WARMUP_S)
     failed = [p for p in evidence.pairs if p.scenario_id == FAILING]
     later = [p for p in evidence.pairs if p.scenario_id == "large-1"]
     assert all(p.status == "infeasible" for p in failed)
