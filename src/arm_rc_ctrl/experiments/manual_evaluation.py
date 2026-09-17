@@ -25,11 +25,12 @@ from typing import TYPE_CHECKING, Final
 import numpy as np
 
 from arm_rc_ctrl.config import load_config, to_mapping
-from arm_rc_ctrl.data.manual import continuous_dwell, dwell_runs
-from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
+from arm_rc_ctrl.data.manual import DwellPredicate, continuous_dwell, dwell_runs
+from arm_rc_ctrl.data.manual_scenario import load_manual_scenario, manual_endpoint_positions
 from arm_rc_ctrl.experiments.baselines import frozen_baseline_digest
 from arm_rc_ctrl.experiments.recovery_search import RECOVERY_TRACKERS
 from arm_rc_ctrl.experiments.simulation import DwellTrigger
+from arm_rc_ctrl.metrics.recovery import SATURATION_BOUND
 from arm_rc_ctrl.provenance import canonical_json, sha256_bytes, sha256_file
 from arm_rc_ctrl.validation import is_hex
 
@@ -38,15 +39,17 @@ if TYPE_CHECKING:
 
     from numpy.typing import NDArray
 
-    from arm_rc_ctrl.data.manual import DwellPredicate
     from arm_rc_ctrl.data.manual_scenario import ManualScenarioConfig
     from arm_rc_ctrl.experiments.disturbances import ForcePulse
+    from arm_rc_ctrl.experiments.run_record import RunArrays
     from arm_rc_ctrl.experiments.termination import Termination
 
 __all__ = [
+    "GeneratedReferenceReport",
     "ManualDwellReport",
     "ManualEvaluationConfig",
     "ManualRunConditions",
+    "ManualRunOutcome",
     "ManualSimulationLimits",
     "ManualTriggerRule",
     "TriggerOutcome",
@@ -54,6 +57,7 @@ __all__ = [
     "load_manual_evaluation_config",
     "manual_conditions",
     "manual_dwell_report",
+    "manual_run_outcome",
     "manual_trigger",
     "trigger_outcome",
 ]
@@ -455,4 +459,243 @@ def manual_conditions(
         scenario_ids=tuple(scenario_ids),
         warmup_s=warmup_s,
         execution_identity=execution_identity,
+    )
+
+
+# --- the verdict of one run ------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class GeneratedReferenceReport:
+    """The generated reference judged by the same rules as the actual motion (plan section 6).
+
+    A command that already leaves the joint limits is infeasible on its own
+    terms, and its endpoint cannot be computed: the forward kinematics would
+    clamp the posture and answer for a trajectory the generator never
+    commanded. The workspace and dwell results are therefore ``None`` in that
+    case -- not evaluated -- rather than a fabricated failure.
+    """
+
+    within_position_limits: bool
+    within_speed_limits: bool
+    within_workspace: bool | None
+    dwell: ManualDwellReport | None
+
+    def __post_init__(self) -> None:
+        """Endpoint-derived results exist exactly when the posture was inside its limits."""
+        evaluated = self.within_workspace is not None
+        if evaluated != (self.dwell is not None):
+            msg = f"the workspace and dwell results are evaluated together, got {self}"
+            raise ValueError(msg)
+        if evaluated and not self.within_position_limits:
+            msg = "an out-of-limit command is never evaluated through forward kinematics"
+            raise ValueError(msg)
+
+    @property
+    def ok(self) -> bool:
+        """Whether the generated command is itself a valid, holding trajectory, on every measured count."""
+        return (
+            self.within_position_limits
+            and self.within_speed_limits
+            and self.within_workspace is True
+            and self.dwell is not None
+            and self.dwell.ok
+        )
+
+
+@dataclass(frozen=True)
+class ManualRunOutcome:
+    """What one run achieved, and why it did not succeed when it did not."""
+
+    completed: bool
+    dwell: ManualDwellReport
+    """The dwell over the whole active segment: earliest, longest, final, and departures after holds."""
+    post_pulse_dwell: ManualDwellReport | None
+    """The dwell measured from the pulse end, which is what a force case must satisfy."""
+    generated: GeneratedReferenceReport | None
+    """``None`` for a replay run, which carries no readout."""
+    saturation_fraction: float
+    torque_rms: float | None
+    trigger: TriggerOutcome | None
+    success: bool
+    reason: str | None
+
+    def __post_init__(self) -> None:
+        """Success and the reason are exactly complementary."""
+        if self.success != (self.reason is None):
+            msg = f"success must mean no reason, got success={self.success} reason={self.reason!r}"
+            raise ValueError(msg)
+
+
+def _dwell_predicate(scenario: ManualScenarioConfig) -> DwellPredicate:
+    """The acquisition rule of this task, applied unchanged to evaluation runs."""
+    return DwellPredicate(
+        tolerance_m=scenario.task.tolerance,
+        max_velocity_rad_s=scenario.task.dwell_max_velocity,
+        min_duration_s=scenario.task.dwell_min_duration_s,
+        min_samples=scenario.dwell_min_samples,
+    )
+
+
+def _generated_report(
+    arrays: RunArrays, *, scenario: ManualScenarioConfig, activation_s: float, predicate: DwellPredicate
+) -> GeneratedReferenceReport | None:
+    """Judge the generated command, or ``None`` when the run carries no readout.
+
+    The readout is NaN before activation, so everything here is measured over
+    the active samples only; feeding the hold's NaNs to the dwell rule would
+    raise rather than report.
+    """
+    readout = arrays.arrays.get("generator_output_q")
+    if readout is None:
+        return None
+    run_t = np.asarray(arrays.arrays["t"], dtype=np.float64)
+    active = run_t >= activation_s - _GRID_TOLERANCE_S
+    generated_q = np.asarray(readout, dtype=np.float64)[active]
+    generated_dq = np.asarray(arrays.arrays["dq_desired"], dtype=np.float64)[active]
+    if not np.all(np.isfinite(generated_q)):
+        msg = "the generated reference is not finite over the active segment"
+        raise ValueError(msg)
+    lower = np.array([link.q_min for link in scenario.robot.links], dtype=np.float64)
+    upper = np.array([link.q_max for link in scenario.robot.links], dtype=np.float64)
+    speed = np.asarray(scenario.limits.velocity, dtype=np.float64)
+    within_limits = bool(np.all(generated_q >= lower) and np.all(generated_q <= upper))
+    within_speed = bool(np.all(np.abs(generated_dq) <= speed))
+    if not within_limits:
+        # Forward kinematics would clamp the posture and answer for a trajectory that was never
+        # commanded, so the endpoint-derived checks are left unevaluated rather than fabricated.
+        return GeneratedReferenceReport(
+            within_position_limits=False, within_speed_limits=within_speed, within_workspace=None, dwell=None
+        )
+    tip = manual_endpoint_positions(scenario, generated_q)
+    dwell = manual_dwell_report(
+        run_t[active],
+        tip,
+        generated_dq,
+        target=np.asarray(scenario.task.target, dtype=np.float64),
+        predicate=predicate,
+    )
+    return GeneratedReferenceReport(
+        within_position_limits=True,
+        within_speed_limits=within_speed,
+        within_workspace=bool(np.all(np.hypot(tip[:, 0], tip[:, 1]) <= scenario.limits.endpoint_radius)),
+        dwell=dwell,
+    )
+
+
+def _reason(
+    termination: Termination,
+    *,
+    completed: bool,
+    dwell_ok: bool,
+    generated: GeneratedReferenceReport | None,
+    trigger: TriggerOutcome | None,
+    saturation_fraction: float,
+    bound: float,
+) -> str | None:
+    """Why this run did not succeed, in the vocabulary the sweep reports, or ``None`` when it did."""
+    if termination.kind == "divergence":
+        return "divergence"
+    if termination.kind == "limit_violation":
+        return f"limit_violation:{termination.limit}"
+    if not completed:
+        return f"incomplete_horizon:{termination.kind}"
+    if trigger is not None and not trigger.ok:
+        return f"trigger:{trigger.reason}"
+    if not dwell_ok:
+        return "dwell:no_final_dwell"
+    if generated is not None and not generated.ok:
+        # Only what was actually measured is named; an unevaluated check is not reported as a failure.
+        missed = [
+            name
+            for name, ok in (
+                ("position_limits", generated.within_position_limits),
+                ("speed_limits", generated.within_speed_limits),
+                ("workspace", generated.within_workspace is not False),
+                ("dwell", generated.dwell is None or generated.dwell.ok),
+            )
+            if not ok
+        ]
+        return "generated_reference:" + ",".join(missed)
+    if saturation_fraction > bound:
+        return "saturation"
+    return None
+
+
+def manual_run_outcome(
+    arrays: RunArrays,
+    termination: Termination,
+    *,
+    scenario: ManualScenarioConfig,
+    activation_s: float,
+    horizon_s: float,
+    pulse: ForcePulse | None = None,
+    force_case: bool = False,
+) -> ManualRunOutcome:
+    """Judge one run: the horizon, the dwell, the generated reference, the pulse, and the effort.
+
+    ``force_case`` says the scenario was supposed to carry a pulse, so a run
+    that never triggered one is reported as a failed disturbance test rather
+    than as an ordinary success; ``pulse`` is the pulse that actually fired.
+    """
+    run_t = np.asarray(arrays.arrays["t"], dtype=np.float64)
+    active = run_t >= activation_s - _GRID_TOLERANCE_S
+    predicate = _dwell_predicate(scenario)
+    target = np.asarray(scenario.task.target, dtype=np.float64)
+    dwell = manual_dwell_report(
+        run_t,
+        np.asarray(arrays.arrays["tip"], dtype=np.float64),
+        np.asarray(arrays.arrays["dq"], dtype=np.float64),
+        target=target,
+        predicate=predicate,
+        since_s=activation_s,
+    )
+    post_pulse = (
+        None
+        if pulse is None
+        else manual_dwell_report(
+            run_t,
+            np.asarray(arrays.arrays["tip"], dtype=np.float64),
+            np.asarray(arrays.arrays["dq"], dtype=np.float64),
+            target=target,
+            predicate=predicate,
+            since_s=pulse.end_s,
+        )
+    )
+    trigger = (
+        trigger_outcome(
+            pulse,
+            activation_s=activation_s,
+            horizon_s=horizon_s,
+            dwell_min_duration_s=scenario.task.dwell_min_duration_s,
+        )
+        if force_case
+        else None
+    )
+    generated = _generated_report(arrays, scenario=scenario, activation_s=activation_s, predicate=predicate)
+    flags = np.asarray(arrays.arrays["saturation"], dtype=np.float64)[active]
+    saturation_fraction = float(np.mean(flags)) if flags.shape[0] else 0.0
+    torque = arrays.arrays.get("tau_applied", arrays.arrays["tau_requested"])
+    torque_rms = float(np.sqrt(np.mean(np.sum(np.asarray(torque, dtype=np.float64)[active] ** 2, axis=1))))
+    completed = horizon_completed(run_t, termination, activation_s=activation_s, horizon_s=horizon_s)
+    deciding = dwell if post_pulse is None else post_pulse
+    reason = _reason(
+        termination,
+        completed=completed,
+        dwell_ok=deciding.ok,
+        generated=generated,
+        trigger=trigger,
+        saturation_fraction=saturation_fraction,
+        bound=SATURATION_BOUND,
+    )
+    return ManualRunOutcome(
+        completed=completed,
+        dwell=dwell,
+        post_pulse_dwell=post_pulse,
+        generated=generated,
+        saturation_fraction=saturation_fraction,
+        torque_rms=torque_rms,
+        trigger=trigger,
+        success=reason is None,
+        reason=reason,
     )
