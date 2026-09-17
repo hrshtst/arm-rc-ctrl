@@ -922,7 +922,16 @@ def _existing_manifest(store: StorageRoot, directory_uri: str) -> Path | None:
     if len(manifests) > 1:
         msg = f"{directory} holds {len(manifests)} manifests; completed evidence is written once"
         raise ValueError(msg)
-    return manifests[0] if manifests else None
+    if not manifests:
+        return None
+    found = manifests[0]
+    # The name is a claim about the content, so it is checked before anything reads the file: a
+    # manifest edited after it was written is not the evidence this directory says it holds.
+    named = found.stem.split("-", 1)[1]
+    if sha256_file(found)[:_SHORT] != named:
+        msg = f"{found.name} does not match its content digest; a manifest is named by what it holds"
+        raise ValueError(msg)
+    return found
 
 
 def model_uri(identity: str) -> str:
@@ -1490,6 +1499,26 @@ class ManualEvaluationRunner:
         conditions = self.conditions(warmup_s, self.replay_cutoffs(entry))
         return sha256_bytes(f"{entry.fit_identity}:{conditions.identity}".encode("ascii"))
 
+    def _verify_sources(self, pairs: Sequence[ManualPairRecord], assignment: str | None, described: str) -> None:
+        """Check served runs still name the demonstrations their arm trained on.
+
+        Renaming an altered manifest to its own digest satisfies the name
+        check, so what the runs claim to have trained on is compared against
+        what this arm's assignment demands: all ten for the all-ten arm, its
+        own parent otherwise.
+        """
+        names = ASSIGNMENTS if assignment is None else (assignment,)
+        expected = tuple(self.inputs.sources[name].artifact_id for name in names)
+        for pair in pairs:
+            if pair.run is None:
+                continue
+            if pair.run.sources != expected:
+                msg = (
+                    f"{described}: {pair.scenario_id} [{pair.tracker}] {pair.arm} names "
+                    f"{len(pair.run.sources)} training sources, not the {len(expected)} its assignment demands"
+                )
+                raise ValueError(msg)
+
     def _configuration(self, entry: StudyModel) -> StudyConfiguration:
         """The inherited configuration of ``entry``, which carries its evaluation-side estimator cutoffs."""
         return self.inputs.configuration(entry)
@@ -1610,6 +1639,7 @@ class ManualEvaluationRunner:
                 msg = f"{stored} holds the evidence {evidence.identity[:_SHORT]}, not {identity[:_SHORT]}"
                 raise ValueError(msg)
             _verify_stored_runs(self.store, evidence.pairs)
+            self._verify_sources(evidence.pairs, evidence.assignment, f"the evidence of {evidence.label}")
             if evidence.assignment is not None:
                 # Also point at the baselines this model was compared against: they are equally
                 # part of the evidence, and a served model would otherwise cite a bank the
@@ -1641,6 +1671,7 @@ class ManualEvaluationRunner:
                 )
                 progress.add(pair)
                 pairs.append(pair)
+        self._verify_sources(pairs, assignment, f"the evidence of {entry.label}")
         counts = Counter(pair.status for pair in pairs)
         evidence = ManualModelEvidence(
             identity=identity,
@@ -1683,6 +1714,7 @@ class ManualEvaluationRunner:
                 msg = f"{stored} holds the bank {bank.identity[:_SHORT]}, not {identity[:_SHORT]}"
                 raise ValueError(msg)
             _verify_stored_runs(self.store, bank.pairs)
+            self._verify_sources(bank.pairs, bank.assignment, f"the replay bank of {assignment}")
             self._register(bank, _reference_of(stored, self.store), warmup_s=warmup_s)
             self._banks[identity] = bank
             return bank
@@ -1700,6 +1732,9 @@ class ManualEvaluationRunner:
                 )
                 progress.add(pair)
                 pairs.append(pair)
+        # Recorded progress becomes a manifest here, so the bindings are checked before it does: a run
+        # summary does not record what its model trained on, so nothing downstream would notice.
+        self._verify_sources(pairs, assignment, f"the replay bank of {assignment}")
         bank = ManualReplayBank(conditions=conditions, assignment=assignment, pairs=tuple(pairs))
         payload = _install_manifest(self.store, uri, manual_bank_to_json(bank))
         self._register(bank, payload, warmup_s=warmup_s)

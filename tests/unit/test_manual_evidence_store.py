@@ -12,6 +12,7 @@ different experiment.
 
 from __future__ import annotations
 
+import json
 import shutil
 from typing import TYPE_CHECKING, cast
 
@@ -32,11 +33,13 @@ from arm_rc_ctrl.experiments.manual_evaluation import (
     load_manual_replay_bank,
     manual_bank_to_json,
     manual_evidence_to_json,
+    model_uri,
     replay_bank_uri,
 )
 from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
 from arm_rc_ctrl.experiments.run_record import RUN_ARRAYS_FILE, RunArrays
 from arm_rc_ctrl.experiments.termination import completed
+from arm_rc_ctrl.provenance import sha256_bytes
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import joint_target
 
@@ -59,6 +62,8 @@ REPLAY_CUTOFFS = (20.0, 20.0)
 HOLD_S, PULSE_S, HORIZON_S, WARMUP_S = 0.05, 0.02, 1.0, 0.25
 CONFIGURATION, ARM_LABEL = "feasible-best", "S/D01"
 ARM_CORRUPTED = "S/D02"
+ARM_ALL_TEN = "M10"
+ARM_RENAMED = "S/D04"
 """A model of its own for the corruption case, so it never serves another test's stored evidence."""
 
 SCENARIOS = (
@@ -283,3 +288,101 @@ def test_an_interrupted_sweep_is_refused_when_its_arrays_are_missing(manual_fixt
         _runner(f, _CountingSimulator(scenario_config)).replay_bank(
             "D06", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS
         )
+
+
+# --- the manifest itself, not only the runs it cites ---------------------------------------------
+
+
+def _manifest_of(f: ManualFixture, uri: str) -> Path:
+    """The single stored manifest of one evidence directory."""
+    directory = f.store.path(f"{uri}/{PROGRESS_FILE}", mode="write").parent
+    manifests = sorted(directory.glob("manifest-*.json"))
+    assert len(manifests) == 1, manifests
+    return manifests[0]
+
+
+def _without_source_bindings(path: Path) -> str:
+    """The manifest's JSON with every run's source bindings removed, as the review's alteration did."""
+    document = cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
+    pairs = cast("list[dict[str, object]]", document["pairs"])
+    runs = [cast("dict[str, object]", pair["run"]) for pair in pairs if pair.get("run") is not None]
+    assert runs, "the manifest must carry runs for this alteration to mean anything"
+    assert all(run["sources"] for run in runs), "and those runs must record source bindings to begin with"
+    for run in runs:
+        run["sources"] = []
+    return json.dumps(document, indent=1, sort_keys=True)
+
+
+def _rename_to_own_digest(path: Path, text: str) -> Path:
+    """Store altered content under the name its own content demands, defeating a name check alone."""
+    path.unlink()
+    renamed = path.parent / f"manifest-{sha256_bytes(text.encode('utf-8'))[:12]}.json"
+    renamed.write_text(text, encoding="utf-8")
+    return renamed
+
+
+def test_a_manifest_altered_after_it_was_written_is_refused(manual_fixture: ManualFixture) -> None:
+    """A manifest is named by what it contains, so content that no longer hashes to its name is not evidence."""
+    f = manual_fixture
+    scenario_config = load_manual_scenario(f.scenario_file)
+    entry = _entry(f, ARM_ALL_TEN)
+    evidence = _runner(f, _CountingSimulator(scenario_config)).evaluate(entry, warmup_s=WARMUP_S)
+    path = _manifest_of(f, model_uri(evidence.identity))
+    path.write_text(_without_source_bindings(path), encoding="utf-8")
+    fresh = _runner(f, _CountingSimulator(scenario_config))
+    with pytest.raises(ValueError, match="does not match its content"):
+        fresh.evaluate(entry, warmup_s=WARMUP_S)
+    assert fresh.pointers == (), "altered evidence must not be pointed at either"
+
+
+def test_a_renamed_alteration_is_caught_by_the_source_bindings(manual_fixture: ManualFixture) -> None:
+    """Renaming to the altered content's own digest passes the name check, so the bindings are checked too."""
+    f = manual_fixture
+    scenario_config = load_manual_scenario(f.scenario_file)
+    entry = _entry(f, ARM_RENAMED)
+    evidence = _runner(f, _CountingSimulator(scenario_config)).evaluate(entry, warmup_s=WARMUP_S)
+    path = _manifest_of(f, model_uri(evidence.identity))
+    _rename_to_own_digest(path, _without_source_bindings(path))
+    fresh = _runner(f, _CountingSimulator(scenario_config))
+    with pytest.raises(ValueError, match="source"):
+        fresh.evaluate(entry, warmup_s=WARMUP_S)
+    assert fresh.pointers == ()
+
+
+def test_a_renamed_alteration_of_a_bank_is_caught_too(manual_fixture: ManualFixture) -> None:
+    """The same guard on the baseline side: a bank states the demonstration its runs replayed."""
+    f = manual_fixture
+    scenario_config = load_manual_scenario(f.scenario_file)
+    bank = _runner(f, _CountingSimulator(scenario_config)).replay_bank(
+        "D07", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS
+    )
+    path = _manifest_of(f, replay_bank_uri(bank.conditions, "D07"))
+    _rename_to_own_digest(path, _without_source_bindings(path))
+    with pytest.raises(ValueError, match="source"):
+        _runner(f, _CountingSimulator(scenario_config)).replay_bank(
+            "D07", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS
+        )
+
+
+def test_an_interrupted_sweep_is_refused_when_its_recorded_sources_were_altered(manual_fixture: ManualFixture) -> None:
+    """The recovery path must check the bindings too, before it turns recorded progress into a manifest.
+
+    A stored run summary does not say what its model trained on -- the bindings
+    live only in this experiment's own records -- so verifying run payloads
+    cannot detect this alteration, and a resumed sweep would otherwise launder
+    it into a fresh manifest carrying a correct name.
+    """
+    f = manual_fixture
+    scenario_config = load_manual_scenario(f.scenario_file)
+    runner = _runner(f, _CountingSimulator(scenario_config))
+    runner.replay_bank("D08", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS)
+    directory = _bank_directory(f, runner, "D08")
+    for manifest in directory.glob("manifest-*.json"):
+        manifest.unlink()  # an interrupted sweep: progress recorded, no completed manifest
+    progress = directory / PROGRESS_FILE
+    progress.write_text(_without_source_bindings(progress), encoding="utf-8")
+    with pytest.raises(ValueError, match="source"):
+        _runner(f, _CountingSimulator(scenario_config)).replay_bank(
+            "D08", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS
+        )
+    assert not list(directory.glob("manifest-*.json")), "nothing may be installed from altered records"
