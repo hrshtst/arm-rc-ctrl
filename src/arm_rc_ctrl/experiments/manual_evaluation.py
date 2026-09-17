@@ -50,7 +50,7 @@ from arm_rc_ctrl.experiments.manual_recipes import ASSIGNMENTS
 from arm_rc_ctrl.experiments.manual_study import EXPERIMENT_LABEL
 from arm_rc_ctrl.experiments.perturbations import load_development_robustness, robustness_scenarios
 from arm_rc_ctrl.experiments.recovery_search import RECOVERY_TRACKERS
-from arm_rc_ctrl.experiments.run_record import RUN_ARRAYS_FILE, RUN_SUMMARY_FILE, write_run
+from arm_rc_ctrl.experiments.run_record import RUN_ARRAYS_FILE, RUN_SUMMARY_FILE, RunSummary, write_run
 from arm_rc_ctrl.experiments.simulation import GENERATOR_CHANNELS, RESIDUAL_CHANNELS, DwellTrigger, simulate
 from arm_rc_ctrl.experiments.termination import Outcome
 from arm_rc_ctrl.metrics.recovery import SATURATION_BOUND
@@ -939,13 +939,32 @@ def model_uri(identity: str) -> str:
     return f"{REPORTS_PREFIX}/model/{identity}"
 
 
+def _outcome_criteria(outcome: ManualRunOutcome) -> dict[str, bool]:
+    """The named criteria one run's verdict is recorded with.
+
+    One construction serves writing and checking alike: a run is stored with
+    exactly these, and a served or resumed pair is compared against exactly
+    these, so a recorded verdict cannot drift from the verdict the sweep
+    actually reached.
+    """
+    return {
+        "completed": outcome.completed,
+        "dwell": outcome.dwell.ok if outcome.post_pulse_dwell is None else outcome.post_pulse_dwell.ok,
+        "generated_reference": outcome.generated is None or outcome.generated.ok,
+        "trigger": outcome.trigger is None or outcome.trigger.ok,
+        "saturation": outcome.saturation_fraction <= SATURATION_BOUND,
+    }
+
+
 def _verify_run_payload(store: StorageRoot, pair: ManualPairRecord) -> None:
     """Check one recorded run is still in the store exactly as the record describes it.
 
     A manifest cites runs; it does not contain them. Serving evidence whose
     payloads were deleted or rewritten would report an experiment that can no
     longer be inspected, so both files are checked: the summary the record is
-    digest-bound to, and the arrays that summary is bound to in turn.
+    digest-bound to, and the arrays that summary is bound to in turn. The
+    verdict is then checked against the summary itself, which is what makes a
+    recorded success answerable to the run that produced it.
     """
     run = pair.run
     if run is None:
@@ -966,6 +985,20 @@ def _verify_run_payload(store: StorageRoot, pair: ManualPairRecord) -> None:
         if (size is not None and path.stat().st_size != size) or sha256_file(path) != digest:
             msg = f"{where}: {path.name} no longer matches its record"
             raise ValueError(msg)
+    if pair.outcome is None:
+        return
+    # Digests bind the payload to what the record says its digest is; they say nothing about whether
+    # the verdict beside them is the verdict that run reached. Re-derived counts only make a record
+    # agree with itself, so the pair is checked against its own outcome and then against the run.
+    expected_status = "completed" if pair.outcome.success else "infeasible"
+    if pair.status != expected_status:
+        msg = f"{where}: recorded status {pair.status!r}, but its own outcome gives the verdict {expected_status!r}"
+        raise ValueError(msg)
+    recorded = _outcome_criteria(pair.outcome)
+    stored = dict(RunSummary.from_json(summary.read_text(encoding="utf-8")).outcome.criteria)
+    if stored != recorded:
+        msg = f"{where}: the recorded verdict {recorded} is not the run's own stored verdict {stored}"
+        raise ValueError(msg)
 
 
 def _verify_stored_runs(store: StorageRoot, pairs: Sequence[ManualPairRecord]) -> None:
@@ -1413,13 +1446,7 @@ class ManualEvaluationRunner:
         """Store the run with the disturbance that actually fired, not the one the levels prescribed."""
         # The stored verdict must be the pair record's verdict: every criterion the outcome judges
         # appears here, or a run this sweep calls infeasible reads as a success in its own record.
-        criteria = {
-            "completed": outcome.completed,
-            "dwell": outcome.dwell.ok if outcome.post_pulse_dwell is None else outcome.post_pulse_dwell.ok,
-            "generated_reference": outcome.generated is None or outcome.generated.ok,
-            "trigger": outcome.trigger is None or outcome.trigger.ok,
-            "saturation": outcome.saturation_fraction <= SATURATION_BOUND,
-        }
+        criteria = _outcome_criteria(outcome)
         trained_on = ASSIGNMENTS if assignment is None else (assignment,)
         described = "the whole bank" if assignment is None else assignment
         pointer, summary, directory = write_run(

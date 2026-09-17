@@ -98,8 +98,9 @@ def _evaluation(f: ManualFixture) -> tuple[ManualEvaluationConfig, Path]:
 class _CountingSimulator:
     """Crafts feasible runs and counts how many times it was asked to simulate."""
 
-    def __init__(self, scenario_config: ManualScenarioConfig) -> None:
+    def __init__(self, scenario_config: ManualScenarioConfig, *, reaches: bool = True) -> None:
         self.scenario = scenario_config
+        self.reaches = reaches
         self.calls = 0
 
     def __call__(self, scenario: object, controller: object, **kwargs: object) -> tuple[RunArrays, Termination]:
@@ -107,17 +108,20 @@ class _CountingSimulator:
         self.calls += 1
         rows = round(cast("float", kwargs["duration_s"]) / self.scenario.timing.dt) + 1
         start = tuple(float(v) for v in cast("tuple[float, ...]", kwargs["initial_q"]))
-        arrays = _crafted(self.scenario, rows, start, rc=kwargs.get("channels") is not None)
+        arrays = _crafted(self.scenario, rows, start, rc=kwargs.get("channels") is not None, reaches=self.reaches)
         return arrays, completed(float(arrays.arrays["t"][-1]), rows - 1)
 
 
-def _crafted(scenario_config: ManualScenarioConfig, rows: int, start: tuple[float, ...], *, rc: bool) -> RunArrays:
-    """A run that reaches the target early and holds it to the last sample."""
+def _crafted(
+    scenario_config: ManualScenarioConfig, rows: int, start: tuple[float, ...], *, rc: bool, reaches: bool = True
+) -> RunArrays:
+    """A run that reaches the target early and holds it, or never leaves the start and so fails its dwell."""
     dt = scenario_config.timing.dt
     on_target = np.asarray(joint_target(scenario_config), dtype=np.float64)
     t: NDArray[np.float64] = np.arange(rows, dtype=np.float64) * dt
     q = np.tile(np.asarray(start, dtype=np.float64), (rows, 1))
-    q[max(1, rows // 4) :] = on_target
+    if reaches:
+        q[max(1, rows // 4) :] = on_target
     dq = np.zeros((rows, 2), dtype=np.float64)
     zeros = np.zeros((rows, 2), dtype=np.float64)
     data: dict[str, NDArray[np.float64] | NDArray[np.int64]] = {
@@ -236,9 +240,14 @@ def test_model_evidence_rebuilds_from_its_manifest(manual_fixture: ManualFixture
 # --- served only while the runs behind it are still intact -------------------------------------
 
 
-def _bank_directory(f: ManualFixture, runner: ManualEvaluationRunner, assignment: str) -> Path:
-    """Where one bank keeps its manifest and its run-granular progress."""
-    uri = replay_bank_uri(runner.conditions(WARMUP_S, REPLAY_CUTOFFS), assignment)
+def _bank_directory(f: ManualFixture, runner: ManualEvaluationRunner, assignment: str, *, warmup_s: float) -> Path:
+    """Where one bank keeps its manifest and progress, under the warm-up it was actually built at.
+
+    The warm-up is part of the conditions a bank is keyed by, so it is asked for
+    explicitly: answering for a different one would silently name a directory
+    that never existed.
+    """
+    uri = replay_bank_uri(runner.conditions(warmup_s, REPLAY_CUTOFFS), assignment)
     return f.store.path(f"{uri}/{PROGRESS_FILE}", mode="write").parent
 
 
@@ -283,7 +292,7 @@ def test_an_interrupted_sweep_is_refused_when_its_arrays_are_missing(manual_fixt
     scenario_config = load_manual_scenario(f.scenario_file)
     runner = _runner(f, _CountingSimulator(scenario_config))
     bank = runner.replay_bank("D06", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS)
-    for manifest in _bank_directory(f, runner, "D06").glob("manifest-*.json"):
+    for manifest in _bank_directory(f, runner, "D06", warmup_s=WARMUP_S).glob("manifest-*.json"):
         manifest.unlink()  # an interrupted sweep: progress recorded, no completed manifest
     (_run_directory(f, bank) / RUN_ARRAYS_FILE).unlink()
     with pytest.raises(ValueError, match="missing"):
@@ -378,7 +387,7 @@ def test_an_interrupted_sweep_is_refused_when_its_recorded_sources_were_altered(
     scenario_config = load_manual_scenario(f.scenario_file)
     runner = _runner(f, _CountingSimulator(scenario_config))
     runner.replay_bank("D08", warmup_s=WARMUP_S, replay_cutoffs=REPLAY_CUTOFFS)
-    directory = _bank_directory(f, runner, "D08")
+    directory = _bank_directory(f, runner, "D08", warmup_s=WARMUP_S)
     for manifest in directory.glob("manifest-*.json"):
         manifest.unlink()  # an interrupted sweep: progress recorded, no completed manifest
     progress = directory / PROGRESS_FILE
@@ -466,3 +475,71 @@ def test_an_altered_fit_binding_is_refused(
     with pytest.raises(ValueError, match="fit"):
         fresh.evaluate(entry, warmup_s=warmup_s)
     assert fresh.pointers == (), "altered evidence must not be pointed at either"
+
+
+WARMUP_CLAIMED = 0.41
+WARMUP_RESUMED = 0.42
+"""A warm-up of its own per verdict case, so each starts from a directory of its own."""
+
+
+def _claim_success(path: Path) -> str:
+    """Claim one failed pair completed, and re-derive the counts so the record stays self-consistent."""
+    document = cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
+    pairs = cast("list[dict[str, object]]", document["pairs"])
+    target = next((pair for pair in pairs if pair["status"] == "infeasible"), None)
+    assert target is not None, "the evidence must contain a failed pair for this alteration to mean anything"
+    target["status"] = "completed"
+    completed_n = sum(1 for pair in pairs if pair["status"] == "completed")
+    document["n_completed"] = completed_n
+    document["n_infeasible"] = sum(1 for pair in pairs if pair["status"] == "infeasible")
+    document["status"] = "feasible" if completed_n == len(pairs) else "infeasible"
+    return json.dumps(document, indent=1, sort_keys=True)
+
+
+def _flip_recorded_verdict(path: Path) -> str:
+    """Contradict one recorded pair's own outcome in an interrupted sweep's progress."""
+    document = cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
+    pairs = cast("list[dict[str, object]]", document["pairs"])
+    assert pairs, "the interrupted sweep must have recorded pairs"
+    assert pairs[0]["status"] == "completed", "expected a completed pair to contradict"
+    pairs[0]["status"] = "infeasible"
+    return json.dumps(document, indent=1, sort_keys=True)
+
+
+def test_a_manifest_claiming_success_its_runs_deny_is_refused(manual_fixture: ManualFixture) -> None:
+    """A pair's verdict is checked against the run's own stored verdict, not only against the other pairs.
+
+    Re-deriving the status and counts only makes a record agree with itself. The
+    run summary carries the verdict the sweep reached, so a manifest that claims
+    a completed pair where its own run recorded failure is caught even when the
+    counts were adjusted to match and the file renamed to its new digest.
+    """
+    f = manual_fixture
+    scenario_config = load_manual_scenario(f.scenario_file)
+    entry = _entry(f)
+    evidence = _runner(f, _CountingSimulator(scenario_config, reaches=False)).evaluate(entry, warmup_s=WARMUP_CLAIMED)
+    assert evidence.n_infeasible > 0, "the crafted runs must fail before one can be claimed successful"
+    path = _manifest_of(f, model_uri(evidence.identity))
+    _rename_to_own_digest(path, _claim_success(path))
+    fresh = _runner(f, _CountingSimulator(scenario_config, reaches=False))
+    with pytest.raises(ValueError, match="verdict"):
+        fresh.evaluate(entry, warmup_s=WARMUP_CLAIMED)
+    assert fresh.pointers == (), "altered evidence must not be pointed at either"
+
+
+def test_an_interrupted_sweep_with_an_altered_verdict_is_refused(manual_fixture: ManualFixture) -> None:
+    """The recovery path checks verdicts too, before recorded progress becomes a manifest."""
+    f = manual_fixture
+    scenario_config = load_manual_scenario(f.scenario_file)
+    runner = _runner(f, _CountingSimulator(scenario_config))
+    runner.replay_bank("D09", warmup_s=WARMUP_RESUMED, replay_cutoffs=REPLAY_CUTOFFS)
+    directory = _bank_directory(f, runner, "D09", warmup_s=WARMUP_RESUMED)
+    for manifest in directory.glob("manifest-*.json"):
+        manifest.unlink()  # an interrupted sweep: progress recorded, no completed manifest
+    progress = directory / PROGRESS_FILE
+    progress.write_text(_flip_recorded_verdict(progress), encoding="utf-8")
+    with pytest.raises(ValueError, match="verdict"):
+        _runner(f, _CountingSimulator(scenario_config)).replay_bank(
+            "D09", warmup_s=WARMUP_RESUMED, replay_cutoffs=REPLAY_CUTOFFS
+        )
+    assert not list(directory.glob("manifest-*.json")), "nothing may be installed from altered records"
