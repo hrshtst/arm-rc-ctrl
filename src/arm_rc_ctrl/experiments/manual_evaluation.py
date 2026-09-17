@@ -17,11 +17,15 @@ for the final dwell it is meant to disturb.
 
 from __future__ import annotations
 
+import argparse
+import importlib
 import json
 import math
 import os
+import sys
 from collections import Counter
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path  # a run-time import: the configuration loader resolves field types at run time
 from typing import TYPE_CHECKING, Any, Final, cast
 
@@ -34,17 +38,31 @@ from arm_rc_ctrl.controllers.tracking import LimitedTracker
 from arm_rc_ctrl.data.manual import DwellPredicate, continuous_dwell, dwell_runs
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario, manual_endpoint_positions
 from arm_rc_ctrl.data.records import load_record, write_record
-from arm_rc_ctrl.experiments.baselines import frozen_baseline_digest
+from arm_rc_ctrl.execution import collect_execution, require_canonical
+from arm_rc_ctrl.experiments.baselines import frozen_baseline_digest, load_frozen_baseline
 from arm_rc_ctrl.experiments.manual_fits import ManualFitStore
+from arm_rc_ctrl.experiments.manual_numerics import ManualStudyContext
 from arm_rc_ctrl.experiments.manual_study import EXPERIMENT_LABEL
+from arm_rc_ctrl.experiments.perturbations import load_development_robustness, robustness_scenarios
 from arm_rc_ctrl.experiments.recovery_search import RECOVERY_TRACKERS
 from arm_rc_ctrl.experiments.recovery_slice import HeldTaskReference
 from arm_rc_ctrl.experiments.run_record import write_run
 from arm_rc_ctrl.experiments.simulation import GENERATOR_CHANNELS, RESIDUAL_CHANNELS, DwellTrigger, simulate
 from arm_rc_ctrl.experiments.termination import Outcome
 from arm_rc_ctrl.metrics.recovery import SATURATION_BOUND
-from arm_rc_ctrl.provenance import ArtifactReference, canonical_json, sha256_bytes, sha256_file
+from arm_rc_ctrl.provenance import (
+    ArtifactReference,
+    canonical_json,
+    collect_provenance,
+    command_line,
+    require_clean_for_confirmatory,
+    sha256_bytes,
+    sha256_file,
+)
+from arm_rc_ctrl.rc.esn import ensure_single_thread
 from arm_rc_ctrl.rc.generator import RcTargetGenerator
+from arm_rc_ctrl.repo import repository_root
+from arm_rc_ctrl.storage import open_storage
 from arm_rc_ctrl.validation import is_hex
 
 if TYPE_CHECKING:
@@ -58,8 +76,8 @@ if TYPE_CHECKING:
     from arm_rc_ctrl.execution import ExecutionRecord
     from arm_rc_ctrl.experiments.disturbances import ForcePulse
     from arm_rc_ctrl.experiments.manual_fits import CachedFit, ManualFitInputs
-    from arm_rc_ctrl.experiments.manual_study import StudyConfiguration, StudyModel
-    from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
+    from arm_rc_ctrl.experiments.manual_study import StudyConfiguration, StudyManifest, StudyModel
+    from arm_rc_ctrl.experiments.perturbations import DevelopmentRobustness, RobustnessScenario
     from arm_rc_ctrl.experiments.run_record import RunArrays
     from arm_rc_ctrl.experiments.termination import Termination
     from arm_rc_ctrl.provenance import ProvenanceRecord
@@ -83,11 +101,14 @@ __all__ = [
     "ManualTriggerRule",
     "SimulateFn",
     "TriggerOutcome",
+    "evaluation_entries",
+    "evaluation_scenarios",
     "horizon_completed",
     "load_manual_evaluation_config",
     "load_manual_model_evidence",
     "load_manual_pointer",
     "load_manual_replay_bank",
+    "main",
     "manual_bank_to_json",
     "manual_conditions",
     "manual_dwell_report",
@@ -1511,3 +1532,122 @@ class ManualEvaluationRunner:
         self._register(bank, payload, warmup_s=warmup_s)
         self._banks[identity] = bank
         return bank
+
+
+# --- the command --------------------------------------------------------------------------
+
+_MODULE: Final = "arm_rc_ctrl.experiments.manual_evaluation"
+
+
+def evaluation_entries(manifest: StudyManifest, labels: Sequence[str] | None = None) -> tuple[StudyModel, ...]:
+    """The models this invocation evaluates: every one of the study, or the named ones in manifest order."""
+    if not labels:
+        return tuple(manifest.entries)
+    wanted = set(labels)
+    chosen = tuple(entry for entry in manifest.entries if entry.label in wanted)
+    unknown = sorted(wanted - {entry.label for entry in chosen})
+    if unknown:
+        msg = f"unknown model labels {unknown}"
+        raise ValueError(msg)
+    return chosen
+
+
+def evaluation_scenarios(
+    levels: DevelopmentRobustness, scenario: ManualScenarioConfig
+) -> tuple[RobustnessScenario, ...]:
+    """The locked development cases at this task's reset posture, checked against its joint bounds."""
+    lower = tuple(link.q_min for link in scenario.robot.links)
+    upper = tuple(link.q_max for link in scenario.robot.links)
+    return robustness_scenarios(levels, nominal=scenario.task.initial_q, lower=lower, upper=upper)
+
+
+def _load_runtimes() -> None:
+    """Import the numerical runtimes before the environment is probed (C10: the probe must see them)."""
+    for name in ("numpy", "rclib"):
+        importlib.import_module(name)
+
+
+def _run(args: argparse.Namespace) -> int:
+    """Evaluate the selected models of the frozen study and leave pointers to what was produced."""
+    require_canonical()
+    ensure_single_thread()
+    _load_runtimes()
+    argv = cast("list[str]", args.argv)
+    command = command_line(_MODULE, argv)
+    execution = collect_execution(command=command, role="main", now=datetime.now(tz=UTC))
+    execution.check_canonical()
+    root, store = repository_root(), open_storage()
+    study_file = Path(cast("str", args.study))
+    context = ManualStudyContext.load(study_file, store=store, root=root, execution=execution)
+    evaluation_file = Path(cast("str", args.evaluation))
+    config = load_manual_evaluation_config(evaluation_file)
+    scenario = load_manual_scenario(config.scenario)
+    cases = evaluation_scenarios(load_development_robustness(config.development), scenario)
+    entries = evaluation_entries(context.manifest, cast("list[str] | None", args.entries))
+    resolved: dict[str, object] = {
+        "study_manifest": context.manifest_sha256,
+        "evaluation": {evaluation_file.name: sha256_file(evaluation_file)},
+        "scenarios": len(cases),
+        "models": [entry.label for entry in entries],
+        "execution_identity": execution.identity,
+        "command": command,
+    }
+    provenance = collect_provenance(
+        resolved,
+        seeds={"contractive_seed_bank": context.manifest.seed_bank},
+        artifacts=list(context.payloads),
+        exploratory=bool(args.exploratory),
+        now=datetime.now(tz=UTC),
+    )
+    require_clean_for_confirmatory(provenance)
+    runner = ManualEvaluationRunner(
+        store=store,
+        inputs=context.inputs,
+        config=config,
+        evaluation_file=evaluation_file,
+        scenarios=cases,
+        trackers={name: load_frozen_baseline(name) for name in RECOVERY_TRACKERS},
+        root=root,
+        execution=execution,
+        provenance=provenance,
+        command=command,
+    )
+    evidences = [runner.evaluate(entry, warmup_s=context.inputs.configuration(entry).warmup_s) for entry in entries]
+    written = runner.write_pointers(Path(cast("str", args.evidence_dir)))
+    print(
+        json.dumps(
+            {
+                "models": len(evidences),
+                "pairs": sum(e.n_pairs for e in evidences),
+                "completed": sum(e.n_completed for e in evidences),
+                "infeasible": sum(e.n_infeasible for e in evidences),
+                "statuses": {s: sum(1 for e in evidences if e.status == s) for s in MODEL_STATUSES},
+                "pointers_written": len(written),
+                "study_manifest": sha256_file(study_file),
+                "execution_identity": execution.identity,
+                "exploratory": bool(args.exploratory),
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Command-line entry point."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    parser = argparse.ArgumentParser(description="Evaluate the manual-demonstration study against paired replay.")
+    subparsers = parser.add_subparsers(dest="subcommand", required=True)
+    run = subparsers.add_parser("run", help="evaluate study models with paired replay of their parents")
+    run.add_argument("--study", type=str, required=True, help="frozen study manifest JSON")
+    run.add_argument("--evaluation", type=str, required=True, help="manual evaluation config TOML")
+    run.add_argument("--evidence-dir", type=str, required=True, help="directory of the Git pointer records")
+    run.add_argument("--entries", type=str, nargs="*", default=None, help="model labels (default: every model)")
+    run.add_argument("--exploratory", action="store_true", help="allow a dirty worktree")
+    args = parser.parse_args(argv)
+    args.argv = argv
+    return _run(args)
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised through main()
+    sys.exit(main())
