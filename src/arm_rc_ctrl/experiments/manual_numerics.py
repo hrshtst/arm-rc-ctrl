@@ -894,11 +894,22 @@ def _check_contractive_banks(
     from the parent's committed record, exactly as M3MAN-006 grew it, before
     any fit of the study is served.
     """
-    banks: dict[str, ContractiveBank] = {}
+    recorded: dict[str, list[tuple[str, ContractiveBank]]] = {}
     for model in manifest.entries:
         construction = model.contractive
         if construction is not None:
-            banks.setdefault(construction.assignment, construction)
+            recorded.setdefault(construction.assignment, []).append((model.label, construction))
+    banks: dict[str, ContractiveBank] = {}
+    for assignment, entries in sorted(recorded.items()):
+        first, bank = entries[0]
+        differing = [label for label, other in entries[1:] if other != bank]
+        if differing:
+            msg = (
+                f"{assignment}: {first} records the contractive construction {bank}, which {differing} do not; "
+                "every configuration of a demonstration binds the same bank"
+            )
+            raise ValueError(msg)
+        banks[assignment] = bank
     by_position = {
         demonstration.assignment: (demonstration, record)
         for demonstration, record in zip(manifest.demonstrations, records, strict=True)
@@ -916,7 +927,7 @@ def _check_contractive_banks(
             dq_sha256=record.arrays["dq"].sha256,
         )
         outcome = generate_parent_bank(
-            parent, samples[demonstration.dataset.artifact_id], scenario, seed_bank=bank.seed_bank
+            parent, samples[demonstration.dataset.artifact_id], scenario, seed_bank=manifest.seed_bank
         )
         if isinstance(outcome, ParentFailure):
             msg = (
@@ -924,12 +935,13 @@ def _check_contractive_banks(
                 f"from {parent.identifier}: {outcome.reason}"
             )
             raise ValueError(msg)  # noqa: TRY004 - a bank that cannot be grown is a study error
-        regenerated = outcome.record.bank_sha256
-        if regenerated != bank.bank_sha256:
+        regenerated = ContractiveBank.from_record(outcome.record)
+        if regenerated != bank:
             msg = (
-                f"{assignment}: the contractive bank of {parent.identifier} regenerates as {regenerated}, but the "
-                f"study manifest records {bank.bank_sha256}; the contractive fit identities bind a bank this study "
-                "cannot reproduce"
+                f"{assignment}: the study records the contractive construction {bank}, but growing the bank again "
+                f"from {parent.identifier} gives {regenerated}; the contractive fit identities bind a construction "
+                "this study cannot reproduce. The whole construction is compared, not only its digest, because the "
+                "seed bank and the dwell onset decide which episodes the arm trains on"
             )
             raise ValueError(msg)
 

@@ -71,9 +71,11 @@ from arm_rc_ctrl.rc.recipe import DatasetSource, RclibIdentity, load_recipe
 from arm_rc_ctrl.rc.training import FitReport, harvest_episode
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from arm_rc_ctrl.experiments.manual_study import ContractiveBank, StudyManifest, StudyModel
+    from arm_rc_ctrl.rc.recipe import ContractiveTrainingSpec
 
 FULL_CONFIGURATIONS = (
     "feasible-best",
@@ -928,7 +930,133 @@ def test_the_study_context_binds_the_manifest_its_sources_and_the_environment(
     assert set(context.inputs.samples) == {d.dataset.artifact_id for d in f.manifest.demonstrations}
     assert len(context.payloads) == 10
     assert context.inputs.dof == 2
-    with (f.root / f.manifest.scenario.path).open("a", encoding="utf-8") as handle:
-        handle.write("# changed\n")
-    with pytest.raises(ValueError, match="study manifest recorded"):
-        ManualStudyContext.load(f.manifest_file, store=f.store, root=f.root, execution=f.execution)
+    # The fixture is module scoped, so the change must be undone: every later test loads this same scenario.
+    scenario_file = f.root / f.manifest.scenario.path
+    original = scenario_file.read_text(encoding="utf-8")
+    try:
+        with scenario_file.open("a", encoding="utf-8") as handle:
+            handle.write("# changed\n")
+        with pytest.raises(ValueError, match="study manifest recorded"):
+            ManualStudyContext.load(f.manifest_file, store=f.store, root=f.root, execution=f.execution)
+    finally:
+        scenario_file.write_text(original, encoding="utf-8")
+    assert manual_numerics.sha256_file(scenario_file) == f.manifest.scenario.sha256
+
+
+def _doctored_source_fit(f: ManualFixture, entry: StudyModel, assignment: str, **changes: str) -> ManualFitRecord:
+    """Cache a fit whose dataset differs from the demanded one only in ``changes``, under the entry's identity."""
+    demanded = f.manifest.sources[assignment]
+    doctored = dataclasses.replace(demanded, **changes)
+    assert doctored != demanded
+    return _foreign_fit(f, entry, sources={**f.manifest.sources, assignment: doctored})
+
+
+def test_a_cached_fit_whose_payload_digest_differs_late_is_never_served(manual_fixture: ManualFixture) -> None:
+    """Datasets are compared whole: a payload digest agreeing only in its first twelve characters is another one."""
+    f = manual_fixture
+    entry = f.manifest.entry(CONFIGURATION, "S/D08")
+    demanded = f.manifest.sources["D08"]
+    tail = "0" * (len(demanded.payload_sha256) - 12)
+    record = _doctored_source_fit(f, entry, "D08", payload_sha256=demanded.payload_sha256[:12] + tail)
+    fits = ManualFitStore(f.store)
+    try:
+        _assert_the_cache_verifies_itself(f, record)
+        assert fits.read_recipe(record).datasets[0].payload_sha256[:12] == demanded.payload_sha256[:12]
+        with pytest.raises(ValueError, match="datasets") as excinfo:
+            fits.fit_or_load(entry, f.inputs, now=f.now)
+        assert entry.label in str(excinfo.value)
+    finally:
+        shutil.rmtree(fits.directory(record.identity))
+
+
+def test_a_cached_fit_whose_record_path_differs_is_never_served(manual_fixture: ManualFixture) -> None:
+    """The record a dataset is bound to is part of its identity, so a fit bound to another record is refused."""
+    f = manual_fixture
+    entry = f.manifest.entry(CONFIGURATION, "S/D09")
+    record = _doctored_source_fit(f, entry, "D09", record="data/records/processed/processed-20260916-000000000000.toml")
+    fits = ManualFitStore(f.store)
+    try:
+        _assert_the_cache_verifies_itself(f, record)
+        assert fits.read_recipe(record).datasets[0].payload_sha256 == f.manifest.sources["D09"].payload_sha256
+        with pytest.raises(ValueError, match="datasets") as excinfo:
+            fits.fit_or_load(entry, f.inputs, now=f.now)
+        assert entry.label in str(excinfo.value)
+    finally:
+        shutil.rmtree(fits.directory(record.identity))
+
+
+def _forged_study(
+    f: ManualFixture,
+    tmp_path: Path,
+    assignment: str,
+    edit: Callable[[dict[str, object], str], ContractiveTrainingSpec | None],
+) -> Path:
+    """Write a study document whose ``assignment`` constructions are edited and whose keys re-derive from them."""
+    document = json.loads(f.manifest_file.read_text(encoding="utf-8"))
+    for entry in document["entries"]:
+        construction = entry["contractive"]
+        if construction is None or construction["assignment"] != assignment:
+            continue
+        spec = edit(construction, cast("str", entry["configuration"]))
+        if spec is None:
+            continue
+        model = f.manifest.entry(entry["configuration"], f"C10/{assignment}")
+        entry["fit_identity"] = fit_identity(
+            configuration=model.configuration,
+            arm=model.arm,
+            warmup_s=model.warmup_s,
+            base_alpha=f.inputs.configuration(model).base_alpha,
+            esn=f.manifest.esn(model),
+            datasets=f.manifest.datasets(model),
+            transform=f.manifest.transform.transform,
+            validation=f.manifest.validation,
+            anchor=f.manifest.anchor,
+            rclib_commit=f.manifest.rclib.commit,
+            execution_identity=f.manifest.execution.identity,
+            contractive=spec,
+            bank_sha256=cast("str", construction["bank_sha256"]),
+        )
+    file = tmp_path / "study_manifest_v1.json"
+    file.write_text(json.dumps(document), encoding="utf-8")
+    assert len(load_study(file).entries) == len(f.manifest.entries)  # internally consistent
+    return file
+
+
+def test_the_study_context_verifies_every_configurations_contractive_construction(
+    manual_fixture: ManualFixture, tmp_path: Path
+) -> None:
+    """All six configurations record the bank, so a forgery in a later one is caught, not skipped."""
+    f = manual_fixture
+    assignment, forged = "D04", "ab" * 32
+    late = FULL_CONFIGURATIONS[-1]
+
+    def edit(construction: dict[str, object], configuration: str) -> ContractiveTrainingSpec | None:
+        if configuration != late:
+            return None
+        construction["bank_sha256"] = forged
+        return cast("ContractiveBank", f.manifest.entry(configuration, f"C10/{assignment}").contractive).spec
+
+    file = _forged_study(f, tmp_path, assignment, edit)
+    with pytest.raises(ValueError, match=assignment) as excinfo:
+        ManualStudyContext.load(file, store=f.store, root=f.root, execution=f.execution)
+    assert late in str(excinfo.value)
+
+
+def test_the_study_context_refuses_a_changed_contractive_dwell_onset(
+    manual_fixture: ManualFixture, tmp_path: Path
+) -> None:
+    """The onset places the envelope and so decides the episodes; a recorded onset is verified, never trusted."""
+    f = manual_fixture
+    assignment = "D02"
+    recorded = cast("ContractiveBank", f.manifest.entry(CONFIGURATION, f"C10/{assignment}").contractive)
+    shifted = recorded.dwell_start_s + 0.01
+
+    def edit(construction: dict[str, object], configuration: str) -> ContractiveTrainingSpec | None:
+        construction["dwell_start_s"] = shifted  # the bank digest is left correct
+        model = cast("ContractiveBank", f.manifest.entry(configuration, f"C10/{assignment}").contractive)
+        return dataclasses.replace(model.spec, dwell_start_s=shifted)
+
+    file = _forged_study(f, tmp_path, assignment, edit)
+    with pytest.raises(ValueError, match=assignment) as excinfo:
+        ManualStudyContext.load(file, store=f.store, root=f.root, execution=f.execution)
+    assert repr(shifted) in str(excinfo.value) or str(shifted) in str(excinfo.value)

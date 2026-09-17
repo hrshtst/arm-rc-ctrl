@@ -321,7 +321,6 @@ def recipe_mismatches(entry: StudyModel, recipe: ModelRecipe, inputs: ManualFitI
     )
     compared: tuple[tuple[str, object, object], ...] = (
         ("esn", recipe.esn, manifest.esn(entry)),
-        ("datasets", _datasets_label(recipe.datasets), _datasets_label(manifest.datasets(entry))),
         ("training", recipe.training, training),
         ("transform", recipe.transform, manifest.transform.transform),
         ("transform_source", recipe.transform_source, manifest.anchor.transform_source),
@@ -331,11 +330,20 @@ def recipe_mismatches(entry: StudyModel, recipe: ModelRecipe, inputs: ManualFitI
         ("task_code_dim", recipe.task_code_dim, inputs.task_code_dim),
         ("rclib", recipe.rclib, inputs.rclib),
     )
-    return tuple(
+    mismatches = [
         f"{name}: the recipe has {actual!r}, the study entry demands {expected!r}"
         for name, actual, expected in compared
         if actual != expected
-    )
+    ]
+    demanded = manifest.datasets(entry)
+    if recipe.datasets != demanded:
+        # Compared whole: an artifact ID and a digest prefix do not identify a recording, nor does either alone.
+        mismatches.insert(
+            0,
+            f"datasets: the recipe has {_datasets_label(recipe.datasets)}, the study entry demands "
+            f"{_datasets_label(demanded)}",
+        )
+    return tuple(mismatches)
 
 
 def _require_recipe(entry: StudyModel, recipe: ModelRecipe, inputs: ManualFitInputs) -> None:
