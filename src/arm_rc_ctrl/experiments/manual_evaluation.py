@@ -24,6 +24,7 @@ import math
 import os
 import sys
 from collections import Counter
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path  # a run-time import: the configuration loader resolves field types at run time
@@ -66,7 +67,7 @@ from arm_rc_ctrl.storage import open_storage
 from arm_rc_ctrl.validation import is_hex
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Mapping, Sequence
 
     from numpy.typing import NDArray
 
@@ -101,6 +102,8 @@ __all__ = [
     "ManualTriggerRule",
     "SimulateFn",
     "TriggerOutcome",
+    "WorkerSpawn",
+    "evaluate_in_parallel",
     "evaluation_entries",
     "evaluation_scenarios",
     "horizon_completed",
@@ -1532,6 +1535,46 @@ class ManualEvaluationRunner:
         self._register(bank, payload, warmup_s=warmup_s)
         self._banks[identity] = bank
         return bank
+
+
+# --- bounded parallel execution (I1) ---------------------------------------------------------
+
+type WorkerSpawn = Callable[..., None]
+"""``(entry, *, warmup_s, env) -> None``: does one model's work, in a worker process or in this one."""
+
+
+def evaluate_in_parallel(
+    runner: ManualEvaluationRunner,
+    entries: Sequence[StudyModel],
+    *,
+    warmup_s: float,
+    workers: int,
+    env: Mapping[str, str],
+    spawn: WorkerSpawn,
+) -> tuple[ManualModelEvidence, ...]:
+    """Run ``entries`` through at most ``workers`` concurrent workers, then serve what they produced.
+
+    The threads here only supervise workers; each worker is a separate
+    interpreter with one numerical thread, inheriting the parent's declared
+    affinity and thread settings, so no numerical work is ever shared between
+    threads of this process. Sharing the parent's whole CPU set is deliberate:
+    the execution identity a run is keyed by includes the declared policy and
+    CPU set, so a worker pinned to its own subset would key its runs to another
+    environment and they would not be this study's at all.
+
+    Once the workers are done the evidence is in the store, so serving it back
+    costs nothing and gives this invocation the pointers it must write.
+    """
+    if workers < 1:
+        msg = f"workers must be at least 1, got {workers}"
+        raise ValueError(msg)
+    selected = tuple(entries)
+    if selected:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            futures = [pool.submit(spawn, entry, warmup_s=warmup_s, env=dict(env)) for entry in selected]
+            for future in futures:
+                future.result()
+    return tuple(runner.evaluate(entry, warmup_s=warmup_s) for entry in selected)
 
 
 # --- the command --------------------------------------------------------------------------
