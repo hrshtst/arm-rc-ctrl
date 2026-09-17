@@ -211,6 +211,26 @@ sampling rate follows the task period (100 Hz); `configs/recording/task_1a_manua
 sets 50 Hz (a 20 ms tick), and the launcher refuses a rate that is not a whole
 number of milliseconds, is faster than the task's training grid, or differs from
 the task's acquisition rules; `session.json` records the rate.
+`scripts/evaluate_manual_study.py run --study … --evaluation
+configs/evaluations/task_1a_manual_dev_v1.toml --evidence-dir … [--entries …]
+[--workers N] [--exploratory]` evaluates the frozen study's models against
+direct replay of their own demonstrations under the revised protocol:
+completion is judged against the configured evaluation horizon rather than a
+demonstration's length, the dwell is the acquisition rule measured on the run
+itself (one uninterrupted second inside 1 cm at joint speeds no greater than
+0.05 rad/s, any excursion restarting the timer), the force pulse fires once the
+arm actually holds the target rather than at a fixed task time and its realised
+timestamp is what the run records, and every scenario is attempted
+independently from a fresh reset so an unsafe run aborts alone and the next one
+still runs. Each model is evaluated at its own configuration's inherited
+warm-up, and the replay baselines of one demonstration are produced once and
+shared by every model paired against them. Completed evidence is immutable: a
+manifest is content-addressed and served rather than recomputed, an interrupted
+sweep resumes at run granularity after re-verifying every completed run against
+the store, and the command leaves a Git pointer to each manifest it produced or
+served. `--workers N` evaluates N models at once in worker processes that
+inherit the pinned environment and run one numerical thread each; a worker's
+runs belong to the study only while its execution identity equals the parent's.
 
 ## Requirements
 

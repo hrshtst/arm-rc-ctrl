@@ -22,11 +22,13 @@ import importlib
 import json
 import math
 import os
+import subprocess
 import sys
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path  # a run-time import: the configuration loader resolves field types at run time
 from typing import TYPE_CHECKING, Any, Final, cast
 
@@ -121,6 +123,7 @@ __all__ = [
     "manual_trigger",
     "model_uri",
     "replay_bank_uri",
+    "spawn_worker",
     "trigger_outcome",
 ]
 
@@ -1448,6 +1451,11 @@ class ManualEvaluationRunner:
             if evidence.identity != identity:
                 msg = f"{stored} holds the evidence {evidence.identity[:_SHORT]}, not {identity[:_SHORT]}"
                 raise ValueError(msg)
+            if evidence.assignment is not None:
+                # Also point at the baselines this model was compared against: they are equally
+                # part of the evidence, and a served model would otherwise cite a bank the
+                # repository has no pointer to.
+                self.replay_bank(evidence.assignment, warmup_s=warmup_s)
             self._register(evidence, _reference_of(stored, self.store))
             self._models[identity] = evidence
             return evidence
@@ -1610,28 +1618,72 @@ def _load_runtimes() -> None:
         importlib.import_module(name)
 
 
-def _run(args: argparse.Namespace) -> int:
-    """Evaluate the selected models of the frozen study and leave pointers to what was produced."""
+def spawn_worker(
+    entry: StudyModel,
+    *,
+    warmup_s: float,
+    env: Mapping[str, str],
+    study_file: Path,
+    evaluation_file: Path,
+    root: Path,
+    exploratory: bool,
+    python: str = sys.executable,
+) -> None:
+    """Evaluate one model in a fresh interpreter that inherits this environment.
+
+    The worker is given the same study and configuration, so it derives the
+    same conditions; it inherits the parent's declared affinity and thread
+    settings through ``env``, which is what makes its runs this study's.
+    """
+    command = [
+        python,
+        "-m",
+        _MODULE,
+        "evaluate-model",
+        "--study",
+        str(study_file),
+        "--evaluation",
+        str(evaluation_file),
+        "--entry",
+        entry.label,
+        "--warmup-s",
+        repr(float(warmup_s)),
+        "--root",
+        str(root),
+    ]
+    if exploratory:
+        command.append("--exploratory")
+    subprocess.run(command, check=True, env=dict(env))
+
+
+@dataclass(frozen=True)
+class _Prepared:
+    """What both the command and a worker need: the bound study, the protocol, and the runner."""
+
+    context: ManualStudyContext
+    config: ManualEvaluationConfig
+    runner: ManualEvaluationRunner
+    execution: ExecutionRecord
+
+
+def _prepare(args: argparse.Namespace, *, role: str, root: Path) -> _Prepared:
+    """Verify the environment, bind the study and the configuration, and build the runner."""
     require_canonical()
     ensure_single_thread()
     _load_runtimes()
-    argv = cast("list[str]", args.argv)
-    command = command_line(_MODULE, argv)
-    execution = collect_execution(command=command, role="main", now=datetime.now(tz=UTC))
+    command = command_line(_MODULE, cast("list[str]", args.argv))
+    execution = collect_execution(command=command, role=role, now=datetime.now(tz=UTC))
     execution.check_canonical()
-    root, store = repository_root(), open_storage()
-    study_file = Path(cast("str", args.study))
-    context = ManualStudyContext.load(study_file, store=store, root=root, execution=execution)
+    store = open_storage()
+    context = ManualStudyContext.load(Path(cast("str", args.study)), store=store, root=root, execution=execution)
     evaluation_file = Path(cast("str", args.evaluation))
     config = load_manual_evaluation_config(evaluation_file)
     scenario = load_manual_scenario(config.scenario)
     cases = evaluation_scenarios(load_development_robustness(config.development), scenario)
-    entries = evaluation_entries(context.manifest, cast("list[str] | None", args.entries))
     resolved: dict[str, object] = {
         "study_manifest": context.manifest_sha256,
         "evaluation": {evaluation_file.name: sha256_file(evaluation_file)},
         "scenarios": len(cases),
-        "models": [entry.label for entry in entries],
         "execution_identity": execution.identity,
         "command": command,
     }
@@ -1655,7 +1707,54 @@ def _run(args: argparse.Namespace) -> int:
         provenance=provenance,
         command=command,
     )
-    evidences = [runner.evaluate(entry, warmup_s=context.inputs.configuration(entry).warmup_s) for entry in entries]
+    return _Prepared(context=context, config=config, runner=runner, execution=execution)
+
+
+def _evaluate_model(args: argparse.Namespace) -> int:
+    """Worker subcommand: evaluate one model and leave its evidence in the store."""
+    prepared = _prepare(args, role="worker", root=Path(cast("str", args.root)))
+    entries = evaluation_entries(prepared.context.manifest, [cast("str", args.entry)])
+    prepared.runner.evaluate(entries[0], warmup_s=float(cast("str", args.warmup_s)))
+    return 0
+
+
+def _run(args: argparse.Namespace) -> int:
+    """Evaluate the selected models of the frozen study and leave pointers to what was produced."""
+    workers = int(cast("int", args.workers))
+    if workers < 1:
+        # Checked before anything expensive: zero workers would otherwise quietly evaluate nothing.
+        msg = f"workers must be at least 1, got {workers}"
+        raise ValueError(msg)
+    prepared = _prepare(args, role="main", root=repository_root())
+    context, runner, execution = prepared.context, prepared.runner, prepared.execution
+    entries = evaluation_entries(context.manifest, cast("list[str] | None", args.entries))
+    study_file = Path(cast("str", args.study))
+    if workers == 1:
+        evidences = [runner.evaluate(entry, warmup_s=context.inputs.configuration(entry).warmup_s) for entry in entries]
+    else:
+        # Models are grouped by their inherited warm-up: it is part of the conditions, and a group
+        # shares the replay baselines its models are paired against.
+        groups: dict[float, list[StudyModel]] = {}
+        for entry in entries:
+            groups.setdefault(context.inputs.configuration(entry).warmup_s, []).append(entry)
+        evidences: list[ManualModelEvidence] = []
+        for warmup_s, group in sorted(groups.items()):
+            evidences.extend(
+                evaluate_in_parallel(
+                    runner,
+                    group,
+                    warmup_s=warmup_s,
+                    workers=workers,
+                    env=os.environ,
+                    spawn=partial(
+                        spawn_worker,
+                        study_file=study_file,
+                        evaluation_file=Path(cast("str", args.evaluation)),
+                        root=repository_root(),
+                        exploratory=bool(args.exploratory),
+                    ),
+                )
+            )
     written = runner.write_pointers(Path(cast("str", args.evidence_dir)))
     print(
         json.dumps(
@@ -1666,6 +1765,7 @@ def _run(args: argparse.Namespace) -> int:
                 "infeasible": sum(e.n_infeasible for e in evidences),
                 "statuses": {s: sum(1 for e in evidences if e.status == s) for s in MODEL_STATUSES},
                 "pointers_written": len(written),
+                "workers": workers,
                 "study_manifest": sha256_file(study_file),
                 "execution_identity": execution.identity,
                 "exploratory": bool(args.exploratory),
@@ -1686,10 +1786,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     run.add_argument("--evaluation", type=str, required=True, help="manual evaluation config TOML")
     run.add_argument("--evidence-dir", type=str, required=True, help="directory of the Git pointer records")
     run.add_argument("--entries", type=str, nargs="*", default=None, help="model labels (default: every model)")
+    run.add_argument("--workers", type=int, default=1, help="models evaluated at once in worker processes")
     run.add_argument("--exploratory", action="store_true", help="allow a dirty worktree")
+    worker = subparsers.add_parser("evaluate-model", help="evaluate one model (spawned by the run command)")
+    worker.add_argument("--study", type=str, required=True, help="frozen study manifest JSON")
+    worker.add_argument("--evaluation", type=str, required=True, help="manual evaluation config TOML")
+    worker.add_argument("--entry", type=str, required=True, help="model label, e.g. feasible-best/S/D01")
+    worker.add_argument("--warmup-s", type=str, required=True, help="the model configuration's warm-up")
+    worker.add_argument("--root", type=str, required=True, help="repository root the study is bound to")
+    worker.add_argument("--exploratory", action="store_true", help="allow a dirty worktree")
     args = parser.parse_args(argv)
     args.argv = argv
-    return _run(args)
+    return _evaluate_model(args) if args.subcommand == "evaluate-model" else _run(args)
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised through main()
