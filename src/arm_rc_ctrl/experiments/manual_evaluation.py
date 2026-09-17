@@ -128,6 +128,7 @@ __all__ = [
     "manual_run_outcome",
     "manual_trigger",
     "model_uri",
+    "prepare_runner",
     "replay_bank_uri",
     "spawn_worker",
     "trigger_outcome",
@@ -2084,12 +2085,17 @@ class _Prepared:
     execution: ExecutionRecord
 
 
-def _prepare(args: argparse.Namespace, *, role: str, root: Path) -> _Prepared:
-    """Verify the environment, bind the study and the configuration, and build the runner."""
+def prepare_runner(args: argparse.Namespace, *, role: str, root: Path, module: str = _MODULE) -> _Prepared:
+    """Verify the environment, bind the study and the configuration, and build the runner.
+
+    ``module`` names the caller, because the command a run records must be the
+    command that was actually invoked: the timing smoke check is its own entry
+    point, and provenance claiming otherwise would misdescribe the evidence.
+    """
     require_canonical()
     ensure_single_thread()
     _load_runtimes()
-    command = command_line(_MODULE, cast("list[str]", args.argv))
+    command = command_line(module, cast("list[str]", args.argv))
     execution = collect_execution(command=command, role=role, now=datetime.now(tz=UTC))
     execution.check_canonical()
     store = open_storage()
@@ -2130,7 +2136,7 @@ def _prepare(args: argparse.Namespace, *, role: str, root: Path) -> _Prepared:
 
 def _evaluate_model(args: argparse.Namespace) -> int:
     """Worker subcommand: evaluate one model and leave its evidence in the store."""
-    prepared = _prepare(args, role="worker", root=Path(cast("str", args.root)))
+    prepared = prepare_runner(args, role="worker", root=Path(cast("str", args.root)))
     entries = evaluation_entries(prepared.context.manifest, [cast("str", args.entry)])
     prepared.runner.evaluate(entries[0], warmup_s=float(cast("str", args.warmup_s)))
     return 0
@@ -2143,7 +2149,7 @@ def _run(args: argparse.Namespace) -> int:
         # Checked before anything expensive: zero workers would otherwise quietly evaluate nothing.
         msg = f"workers must be at least 1, got {workers}"
         raise ValueError(msg)
-    prepared = _prepare(args, role="main", root=repository_root())
+    prepared = prepare_runner(args, role="main", root=repository_root())
     context, runner, execution = prepared.context, prepared.runner, prepared.execution
     entries = evaluation_entries(context.manifest, cast("list[str] | None", args.entries))
     study_file = Path(cast("str", args.study))

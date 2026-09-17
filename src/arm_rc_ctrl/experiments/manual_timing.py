@@ -19,23 +19,29 @@ infeasible model still costs its fit.
 
 from __future__ import annotations
 
+import argparse
 import json
 import resource
+import sys
+import time
 from dataclasses import dataclass, field
+from pathlib import Path
 from statistics import mean, median
 from typing import TYPE_CHECKING, Final, cast
 
 from arm_rc_ctrl.config import from_mapping, to_mapping
 from arm_rc_ctrl.execution import ExecutionRecord
-from arm_rc_ctrl.experiments.manual_evaluation import ManualModelTiming, ManualRunTiming
+from arm_rc_ctrl.experiments.manual_evaluation import ManualModelTiming, ManualRunTiming, prepare_runner
 from arm_rc_ctrl.experiments.manual_recipes import ASSIGNMENTS
 from arm_rc_ctrl.experiments.manual_study import ARM_COUNT, CONFIGURATION_COUNT, EXPERIMENT_LABEL
-from arm_rc_ctrl.provenance import ProvenanceRecord, canonical_json
+from arm_rc_ctrl.provenance import ProvenanceRecord, canonical_json, sha256_file
+from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.validation import is_hex
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
-    from pathlib import Path
+
+    from arm_rc_ctrl.experiments.manual_study import StudyManifest, StudyModel
 
 __all__ = [
     "PARENT_COUNT",
@@ -44,9 +50,11 @@ __all__ = [
     "ManualStudyProjection",
     "ManualTimingReport",
     "load_timing",
+    "main",
     "peak_rss_bytes",
     "project_study",
     "render_timing_markdown",
+    "smoke_entries",
     "summarize_timings",
     "timing_to_json",
 ]
@@ -55,6 +63,40 @@ TIMING_SCHEMA_VERSION: Final = 1
 PARENT_COUNT: Final = len(ASSIGNMENTS)
 """The ten locked demonstrations; one replay bank per parent per configuration."""
 _SHA256_HEX: Final = 64
+_MODULE: Final = "arm_rc_ctrl.experiments.manual_timing"
+
+
+def smoke_entries(
+    manifest: StudyManifest, *, count: int, labels: Sequence[str] | None = None
+) -> tuple[StudyModel, ...]:
+    """The models a smoke check measures: the first ``count`` of the frozen study, in its own order.
+
+    The subset is taken by position and never by what a label means. Plan
+    section 5 inherits the six configurations precisely to avoid choosing after
+    seeing results, and requires the deterministic nominal subset to run
+    without dropping panel members on performance; a rule that preferred a
+    configuration by name would be doing exactly that, on labels this study
+    states are not known to predict performance on manual data.
+
+    ``labels`` names a subset by hand for a targeted check, still in manifest
+    order. A count larger than the study is an error rather than a quietly
+    shorter check, because the projection divides by what was measured.
+    """
+    if count < 1:
+        msg = f"a smoke check measures at least one model, got {count}"
+        raise ValueError(msg)
+    if labels:
+        wanted = set(labels)
+        chosen = tuple(entry for entry in manifest.entries if entry.label in wanted)
+        unknown = sorted(wanted - {entry.label for entry in chosen})
+        if unknown:
+            msg = f"unknown model labels {unknown}"
+            raise ValueError(msg)
+        return chosen
+    if count > len(manifest.entries):
+        msg = f"the study holds {len(manifest.entries)} models, fewer than the {count} asked for"
+        raise ValueError(msg)
+    return tuple(manifest.entries[:count])
 
 
 def peak_rss_bytes() -> tuple[int, int]:
@@ -350,3 +392,102 @@ def render_timing_markdown(report: ManualTimingReport) -> str:
         "",
     ]
     return "\n".join(lines)
+
+
+def _smoke(args: argparse.Namespace) -> int:
+    """Measure a deterministic subset end to end and write the report and its rendering."""
+    output, markdown = Path(cast("str", args.output)), Path(cast("str", args.markdown))
+    for target in (output, markdown):
+        # Checked before the sweep: evidence is written once, and finding out afterwards would
+        # mean paying for the measurement and then throwing it away.
+        if target.exists():
+            msg = f"refusing to overwrite {target}"
+            raise FileExistsError(msg)
+    started = time.perf_counter()
+    prepared = prepare_runner(args, role="main", root=repository_root(), module=_MODULE)
+    context, runner = prepared.context, prepared.runner
+    entries = smoke_entries(
+        context.manifest, count=int(cast("int", args.models)), labels=cast("list[str] | None", args.entries)
+    )
+    for entry in entries:
+        runner.evaluate(entry, warmup_s=context.inputs.configuration(entry).warmup_s)
+    written = runner.write_pointers(Path(cast("str", args.evidence_dir)))
+    runs = runner.run_timings
+    models = tuple(runner.model_timings[entry.label] for entry in entries)
+    banks = sum(1 for pointer in runner.pointers if pointer.kind == "replay")
+    pairs_per_model = len(runner.scenarios) * len(runner.trackers)
+    projection = project_study(models, runs, pairs_per_model=pairs_per_model, completed_models=len(entries))
+    wall = time.perf_counter() - started
+    own, children = peak_rss_bytes()
+    estimate = (
+        f"Measured {len(models)} of {projection.models} models and {banks} replay bank(s) in {_hours(wall)} on "
+        f"{pairs_per_model} pairs per model. Scaling those means to the whole study projects "
+        f"{_hours(projection.total_seconds)} of serial simulation and about {_gib(projection.storage_bytes)} of "
+        f"run data for {projection.total_runs:,} runs, beside the 2026-09-15 planning estimate of about 13 h and "
+        f"26-27 GB rescaled on 2026-09-17 for the revised replay count. Bounded parallel execution reduces "
+        f"elapsed time and not storage. This is a projection from a subset, not a guaranteed bound, and "
+        f"M3MAN-010 waits for the owner's budget approval."
+    )
+    report = ManualTimingReport(
+        experiment=EXPERIMENT_LABEL,
+        study_manifest_sha256=sha256_file(Path(cast("str", args.study))),
+        evaluation_sha256=sha256_file(Path(cast("str", args.evaluation))),
+        entries=tuple(entry.label for entry in entries),
+        execution=prepared.execution,
+        models=models,
+        runs=runs,
+        run_stats=summarize_timings(runs),
+        runs_this_invocation=len(runs),
+        replay_banks_built=banks,
+        wall_seconds=wall,
+        peak_rss_bytes=own,
+        peak_rss_children_bytes=children,
+        storage_bytes=sum(run.run_bytes for run in runs) + runner.manifest_bytes,
+        projection=projection,
+        revised_estimate=estimate,
+        provenance=runner.provenance,
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(timing_to_json(report) + "\n", encoding="utf-8")
+    markdown.write_text(render_timing_markdown(report), encoding="utf-8")
+    print(
+        json.dumps(
+            {
+                "models": len(models),
+                "runs": len(runs),
+                "replay_banks": banks,
+                "wall_seconds": round(wall, 1),
+                "projected_total_hours": round(projection.total_seconds / 3600.0, 2),
+                "projected_storage_gib": round(projection.storage_bytes / 2**30, 1),
+                "pointers_written": len(written),
+                "output": str(output),
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
+def main(argv: Sequence[str] | None = None) -> int:
+    """Command-line entry point."""
+    argv = list(sys.argv[1:] if argv is None else argv)
+    parser = argparse.ArgumentParser(description="Timing smoke check of the manual-demonstration study.")
+    subparsers = parser.add_subparsers(dest="subcommand", required=True)
+    smoke = subparsers.add_parser("smoke", help="measure a deterministic subset and project the whole study")
+    smoke.add_argument("--study", type=str, required=True, help="frozen study manifest JSON")
+    smoke.add_argument("--evaluation", type=str, required=True, help="manual evaluation config TOML")
+    smoke.add_argument("--evidence-dir", type=str, required=True, help="directory of the Git pointer records")
+    smoke.add_argument("--output", type=str, required=True, help="timing report JSON to write (must not exist)")
+    smoke.add_argument("--markdown", type=str, required=True, help="timing Markdown to write (must not exist)")
+    smoke.add_argument(
+        "--models", type=int, default=3, help="models to measure, taken by position from the frozen study"
+    )
+    smoke.add_argument("--entries", type=str, nargs="*", default=None, help="measure these labels instead")
+    smoke.add_argument("--exploratory", action="store_true", help="allow a dirty worktree")
+    args = parser.parse_args(argv)
+    args.argv = argv
+    return _smoke(args)
+
+
+if __name__ == "__main__":  # pragma: no cover - exercised through main()
+    sys.exit(main())

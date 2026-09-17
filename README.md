@@ -231,6 +231,24 @@ the store, and the command leaves a Git pointer to each manifest it produced or
 served. `--workers N` evaluates N models at once in worker processes that
 inherit the pinned environment and run one numerical thread each; a worker's
 runs belong to the study only while its execution identity equals the parent's.
+`scripts/smoke_manual_timing.py smoke --study … --evaluation … --evidence-dir …
+--output … --markdown … [--models N] [--entries …] [--exploratory]` measures what
+the full study will cost before it is executed. It evaluates a deterministic
+subset through the same path the full execution uses, so what it reports is what
+that execution will do, and takes the subset by position from the frozen study
+rather than by a configuration's name: the six inherited configurations exist to
+avoid selecting after seeing results, and their historical feasibility labels are
+not known to predict performance on manual data. The report records each run's
+simulate and persist time, its rows and stored bytes, each model's fit with
+whether the cache served it, the peak resident memory of this process and of its
+worker children, and the projection: 186 models and 60 replay banks (one per
+parent per configuration) over the configured pairs, which is 24,180 RC runs
+beside 7,800 replay runs at 65 scenarios and two trackers. The projection
+multiplies maximum counts by means measured on a subset, so it is an estimate and
+not a bound, and the report says so beside the numbers and next to the earlier
+planning estimate. Timings are wall-clock in the canonical single-threaded
+environment; bounded parallel execution reduces elapsed time and not storage. An
+existing report is never overwritten.
 
 ## Requirements
 
