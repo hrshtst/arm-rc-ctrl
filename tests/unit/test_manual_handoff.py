@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import dataclasses
 import json
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -43,6 +43,7 @@ from arm_rc_ctrl.provenance import sha256_file
 from arm_rc_ctrl.repo import repository_root
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
     from pathlib import Path
 
     from arm_rc_ctrl.experiments.manual_handoff import HandoffInputs
@@ -294,3 +295,72 @@ def test_an_ordering_frozen_against_other_inputs_is_refused(tmp_path: Path, caps
     path.write_text(json.dumps(tampered, sort_keys=True) + "\n", encoding="utf-8")
     with pytest.raises(ValueError, match="inputs"):
         _freeze("representative_rule", tmp_path)
+
+
+# --- a dependent freeze cites only the ordering the trusted inputs produce -------------------------
+
+
+def _rewrite_ordering(docs: Path, change: Callable[[dict[str, Any]], None]) -> RunOrdering:
+    """Alter the frozen ordering in place, keep it self-consistent, and return it as it now loads."""
+    path = docs / "run_ordering_v1.json"
+    data = cast("dict[str, Any]", json.loads(path.read_text(encoding="utf-8")))
+    change(data)
+    path.write_text(json.dumps(data, sort_keys=True) + "\n", encoding="utf-8")
+    return load_handoff(path, RunOrdering)
+
+
+def _reverse_non_nominal_scenarios(data: dict[str, Any]) -> None:
+    scenarios = cast("list[str]", data["scenarios"])
+    data["scenarios"] = [scenarios[0], *reversed(scenarios[1:])]
+
+
+@pytest.mark.parametrize("artifact", ["representative_rule", "resimulation_subset"])
+def test_a_reordered_ordering_is_refused_before_a_dependent_freeze(
+    artifact: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Owner review 2026-09-18: bindings intact, scenario order reversed, and the freeze still went ahead.
+
+    The dependent freeze checked only the ordering's input digests, then cited
+    that file's digest while taking its scenarios from the configuration -- so
+    the subset chose ``posture-small-20261201-00`` while the ordering it cited
+    put ``posture-small-20261205-03`` first. The loaded ordering is now compared
+    whole with the one the trusted inputs produce.
+    """
+    assert _freeze("run_ordering", tmp_path) == 0
+    capsys.readouterr()
+    tampered = _rewrite_ordering(tmp_path, _reverse_non_nominal_scenarios)
+    assert tampered.inputs == handoff_inputs(STUDY, EVALUATION, SCHEMA_V2), "the bindings are intact"
+    with pytest.raises(ValueError, match="does not match"):
+        _freeze(artifact, tmp_path)
+    assert not (tmp_path / f"{artifact}_v1.json").exists(), "nothing is written for a refused ordering"
+
+
+def _reverse_models(data: dict[str, Any]) -> None:
+    data["models"] = list(reversed(cast("list[str]", data["models"])))
+
+
+def _swap_trackers(data: dict[str, Any]) -> None:
+    data["trackers"] = list(reversed(cast("list[str]", data["trackers"])))
+
+
+def _shift_a_bank_cutoff(data: dict[str, Any]) -> None:
+    banks = cast("list[dict[str, Any]]", data["replay_banks"])
+    banks[0]["velocity_cutoff_hz"] = cast("float", banks[0]["velocity_cutoff_hz"]) + 1.0
+
+
+def _reword_the_expansion(data: dict[str, Any]) -> None:
+    data["expansion"] = cast("str", data["expansion"]) + " Reworded."
+
+
+@pytest.mark.parametrize(
+    "change", [_reverse_models, _swap_trackers, _shift_a_bank_cutoff, _reword_the_expansion], ids=lambda f: f.__name__
+)
+def test_any_disagreement_with_the_trusted_ordering_is_refused(
+    change: Callable[[dict[str, Any]], None], tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Every field is compared, not only the ones this freeze happens to read."""
+    assert _freeze("run_ordering", tmp_path) == 0
+    capsys.readouterr()
+    _rewrite_ordering(tmp_path, change)
+    with pytest.raises(ValueError, match="does not match"):
+        _freeze("resimulation_subset", tmp_path)

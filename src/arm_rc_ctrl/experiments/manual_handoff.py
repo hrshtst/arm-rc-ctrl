@@ -28,7 +28,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, cast
 
@@ -737,14 +737,26 @@ def render_handoff_markdown(record: RunOrdering | RepresentativeRule | Resimulat
 _ARTIFACTS: Final = tuple(HANDOFF_VERSIONS)
 
 
-def _bound_ordering(docs: Path, kind: str, inputs: HandoffInputs) -> str:
-    """The digest of the frozen ordering a later freeze binds, refusing one frozen against other inputs."""
+def _bound_ordering(docs: Path, kind: str, trusted: RunOrdering) -> str:
+    """The digest of the frozen ordering a later freeze cites, refusing any that is not the trusted one.
+
+    Checking only the ordering's input digests let an ordering reordered under
+    intact bindings through: the dependent freeze then cited that file while
+    taking its scenarios from the configuration, so what it cited and what it
+    used could disagree. The loaded ordering is compared field by field with the
+    one the trusted inputs produce, and every field that differs is named.
+    """
     ordering_file = docs / f"run_ordering_v{RUN_ORDERING_VERSION}.json"
     if not ordering_file.exists():
         msg = f"{ordering_file.name} must be frozen first: the {kind} orders its scenarios by it"
         raise FileNotFoundError(msg)
-    if load_handoff(ordering_file, RunOrdering).inputs != inputs:
-        msg = f"{ordering_file.name} was frozen against other inputs than this {kind}"
+    loaded = load_handoff(ordering_file, RunOrdering)
+    differing = [each.name for each in fields(RunOrdering) if getattr(loaded, each.name) != getattr(trusted, each.name)]
+    if differing:
+        msg = (
+            f"{ordering_file.name} does not match the ordering the trusted inputs produce, so the {kind} cannot cite "
+            f"it (fields that differ: {', '.join(differing)})"
+        )
         raise ValueError(msg)
     return sha256_file(ordering_file)
 
@@ -765,16 +777,19 @@ def _freeze(args: argparse.Namespace) -> int:
     manifest = load_study(study_file)
     config = load_manual_evaluation_config(evaluation_file)
     cases = evaluation_scenarios(load_development_robustness(config.development), load_manual_scenario(config.scenario))
+    # The ordering as the trusted inputs produce it: frozen as it is, or the reference a dependent
+    # freeze compares the committed ordering against before it may cite that ordering.
+    trusted = run_ordering(
+        manifest, scenarios=[case.scenario_id for case in cases], trackers=RECOVERY_TRACKERS, inputs=inputs
+    )
     record: RunOrdering | RepresentativeRule | ResimulationFreeze
     if kind == "run_ordering":
-        record = run_ordering(
-            manifest, scenarios=[case.scenario_id for case in cases], trackers=RECOVERY_TRACKERS, inputs=inputs
-        )
+        record = trusted
     elif kind == "representative_rule":
-        digest = _bound_ordering(docs, kind, inputs)
+        digest = _bound_ordering(docs, kind, trusted)
         record = representative_rule(manifest, trackers=RECOVERY_TRACKERS, inputs=inputs, ordering_sha256=digest)
     else:
-        digest = _bound_ordering(docs, kind, inputs)
+        digest = _bound_ordering(docs, kind, trusted)
         record = resimulation_freeze(
             manifest, cases=cases, trackers=RECOVERY_TRACKERS, inputs=inputs, ordering_sha256=digest
         )
