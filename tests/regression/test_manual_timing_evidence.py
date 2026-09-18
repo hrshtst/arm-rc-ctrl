@@ -3,18 +3,24 @@
 
 """M3MAN-009: the committed timing evidence of the manual-demonstration study, pinned.
 
-Three reports are committed and each answers a different question. The measured
-serial check is the measurement of record: the authorized nominal subset, run
-once, serially. Its projection is wrong -- it scaled the scenarios the
-invocation had been restricted to rather than the locked protocol it was
-estimating -- so the corrected derivative recomputes that one figure from the
-same measurement and names the report it came from by digest. The four-worker
-benchmark is the authorized parallel measurement, whose projection was already
-right because it ran after that defect was fixed.
+Four reports are committed: two measurements and a derivative of each. The
+measurements are the authorized nominal subset -- 24 models over six replay
+banks, one scenario, two trackers -- run once serially and once under four
+workers. Both are left exactly as they were written, wrong computed figures and
+all, because a measurement is a record of what happened.
 
-What is pinned here is that the derivative changed nothing except what was
-computed, and that both measurements are the sanctioned shape: 24 models over
-six replay banks, one nominal scenario, two trackers, 48 RC and 12 replay runs.
+Each derivative recomputes only what was CALCULATED from its measurement, and
+names the report it came from by digest. The serial report scaled the scenarios
+its invocation had been restricted to rather than the locked protocol it was
+estimating, so it projected 492 runs. Both reports also credited their 24
+restricted-sweep models as completed work of the full study, deducting time the
+study cannot skip.
+
+What is pinned here is that a derivative changed nothing except what was
+computed, that both measurements are the sanctioned shape (48 RC and 12 replay
+runs), and that a derivative credits NOTHING as already complete: a restricted
+sweep keys its evidence to a protocol the full study never runs, so its
+remaining time is the whole of its total.
 
 The benchmark's pointers live in ``benchmark_evidence/``, not ``evidence/``.
 A pointer's filename is built from the model label alone, so a later full-study
@@ -52,6 +58,8 @@ CORRECTED = DOCS / "timing_smoke_check_v1_corrected.json"
 CORRECTED_MD = DOCS / "timing_smoke_check_v1_corrected.md"
 PARALLEL = DOCS / "timing_smoke_check_workers4_v1.json"
 PARALLEL_MD = DOCS / "timing_smoke_check_workers4_v1.md"
+PARALLEL_CORRECTED = DOCS / "timing_smoke_check_workers4_v1_corrected.json"
+PARALLEL_CORRECTED_MD = DOCS / "timing_smoke_check_workers4_v1_corrected.md"
 POINTERS = DOCS / "benchmark_evidence"
 MANIFEST = DOCS / "study_manifest_v1.json"
 EVALUATION = REPO_ROOT / "configs" / "evaluations" / "task_1a_manual_dev_v1.toml"
@@ -96,14 +104,15 @@ def test_the_serial_check_ran_serially_and_the_benchmark_under_four_workers() ->
     assert load_timing(PARALLEL).workers == 4
 
 
-def test_the_derivative_recomputes_the_projection_and_nothing_else() -> None:
+@pytest.mark.parametrize(("source", "derived"), [(MEASURED, CORRECTED), (PARALLEL, PARALLEL_CORRECTED)])
+def test_the_derivative_recomputes_the_projection_and_nothing_else(source: object, derived: object) -> None:
     """Every measured figure is carried across unchanged; only what was calculated from them differs."""
-    measured, corrected = load_timing(MEASURED), load_timing(CORRECTED)
+    measured, corrected = load_timing(source), load_timing(derived)  # type: ignore[arg-type]
     assert measured.schema_version == 1, "the original stays readable under the schema it was written in"
     assert corrected.schema_version == 2
     derivation = corrected.derivation
     assert derivation is not None
-    assert derivation.derived_from_sha256 == sha256_file(MEASURED)
+    assert derivation.derived_from_sha256 == sha256_file(source)  # type: ignore[arg-type]
     assert not derivation.derivation_dirty, "committed evidence is derived from a clean worktree"
     assert corrected.runs == measured.runs
     assert corrected.models == measured.models
@@ -114,20 +123,46 @@ def test_the_derivative_recomputes_the_projection_and_nothing_else() -> None:
     assert corrected.provenance == measured.provenance
 
 
-def test_the_corrected_projection_is_of_the_locked_study() -> None:
+@pytest.mark.parametrize("path", [CORRECTED, PARALLEL_CORRECTED])
+def test_the_corrected_projection_is_of_the_locked_study(path: object) -> None:
     """65 locked scenarios under two trackers, over every model and bank of the frozen study."""
-    corrected = load_timing(CORRECTED)
+    corrected = load_timing(path)  # type: ignore[arg-type]
     assert corrected.projection.pairs_per_model == 130
     assert corrected.projection.models == 186
     assert corrected.projection.replay_banks == 60
     assert corrected.projection.rc_runs == 24_180
     assert corrected.projection.replay_runs == 7_800
     assert corrected.projection.total_runs == 31_980
+
+
+@pytest.mark.parametrize("path", [CORRECTED, PARALLEL_CORRECTED])
+def test_a_derivative_credits_nothing_as_already_complete(path: object) -> None:
+    """The finding this lock exists to catch: credit for work the full study cannot reuse.
+
+    Both measurements evaluated 24 models over ONE scenario, and both were
+    credited as 24 models of the full 130-pair protocol -- 1.20 h deducted from
+    the parallel report and a remaining figure the study could not realise.
+    Completion credit is derived from the evidence now, so a restricted sweep
+    credits nothing and its remaining time is its whole total.
+    """
+    projection = load_timing(path).projection  # type: ignore[arg-type]
+    assert projection.completed_models == 0
+    assert projection.remaining_seconds == projection.total_seconds
+
+
+def test_the_serial_measurement_kept_the_defect_its_derivative_corrects() -> None:
+    """The measurement of record is left as written, wrong projection and all."""
     assert load_timing(MEASURED).projection.total_runs == 492, "the defect the derivative corrects"
 
 
 @pytest.mark.parametrize(
-    ("path", "markdown"), [(MEASURED, MEASURED_MD), (CORRECTED, CORRECTED_MD), (PARALLEL, PARALLEL_MD)]
+    ("path", "markdown"),
+    [
+        (MEASURED, MEASURED_MD),
+        (CORRECTED, CORRECTED_MD),
+        (PARALLEL, PARALLEL_MD),
+        (PARALLEL_CORRECTED, PARALLEL_CORRECTED_MD),
+    ],
 )
 def test_every_rendering_matches_the_report_it_renders(path: object, markdown: object) -> None:
     """The committed Markdown is generated, never edited by hand."""

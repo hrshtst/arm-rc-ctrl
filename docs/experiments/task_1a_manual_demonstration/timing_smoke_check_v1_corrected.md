@@ -2,7 +2,7 @@
 
 Experiment `task_1a_manual_v1`, study manifest sha256 `b07b824c362a`, evaluation config sha256 `8780be5bac7f`, execution identity `a7f034c7aef4` (canonical), project commit `f25ba5534dcc`.
 
-Derived from the report with sha256 `f021302b673d` by code revision `48b3fd4397b7` at 2026-09-18T08:53:49+00:00. Reason: the original projected the subset it measured rather than the locked study it was estimating. No measurement was re-run; every measured figure below is the original's.
+Derived from the report with sha256 `f021302b673d` by code revision `4503e4aade28` at 2026-09-18T10:59:00+00:00. Reason: the original projected the subset it measured rather than the locked study it was estimating. No measurement was re-run; every measured figure below is the original's.
 
 ## Measured cost
 
@@ -51,7 +51,7 @@ Derived from the report with sha256 `f021302b673d` by code revision `48b3fd4397b
 - 6 configurations x 10 parents = 60 replay banks x 130 pairs = 7,800 replay runs at 1.42 s each.
 - 31,980 runs in total; fits 0.05 h.
 - Projected total: 12.32 h; storage about 20.9 GiB.
-- Already complete after this check: 24 model(s); remaining about 11.12 h.
+- Already complete after this check: 0 model(s); remaining about 12.32 h.
 
 ## Revised estimate
 
