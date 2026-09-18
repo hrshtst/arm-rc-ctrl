@@ -22,13 +22,17 @@ from arm_rc_ctrl.experiments.manual_evaluation import ManualModelTiming, ManualR
 from arm_rc_ctrl.experiments.manual_study import EXPERIMENT_LABEL
 from arm_rc_ctrl.experiments.manual_timing import (
     ManualTimingReport,
+    TimingDerivation,
     load_timing,
+    main,
     peak_rss_bytes,
     project_study,
     render_timing_markdown,
     summarize_timings,
     timing_to_json,
 )
+from arm_rc_ctrl.provenance import sha256_file
+from arm_rc_ctrl.repo import repository_root
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -37,6 +41,19 @@ if TYPE_CHECKING:
 
 PAIRS_PER_MODEL = 130
 DIGEST = "a" * 64
+EVALUATION = repository_root() / "configs" / "evaluations" / "task_1a_manual_dev_v1.toml"
+"""The real locked protocol: what a derivative must re-derive 65 x 2 = 130 pairs from."""
+
+
+def _derivation() -> TimingDerivation:
+    """A derivation record, for the cases that check where one may appear."""
+    return TimingDerivation(
+        derived_from_sha256=DIGEST,
+        derivation_commit="b" * 40,
+        derivation_dirty=False,
+        derived_at="2026-09-18T00:00:00+00:00",
+        reason="the original projected the subset it measured rather than the study it estimated",
+    )
 
 
 def _runs() -> tuple[ManualRunTiming, ...]:
@@ -197,3 +214,94 @@ def test_the_worker_count_survives_the_round_trip(manual_fixture: ManualFixture,
     path.write_text(timing_to_json(report) + "\n", encoding="utf-8")
     assert json.loads(path.read_text(encoding="utf-8"))["workers"] == 4
     assert load_timing(path).workers == 4
+
+
+# --- the corrected derivative (schema v2) -------------------------------------------------------
+
+
+def test_a_version_one_report_still_loads(manual_fixture: ManualFixture, tmp_path: Path) -> None:
+    """Raising the schema must not strand the reports already written under version 1."""
+    path = tmp_path / "timing.json"
+    path.write_text(timing_to_json(_report(manual_fixture, schema_version=1)) + "\n", encoding="utf-8")
+    rebuilt = load_timing(path)
+    assert rebuilt.schema_version == 1
+    assert rebuilt.derivation is None
+
+
+def test_a_derivation_belongs_to_the_schema_that_defines_it(manual_fixture: ManualFixture) -> None:
+    """A version 1 record cannot carry a field version 1 never had."""
+    derived_from = _derivation()
+    with pytest.raises(ValueError, match="derivation"):
+        _report(manual_fixture, schema_version=1, derivation=derived_from)
+
+
+def test_the_derivative_corrects_the_projection_and_names_its_source(
+    manual_fixture: ManualFixture, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The measurement is carried over untouched; only what was computed from it is recomputed.
+
+    The original serial benchmark projected the study it had been restricted
+    to rather than the study it was estimating, so its own projection block is
+    wrong while every figure it measured is sound. A derivative re-derives the
+    locked pair count from the evaluation configuration -- 65 cases under two
+    trackers -- rather than trusting either the original or a constant here.
+    """
+    runs = _runs()
+    original = _report(
+        manual_fixture,
+        schema_version=1,
+        evaluation_sha256=sha256_file(EVALUATION),
+        projection=project_study(_models(), runs, pairs_per_model=2, completed_models=1),
+    )
+    source = tmp_path / "original.json"
+    source.write_text(timing_to_json(original) + "\n", encoding="utf-8")
+    assert original.projection.total_runs == (186 + 60) * 2, "the defect this derivative corrects"
+
+    argv = [
+        "derive",
+        "--from",
+        str(source),
+        "--evaluation",
+        str(EVALUATION),
+        "--output",
+        str(tmp_path / "derived.json"),
+        "--markdown",
+        str(tmp_path / "derived.md"),
+    ]
+    assert main(argv) == 0
+    capsys.readouterr()
+
+    derived = load_timing(tmp_path / "derived.json")
+    assert derived.schema_version == 2
+    assert derived.derivation is not None
+    assert derived.derivation.derived_from_sha256 == sha256_file(source)
+    assert derived.projection.pairs_per_model == PAIRS_PER_MODEL
+    assert derived.projection.total_runs == 31_980
+    # the measurement itself is preserved, which is the whole point of deriving rather than re-running
+    assert derived.runs == original.runs
+    assert derived.models == original.models
+    assert derived.wall_seconds == original.wall_seconds
+    assert derived.storage_bytes == original.storage_bytes
+    assert to_mapping(derived.execution) == to_mapping(original.execution)
+    assert to_mapping(derived.provenance) == to_mapping(original.provenance)
+
+
+def test_a_derivative_refuses_a_configuration_the_original_did_not_measure(
+    manual_fixture: ManualFixture, tmp_path: Path
+) -> None:
+    """The locked count is re-derived from a configuration, so it must be the measured one."""
+    source = tmp_path / "original.json"
+    source.write_text(timing_to_json(_report(manual_fixture, schema_version=1)) + "\n", encoding="utf-8")
+    argv = [
+        "derive",
+        "--from",
+        str(source),
+        "--evaluation",
+        str(EVALUATION),
+        "--output",
+        str(tmp_path / "derived.json"),
+        "--markdown",
+        str(tmp_path / "derived.md"),
+    ]
+    with pytest.raises(ValueError, match="evaluation"):
+        main(argv)

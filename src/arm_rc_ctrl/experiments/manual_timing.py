@@ -26,24 +26,30 @@ import resource
 import sys
 import tempfile
 import time
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from statistics import mean, median
 from typing import TYPE_CHECKING, Final, cast
 
 from arm_rc_ctrl.config import from_mapping, to_mapping
+from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
 from arm_rc_ctrl.execution import ExecutionRecord
 from arm_rc_ctrl.experiments.manual_evaluation import (
     ManualModelTiming,
     ManualRunTiming,
     ManualWorkerTimings,
     evaluate_in_parallel,
+    evaluation_scenarios,
+    load_manual_evaluation_config,
     prepare_runner,
     spawn_worker,
 )
 from arm_rc_ctrl.experiments.manual_recipes import ASSIGNMENTS
 from arm_rc_ctrl.experiments.manual_study import ARM_COUNT, CONFIGURATION_COUNT, EXPERIMENT_LABEL
-from arm_rc_ctrl.provenance import ProvenanceRecord, canonical_json, sha256_file
+from arm_rc_ctrl.experiments.perturbations import load_development_robustness
+from arm_rc_ctrl.experiments.recovery_search import RECOVERY_TRACKERS
+from arm_rc_ctrl.provenance import ProvenanceRecord, canonical_json, sha256_file, worktree_state
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.validation import is_hex
 
@@ -60,12 +66,15 @@ __all__ = [
     "BUDGET_PARENT",
     "BUDGET_SCENARIOS",
     "PARENT_COUNT",
+    "SUPPORTED_TIMING_SCHEMAS",
     "TIMING_SCHEMA_VERSION",
     "BudgetShape",
     "ManualRunStats",
     "ManualStudyProjection",
     "ManualTimingReport",
+    "TimingDerivation",
     "budget_entries",
+    "derive_timing_report",
     "load_timing",
     "main",
     "peak_rss_bytes",
@@ -78,7 +87,13 @@ __all__ = [
     "verify_measurements",
 ]
 
-TIMING_SCHEMA_VERSION: Final = 1
+TIMING_SCHEMA_VERSION: Final = 2
+"""Version 2 adds the derivation record; version 1 reports stay readable."""
+
+SUPPORTED_TIMING_SCHEMAS: Final = (1, 2)
+
+_DERIVATION_SCHEMA: Final = 2
+"""The schema that introduced the derivation record; version 1 never had one."""
 PARENT_COUNT: Final = len(ASSIGNMENTS)
 """The ten locked demonstrations; one replay bank per parent per configuration."""
 BUDGET_PARENT: Final = "D01"
@@ -357,6 +372,34 @@ def project_study(
 
 
 @dataclass(frozen=True)
+class TimingDerivation:
+    """Where a corrected report came from, kept apart from the measurement it re-uses.
+
+    A derivative re-computes what was calculated from a measurement without
+    re-running it, so the original's provenance stays exactly as recorded and
+    this says, separately, which code recomputed it and from which file.
+    """
+
+    derived_from_sha256: str
+    derivation_commit: str
+    derivation_dirty: bool
+    derived_at: str
+    reason: str
+
+    def __post_init__(self) -> None:
+        """The source is named by digest and the deriving revision by commit."""
+        if not is_hex(self.derived_from_sha256, _SHA256_HEX):
+            msg = f"derived_from_sha256 must be 64 lowercase hex characters, got {self.derived_from_sha256!r}"
+            raise ValueError(msg)
+        if not is_hex(self.derivation_commit, 40):
+            msg = f"derivation_commit must be a 40-hex commit, got {self.derivation_commit!r}"
+            raise ValueError(msg)
+        if not self.reason.strip():
+            msg = "a derivation states why it was made"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
 class ManualTimingReport:
     """The committed evidence of one timing smoke check."""
 
@@ -382,11 +425,18 @@ class ManualTimingReport:
     revised_estimate: str
     provenance: ProvenanceRecord
     schema_version: int = field(default=TIMING_SCHEMA_VERSION)
+    derivation: TimingDerivation | None = None
+    """Set only on a report recomputed from another; a measured report has none."""
 
     def __post_init__(self) -> None:
         """The report is internally consistent and states what it was written to state."""
-        if self.schema_version != TIMING_SCHEMA_VERSION or self.experiment != EXPERIMENT_LABEL:
+        if self.schema_version not in SUPPORTED_TIMING_SCHEMAS or self.experiment != EXPERIMENT_LABEL:
             msg = f"unsupported timing schema {self.schema_version} or experiment {self.experiment!r}"
+            raise ValueError(msg)
+        if self.derivation is not None and self.schema_version < _DERIVATION_SCHEMA:
+            msg = (
+                f"a derivation is a schema {_DERIVATION_SCHEMA} record; this report states schema {self.schema_version}"
+            )
             raise ValueError(msg)
         for name in ("study_manifest_sha256", "evaluation_sha256"):
             value = getattr(self, name)
@@ -417,6 +467,105 @@ def load_timing(path: Path) -> ManualTimingReport:
     return from_mapping(cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8"))), ManualTimingReport)
 
 
+DEFAULT_DERIVATION_REASON: Final = (
+    "the original projected the subset it measured rather than the locked study it was estimating"
+)
+
+
+def derive_timing_report(
+    original: ManualTimingReport,
+    *,
+    source_sha256: str,
+    evaluation_file: Path,
+    root: Path,
+    now: datetime,
+    reason: str = DEFAULT_DERIVATION_REASON,
+) -> ManualTimingReport:
+    """Recompute what was calculated from a measurement, carrying the measurement itself across untouched.
+
+    The serial benchmark measured soundly and projected wrongly: its pair count
+    followed the scenarios it had been restricted to rather than the locked
+    protocol it was estimating. Re-running it to fix that would discard a valid
+    measurement and cost the runs again, so the projection is recomputed here
+    instead, from the locked case count re-derived from the configuration that
+    was actually measured -- never from a constant written down beside it.
+    """
+    measured = sha256_file(evaluation_file)
+    if measured != original.evaluation_sha256:
+        msg = (
+            f"this evaluation configuration is not the one that was measured: {measured[:12]} against the "
+            f"report's {original.evaluation_sha256[:12]}"
+        )
+        raise ValueError(msg)
+    config = load_manual_evaluation_config(evaluation_file)
+    cases = evaluation_scenarios(load_development_robustness(config.development), load_manual_scenario(config.scenario))
+    pairs_per_model = len(cases) * len(RECOVERY_TRACKERS)
+    projection = project_study(
+        original.models,
+        original.runs,
+        pairs_per_model=pairs_per_model,
+        completed_models=len(original.entries),
+    )
+    commit, dirty = worktree_state(root)
+    estimate = (
+        f"Derived, not re-run: every measured figure here is the original's. The locked protocol is "
+        f"{len(cases)} scenarios under {len(RECOVERY_TRACKERS)} trackers, so the study is "
+        f"{projection.total_runs:,} runs, projecting {_hours(projection.total_seconds)} of serial simulation "
+        f"and about {_gib(projection.storage_bytes)} of run data from the means this measurement established. "
+        f"This is a projection from a subset, not a guaranteed bound, and M3MAN-010 waits for the owner's "
+        f"budget approval."
+    )
+    return replace(
+        original,
+        projection=projection,
+        revised_estimate=estimate,
+        schema_version=TIMING_SCHEMA_VERSION,
+        derivation=TimingDerivation(
+            derived_from_sha256=source_sha256,
+            derivation_commit=commit,
+            derivation_dirty=dirty,
+            derived_at=now.astimezone(UTC).isoformat(timespec="seconds"),
+            reason=reason,
+        ),
+    )
+
+
+def _derive(args: argparse.Namespace) -> int:
+    """Write the corrected derivative of a measured report."""
+    output, markdown = Path(cast("str", args.output)), Path(cast("str", args.markdown))
+    for target in (output, markdown):
+        if target.exists():
+            msg = f"refusing to overwrite {target}"
+            raise FileExistsError(msg)
+    source = Path(cast("str", args.source))
+    derived = derive_timing_report(
+        load_timing(source),
+        source_sha256=sha256_file(source),
+        evaluation_file=Path(cast("str", args.evaluation)),
+        root=repository_root(),
+        now=datetime.now(tz=UTC),
+        reason=cast("str", args.reason),
+    )
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_text(timing_to_json(derived) + "\n", encoding="utf-8")
+    markdown.write_text(render_timing_markdown(derived), encoding="utf-8")
+    print(
+        json.dumps(
+            {
+                "derived_from": str(source),
+                "derived_from_sha256": sha256_file(source),
+                "pairs_per_model": derived.projection.pairs_per_model,
+                "total_runs": derived.projection.total_runs,
+                "projected_total_hours": round(derived.projection.total_seconds / 3600.0, 2),
+                "projected_storage_gib": round(derived.projection.storage_bytes / 2**30, 2),
+                "output": str(output),
+            },
+            indent=2,
+        )
+    )
+    return 0
+
+
 def _hours(seconds: float) -> str:
     return f"{seconds / 3600.0:.2f} h"
 
@@ -441,6 +590,21 @@ def render_timing_markdown(report: ManualTimingReport) -> str:
             f"`{report.execution.identity[:12]}` "
             f"({'canonical' if report.execution.canonical else 'NOT canonical'}), project commit "
             f"`{report.provenance.project_commit[:12]}`{' (dirty)' if report.provenance.project_dirty else ''}."
+        ),
+        *(
+            [
+                "",
+                (
+                    f"Derived from the report with sha256 "
+                    f"`{report.derivation.derived_from_sha256[:12]}` by code revision "
+                    f"`{report.derivation.derivation_commit[:12]}`"
+                    f"{' (dirty)' if report.derivation.derivation_dirty else ''} at "
+                    f"{report.derivation.derived_at}. Reason: {report.derivation.reason}. "
+                    f"No measurement was re-run; every measured figure below is the original's."
+                ),
+            ]
+            if report.derivation is not None
+            else []
         ),
         "",
         "## Measured cost",
@@ -777,9 +941,17 @@ def main(argv: Sequence[str] | None = None) -> int:
         "--workers", type=int, default=1, help="models measured at once in worker processes (1 is serial)"
     )
     smoke.add_argument("--exploratory", action="store_true", help="allow a dirty worktree")
+    derive = subparsers.add_parser(
+        "derive", help="recompute a measured report's projection without re-running the measurement"
+    )
+    derive.add_argument("--from", dest="source", type=str, required=True, help="the measured report JSON")
+    derive.add_argument("--evaluation", type=str, required=True, help="the evaluation config that report measured")
+    derive.add_argument("--output", type=str, required=True, help="derived report JSON (must not exist)")
+    derive.add_argument("--markdown", type=str, required=True, help="derived Markdown (must not exist)")
+    derive.add_argument("--reason", type=str, default=DEFAULT_DERIVATION_REASON, help="why this derivation was made")
     args = parser.parse_args(argv)
     args.argv = argv
-    return _smoke(args)
+    return _derive(args) if args.subcommand == "derive" else _smoke(args)
 
 
 if __name__ == "__main__":  # pragma: no cover - exercised through main()
