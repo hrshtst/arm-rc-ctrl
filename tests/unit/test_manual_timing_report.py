@@ -110,7 +110,7 @@ def _report(f: ManualFixture, **overrides: object) -> ManualTimingReport:
         "peak_rss_bytes": 277_340_160,
         "peak_rss_children_bytes": 277_340_160,
         "storage_bytes": 220_000,
-        "projection": project_study(_models(), runs, pairs_per_model=PAIRS_PER_MODEL, completed_models=1),
+        "projection": project_study(_models(), runs, pairs_per_model=PAIRS_PER_MODEL),
         "revised_estimate": "Measured here and scaled to the whole study; an estimate, not a bound.",
         "provenance": f.provenance,
     }
@@ -251,7 +251,7 @@ def test_the_derivative_corrects_the_projection_and_names_its_source(
         manual_fixture,
         schema_version=1,
         evaluation_sha256=sha256_file(EVALUATION),
-        projection=project_study(_models(), runs, pairs_per_model=2, completed_models=1),
+        projection=project_study(_models(), runs, pairs_per_model=2),
     )
     source = tmp_path / "original.json"
     source.write_text(timing_to_json(original) + "\n", encoding="utf-8")

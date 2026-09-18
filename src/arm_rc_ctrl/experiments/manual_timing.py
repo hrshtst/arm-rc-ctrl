@@ -322,7 +322,6 @@ def project_study(
     runs: Sequence[ManualRunTiming],
     *,
     pairs_per_model: int,
-    completed_models: int,
     configurations: int = CONFIGURATION_COUNT,
     arms: int = ARM_COUNT,
     parents: int = PARENT_COUNT,
@@ -330,11 +329,15 @@ def project_study(
     """Project the whole study from the per-run and per-fit means measured here.
 
     An arm this invocation did not measure contributes nothing rather than
-    dividing by zero, and what the invocation already completed is taken off
-    the remaining estimate, so a resumed full run is not quoted its cost twice.
+    dividing by zero. Completion credit is DERIVED from the evidence rather than
+    asserted by the caller: a model counts as complete only when its measured runs
+    cover the whole protocol being projected. A restricted sweep keys its evidence
+    to a protocol the study never runs, so it leaves the study nothing to skip --
+    crediting its models once deducted 1.20 h and reported a remaining figure the
+    study could not realise.
     """
-    if pairs_per_model < 0 or completed_models < 0:
-        msg = f"pairs_per_model and completed_models are non-negative, got {pairs_per_model} and {completed_models}"
+    if pairs_per_model < 0:
+        msg = f"pairs_per_model is non-negative, got {pairs_per_model}"
         raise ValueError(msg)
     rc = [run for run in runs if run.arm == "rc"]
     replay = [run for run in runs if run.arm == "replay"]
@@ -343,6 +346,7 @@ def project_study(
     rc_bytes = float(mean(run.run_bytes for run in rc)) if rc else 0.0
     replay_bytes = float(mean(run.run_bytes for run in replay)) if replay else 0.0
     fit_per_model = float(mean(model.fit_seconds for model in models)) if models else 0.0
+    completed_models = sum(1 for model in models if model.runs >= pairs_per_model)
     unmeasured = tuple(arm for arm, measured in (("rc", rc), ("replay", replay)) if not measured)
     total_models = configurations * arms
     replay_banks = configurations * parents
@@ -351,7 +355,10 @@ def project_study(
     fit_seconds = total_models * fit_per_model
     total = rc_runs * rc_seconds + replay_runs * replay_seconds + fit_seconds
     per_model = pairs_per_model * rc_seconds + fit_per_model
-    remaining = max(0.0, total - completed_models * per_model - len(replay) * replay_seconds)
+    # Replay banks are reusable only if this sweep ran the protocol being projected; under a
+    # restricted selection they are keyed to it as surely as the models are.
+    replay_credit = len(replay) * replay_seconds if completed_models else 0.0
+    remaining = max(0.0, total - completed_models * per_model - replay_credit)
     return ManualStudyProjection(
         configurations=configurations,
         arms=arms,
@@ -510,7 +517,6 @@ def derive_timing_report(
         original.models,
         original.runs,
         pairs_per_model=pairs_per_model,
-        completed_models=len(original.entries),
     )
     commit, dirty = worktree_state(root)
     estimate = (
@@ -876,7 +882,7 @@ def _smoke(args: argparse.Namespace) -> int:
     # The projection is of the whole study: execution may be restricted to one scenario, but the
     # budget being estimated covers every locked case under both trackers.
     pairs_per_model = prepared.locked_scenarios * len(runner.trackers)
-    projection = project_study(models, runs, pairs_per_model=pairs_per_model, completed_models=len(entries))
+    projection = project_study(models, runs, pairs_per_model=pairs_per_model)
     wall = time.perf_counter() - started
     own, children = peak_rss_bytes()
     estimate = (

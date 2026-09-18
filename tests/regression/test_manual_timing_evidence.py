@@ -16,6 +16,12 @@ What is pinned here is that the derivative changed nothing except what was
 computed, and that both measurements are the sanctioned shape: 24 models over
 six replay banks, one nominal scenario, two trackers, 48 RC and 12 replay runs.
 
+The benchmark's pointers live in ``benchmark_evidence/``, not ``evidence/``.
+A pointer's filename is built from the model label alone, so a later full-study
+sweep would write the same twenty-four names with different protocol identities
+and be refused by the overwrite guard. That refusal is correct and stays; what
+was wrong was benchmark evidence occupying the directory the full study needs.
+
 The committed pointers are the serial check's. Both stores hold evidence of the
 same protocol -- the model evidence identities are equal, and every one of the
 60 pairs agrees on its arrays digest -- but their run records are NOT identical
@@ -46,7 +52,7 @@ CORRECTED = DOCS / "timing_smoke_check_v1_corrected.json"
 CORRECTED_MD = DOCS / "timing_smoke_check_v1_corrected.md"
 PARALLEL = DOCS / "timing_smoke_check_workers4_v1.json"
 PARALLEL_MD = DOCS / "timing_smoke_check_workers4_v1.md"
-POINTERS = DOCS / "evidence"
+POINTERS = DOCS / "benchmark_evidence"
 MANIFEST = DOCS / "study_manifest_v1.json"
 EVALUATION = REPO_ROOT / "configs" / "evaluations" / "task_1a_manual_dev_v1.toml"
 

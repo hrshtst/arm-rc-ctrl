@@ -69,12 +69,11 @@ def _models(count: int = 2, *, fit_seconds: float = 10.0) -> tuple[ManualModelTi
     )
 
 
-def _projection(runs: Sequence[ManualRunTiming] | None = None, *, completed: int = 2) -> ManualStudyProjection:
+def _projection(runs: Sequence[ManualRunTiming] | None = None) -> ManualStudyProjection:
     return project_study(
         _models(),
         _measured() if runs is None else runs,
         pairs_per_model=PAIRS_PER_MODEL,
-        completed_models=completed,
     )
 
 
@@ -105,7 +104,7 @@ def test_the_projection_scales_the_measured_means() -> None:
 
 def test_what_this_check_already_completed_is_not_projected_again() -> None:
     """The remaining estimate is what is left to do, so a resumed full run is not quoted the whole cost."""
-    p = _projection(completed=2)
+    p = _projection()
     assert 0 < p.remaining_seconds < p.total_seconds
 
 
@@ -180,16 +179,20 @@ def test_a_projection_refuses_figures_that_contradict_its_counts(field: str, val
         ManualStudyProjection(**arguments)  # type: ignore[arg-type]
 
 
-@pytest.mark.parametrize(("pairs", "completed"), [(-1, 0), (PAIRS_PER_MODEL, -1)])
-def test_projecting_refuses_negative_inputs(pairs: int, completed: int) -> None:
-    """A negative count would silently produce a smaller estimate than the truth."""
+def test_projecting_refuses_a_negative_pair_count() -> None:
+    """A negative count would silently produce a smaller estimate than the truth.
+
+    Completion credit is no longer an input that could be negative: it is derived
+    from the evidence, because a caller asserting it once credited the study with
+    24 models that had run two pairs each.
+    """
     with pytest.raises(ValueError, match="non-negative"):
-        project_study(_models(), _measured(), pairs_per_model=pairs, completed_models=completed)
+        project_study(_models(), _measured(), pairs_per_model=-1)
 
 
 def test_a_study_with_no_measured_fit_still_projects_its_runs() -> None:
     """A check that served every fit from the cache reports no fit cost, not a division by zero."""
-    projection = project_study((), _measured(), pairs_per_model=PAIRS_PER_MODEL, completed_models=0)
+    projection = project_study((), _measured(), pairs_per_model=PAIRS_PER_MODEL)
     assert projection.fit_seconds == 0.0
     assert projection.total_seconds > 0.0
 
@@ -203,12 +206,45 @@ def test_an_unmeasured_arm_is_declared_rather_than_costed_at_zero() -> None:
     """
     replay_only = [run for run in _measured() if run.arm == "replay"]
     assert replay_only, "the fixture must still measure the other arm"
-    projection = project_study(_models(), replay_only, pairs_per_model=PAIRS_PER_MODEL, completed_models=0)
+    projection = project_study(_models(), replay_only, pairs_per_model=PAIRS_PER_MODEL)
     assert projection.rc_runs > 0, "the study still projects RC runs"
     assert "rc" in projection.unmeasured_arms, "an arm with no measurement is declared, not silently zeroed"
 
 
 def test_a_fully_measured_projection_declares_nothing_unmeasured() -> None:
     """The declaration is not decoration: with both arms measured it is empty."""
-    projection = project_study(_models(), _measured(), pairs_per_model=PAIRS_PER_MODEL, completed_models=0)
+    projection = project_study(_models(), _measured(), pairs_per_model=PAIRS_PER_MODEL)
     assert projection.unmeasured_arms == ()
+
+
+# --- completion credit comes from evidence the study can reuse ----------------------------------
+
+
+def test_a_restricted_sweep_credits_the_study_with_nothing() -> None:
+    """A model that ran part of the protocol leaves the full study nothing to skip.
+
+    The smoke check evaluates one scenario of sixty-five, under conditions whose
+    identity includes that selection, so its evidence is keyed to a protocol the
+    full study never runs. Crediting those models as complete deducted 1.20 h
+    from the estimate and reported a remaining figure the study cannot realise.
+    """
+    partial = tuple(
+        ManualModelTiming(
+            label=m.label,
+            fit_seconds=m.fit_seconds,
+            fit_cache_hit=m.fit_cache_hit,
+            sweep_seconds=m.sweep_seconds,
+            runs=2,
+        )
+        for m in _models()
+    )
+    projection = project_study(partial, _measured(), pairs_per_model=PAIRS_PER_MODEL)
+    assert projection.completed_models == 0
+    assert projection.remaining_seconds == projection.total_seconds, "nothing measured here is reusable"
+
+
+def test_a_sweep_over_the_whole_protocol_is_credited() -> None:
+    """The credit is real when the evidence covers the protocol the projection scales."""
+    projection = project_study(_models(), _measured(), pairs_per_model=PAIRS_PER_MODEL)
+    assert projection.completed_models == len(_models())
+    assert 0 < projection.remaining_seconds < projection.total_seconds
