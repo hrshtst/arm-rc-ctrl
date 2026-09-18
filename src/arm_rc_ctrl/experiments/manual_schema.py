@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Final, cast
 
 from arm_rc_ctrl.config import from_mapping, to_mapping
-from arm_rc_ctrl.experiments import manual_evaluation as records
+from arm_rc_ctrl.experiments import manual_accounting, manual_evaluation, manual_representative, manual_resimulation
 from arm_rc_ctrl.experiments.manual_study import EXPERIMENT_LABEL
 from arm_rc_ctrl.provenance import canonical_json
 
@@ -36,8 +36,10 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
 
 __all__ = [
+    "RECORDS_BY_VERSION",
     "RESULT_RECORDS",
     "RESULT_SCHEMA_VERSION",
+    "SUPPORTED_RESULT_SCHEMAS",
     "FieldSpec",
     "RecordSpec",
     "ResultSchema",
@@ -49,8 +51,12 @@ __all__ = [
     "schema_to_json",
 ]
 
-RESULT_SCHEMA_VERSION: Final = 1
-RESULT_RECORDS: Final = (
+RESULT_SCHEMA_VERSION: Final = 2
+"""Version 2 adds the six handoff records; version 1 is retained exactly as frozen."""
+
+SUPPORTED_RESULT_SCHEMAS: Final = (1, 2)
+
+_EVALUATION_RECORDS: Final = (
     "ManualRunConditions",
     "ManualEvidencePointer",
     "ManualModelEvidence",
@@ -65,8 +71,42 @@ RESULT_RECORDS: Final = (
 )
 """The evaluation evidence the sweep writes; the timing report is its own artifact."""
 
+_HANDOFF_RECORDS: Final = (
+    "ModelAccount",
+    "BankAccount",
+    "StudyAccounting",
+    "IllustrationCase",
+    "Selection",
+    "ResimulationSubset",
+)
+"""What the handoff freezes describe: the accounting lines, the illustration rule's output, and the audit sample."""
+
+RECORDS_BY_VERSION: Final[dict[int, tuple[str, ...]]] = {
+    1: _EVALUATION_RECORDS,
+    2: _EVALUATION_RECORDS + _HANDOFF_RECORDS,
+}
+"""Each frozen version's records. A version already frozen is never reordered or edited."""
+
+RESULT_RECORDS: Final = RECORDS_BY_VERSION[RESULT_SCHEMA_VERSION]
+
+_RECORD_MODULES: Final = {
+    **dict.fromkeys(_EVALUATION_RECORDS, manual_evaluation),
+    "ModelAccount": manual_accounting,
+    "BankAccount": manual_accounting,
+    "StudyAccounting": manual_accounting,
+    "IllustrationCase": manual_representative,
+    "Selection": manual_representative,
+    "ResimulationSubset": manual_resimulation,
+}
+"""A record is resolved against the module that defines it, not against one module for all of them."""
+
 _PAIRS: Final = "pairs"
 _SECONDS: Final = "s"
+_MODELS: Final = "the study's 186 models"
+_ONE_MODEL: Final = "one model's line"
+_ONE_BANK: Final = "one replay bank's line"
+_ONE_DOC: Final = "one accounting document"
+"""Denominators the handoff records aggregate over, named once so the wording cannot drift."""
 
 # (definition, unit, aggregation scope or denominator, what absence means)
 _DEFINITIONS: Final[dict[str, dict[str, tuple[str, str, str, str]]]] = {
@@ -379,6 +419,192 @@ _DEFINITIONS: Final[dict[str, dict[str, tuple[str, str, str, str]]]] = {
             "the timing rule was satisfied.",
         ),
     },
+    "ModelAccount": {
+        "label": ("Model label `<configuration>/<arm>`, as the frozen manifest names it.", "", "", ""),
+        "configuration": ("Configuration the model belongs to, one of the six frozen.", "", "", ""),
+        "arm": ("Arm within the configuration, such as `S/D01`, `M10`, `R10/D01` or `C10/D01`.", "", "", ""),
+        "present": (
+            "Whether the study holds evidence for this model. False is a recorded absence, not an error.",
+            "",
+            "",
+            "",
+        ),
+        "identity": (
+            "Evidence identity the manifest carries: the digest over the fit identity and the conditions.",
+            "",
+            "",
+            "The model has no evidence yet; `present` is false and every other stated fact is absent with it.",
+        ),
+        "fit_identity": (
+            "Cache identity of the fit this model's evidence was produced from.",
+            "",
+            "",
+            "No evidence exists for this model.",
+        ),
+        "assignment": (
+            "Parent demonstration the model is paired against, such as `D01`.",
+            "",
+            "",
+            "Either the model has no evidence, or it is the all-ten arm, which is paired against no single parent.",
+        ),
+        "status": (
+            "The manifest's verdict for the model: `feasible` when every pair completed, else `infeasible`.",
+            "",
+            "",
+            "No evidence exists for this model.",
+        ),
+        "n_pairs": (
+            "Pairs the model's evidence records. The denominator of the three counts below, which sum to it.",
+            "pairs",
+            _ONE_MODEL,
+            "",
+        ),
+        "n_completed": ("Pairs that completed and were judged successful.", "pairs", f"{_ONE_MODEL}, of `n_pairs`", ""),
+        "n_infeasible": (
+            "Pairs that ran and were judged infeasible, by the horizon, dwell, abort or saturation rules.",
+            "pairs",
+            f"{_ONE_MODEL}, of `n_pairs`",
+            "",
+        ),
+        "n_unexecuted": (
+            (
+                "Pairs the protocol names but the evidence does not record as run. A completed sweep emits "
+                "zero, because every scenario is attempted from a fresh reset and none is skipped after a "
+                "failure; an interrupted sweep's missing runs are NOT counted here, because they were never "
+                "recorded as pairs."
+            ),
+            "pairs",
+            f"{_ONE_MODEL}, of `n_pairs`",
+            "",
+        ),
+        "execution_identity": (
+            "Execution environment the model's runs were keyed in.",
+            "",
+            "",
+            "No evidence exists for this model.",
+        ),
+        "payload": (
+            "Store reference and digest of the manifest this line was read from.",
+            "",
+            "",
+            "No evidence exists for this model.",
+        ),
+    },
+    "BankAccount": {
+        "identity": ("Bank identity: the digest over the conditions and the parent.", "", "", ""),
+        "assignment": ("Parent demonstration whose direct replay this bank holds.", "", "", ""),
+        "warmup_s": (
+            "Warm-up the bank was built under; banks of one parent differ by it.",
+            "s",
+            _ONE_BANK,
+            "",
+        ),
+        "velocity_cutoff_hz": (
+            "Causal velocity cutoff replay was driven through, from the paired configuration's estimator.",
+            "Hz",
+            _ONE_BANK,
+            "",
+        ),
+        "acceleration_cutoff_hz": (
+            "Causal acceleration cutoff replay was driven through, from the same estimator.",
+            "Hz",
+            _ONE_BANK,
+            "",
+        ),
+        "n_pairs": ("Replay pairs the bank records. The denominator of the two counts below.", "pairs", _ONE_BANK, ""),
+        "n_completed": ("Replay pairs judged successful.", "pairs", f"{_ONE_BANK}, of `n_pairs`", ""),
+        "n_infeasible": ("Replay pairs judged infeasible.", "pairs", f"{_ONE_BANK}, of `n_pairs`", ""),
+        "execution_identity": ("Execution environment the bank's runs were keyed in.", "", "", ""),
+        "payload": ("Store reference and digest of the bank manifest this line was read from.", "", "", ""),
+    },
+    "StudyAccounting": {
+        "experiment": ("Experiment label the accounting belongs to.", "", "", ""),
+        "canonical_execution_identity": (
+            "The execution identity every admissible run must be keyed in, for `all_bind_canonical_execution`.",
+            "",
+            "",
+            "",
+        ),
+        "models": ("One line per study model, present or absent, in the frozen manifest order.", "", "", ""),
+        "banks": ("One line per replay bank the study produced.", "", "", ""),
+        "n_models": (
+            "Model lines the accounting carries: the study's full count, not only those with evidence.",
+            "models",
+            _MODELS,
+            "",
+        ),
+        "n_present": ("Models whose evidence exists.", "models", f"{_ONE_DOC}, of `n_models`", ""),
+        "n_missing": (
+            "Models with no evidence. Stated rather than omitted, so an incomplete study is legible as incomplete.",
+            "models",
+            f"{_ONE_DOC}, of `n_models`",
+            "",
+        ),
+        "missing": ("Labels of the models with no evidence, so the gap is named and not merely counted.", "", "", ""),
+        "statuses": (
+            "Count of present models by their recorded status, such as `feasible` or `infeasible`.",
+            "",
+            "",
+            "",
+        ),
+        "n_rc_runs": ("Model pairs summed over every present model.", "pairs", f"{_ONE_DOC}, over present models", ""),
+        "n_replay_runs": ("Replay pairs summed over every bank.", "pairs", f"{_ONE_DOC}, over banks", ""),
+        "all_bind_canonical_execution": (
+            "Whether every present model and bank is keyed in the canonical execution identity.",
+            "",
+            "",
+            "",
+        ),
+        "complete": ("Whether every study model has evidence. False while any line is absent.", "", "", ""),
+        "provenance": ("Reproducibility record of the invocation that produced the accounting.", "", "", ""),
+        "schema_version": (
+            "Version of the accounting record itself; a changed field is a version decision.",
+            "version",
+            _ONE_DOC,
+            "",
+        ),
+    },
+    "IllustrationCase": {
+        "scenario_id": ("Identifier of the scenario the report illustrates.", "", "", ""),
+        "categories": (
+            "Every category that selected this case, in the rule's declared order; a case may satisfy several.",
+            "",
+            "",
+            "",
+        ),
+        "arms": (
+            "Each comparison arm's verdict on this scenario, so the figure shows all four beside the replay baseline.",
+            "",
+            "",
+            "",
+        ),
+    },
+    "Selection": {
+        "cases": ("The cases the frozen rule chose, deduplicated, in the rule's declared order.", "", "", ""),
+        "categories": ("Scenario ids each category selected, before deduplication across categories.", "", "", ""),
+        "absent": (
+            "Categories that occurred nowhere in the results, stated so a reader sees the rule looked and found none.",
+            "",
+            "",
+            "",
+        ),
+    },
+    "ResimulationSubset": {
+        "models": ("The models the audit re-simulates, in the frozen manifest order.", "", "", ""),
+        "scenarios": (
+            "One locked scenario from each perturbation class, in the frozen class order.",
+            "",
+            "",
+            "",
+        ),
+        "trackers": ("The trackers each model and scenario is run under, in evaluation order.", "", "", ""),
+        "n_banks": (
+            "Replay banks the chosen models share: one per configuration at the fixed parent.",
+            "banks",
+            "the re-simulation sample",
+            "",
+        ),
+    },
 }
 
 
@@ -415,19 +641,25 @@ class ResultSchema:
 
     def __post_init__(self) -> None:
         """The document names the experiment and schema it belongs to."""
-        if self.schema_version != RESULT_SCHEMA_VERSION or self.experiment != EXPERIMENT_LABEL:
+        if self.schema_version not in SUPPORTED_RESULT_SCHEMAS or self.experiment != EXPERIMENT_LABEL:
             msg = f"unsupported result schema {self.schema_version} or experiment {self.experiment!r}"
             raise ValueError(msg)
-        if [record.name for record in self.records] != list(RESULT_RECORDS):
-            msg = "the schema must describe exactly the evaluation records, in their declared order"
+        if [record.name for record in self.records] != list(RECORDS_BY_VERSION[self.schema_version]):
+            msg = (
+                f"a schema {self.schema_version} document describes exactly that version's records, "
+                f"in their declared order"
+            )
             raise ValueError(msg)
 
 
-def describe_records() -> tuple[RecordSpec, ...]:
-    """Derive every record from the dataclasses, refusing any field that was never described."""
+def describe_records(version: int = RESULT_SCHEMA_VERSION) -> tuple[RecordSpec, ...]:
+    """Derive one version's records from the dataclasses, refusing any field that was never described."""
+    if version not in SUPPORTED_RESULT_SCHEMAS:
+        msg = f"unsupported result schema {version}; known versions are {SUPPORTED_RESULT_SCHEMAS}"
+        raise ValueError(msg)
     described: list[RecordSpec] = []
-    for name in RESULT_RECORDS:
-        cls = getattr(records, name)
+    for name in RECORDS_BY_VERSION[version]:
+        cls = getattr(_RECORD_MODULES[name], name)
         texts = _DEFINITIONS.get(name, {})
         specs: list[FieldSpec] = []
         for handle in dc.fields(cls):
@@ -462,9 +694,13 @@ def describe_records() -> tuple[RecordSpec, ...]:
     return tuple(described)
 
 
-def result_schema() -> ResultSchema:
-    """The schema as the code defines it now."""
-    return ResultSchema(experiment=EXPERIMENT_LABEL, schema_version=RESULT_SCHEMA_VERSION, records=describe_records())
+def result_schema(version: int = RESULT_SCHEMA_VERSION) -> ResultSchema:
+    """The schema as the code defines it, at one frozen version."""
+    return ResultSchema(
+        experiment=EXPERIMENT_LABEL,
+        schema_version=version,
+        records=describe_records(version),
+    )
 
 
 def schema_to_json(schema: ResultSchema) -> str:
@@ -514,7 +750,7 @@ def render_schema_markdown(schema: ResultSchema) -> str:
 
 def _freeze(args: argparse.Namespace) -> int:
     """Write the frozen schema and its rendering, refusing to replace a version that already exists."""
-    schema = result_schema()
+    schema = result_schema(int(cast("int", args.schema_version)))
     docs = Path(cast("str", args.docs))
     output = docs / f"result_schema_v{schema.schema_version}.json"
     markdown = docs / f"result_schema_v{schema.schema_version}.md"
@@ -549,6 +785,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="subcommand", required=True)
     freeze = subparsers.add_parser("freeze", help="write the frozen schema and its Markdown rendering")
     freeze.add_argument("--docs", type=str, required=True, help="the experiment's documentation directory")
+    freeze.add_argument(
+        "--schema-version",
+        dest="schema_version",
+        type=int,
+        default=RESULT_SCHEMA_VERSION,
+        help="the version to freeze; an already frozen version is refused rather than replaced",
+    )
     args = parser.parse_args(argv)
     return _freeze(args)
 
