@@ -22,6 +22,11 @@ import numpy as np
 from arm_rc_ctrl.controllers.tracking import TrackerConfig
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario, manual_endpoint_positions
 from arm_rc_ctrl.experiments.manual_evaluation import (
+    PHASE_BUILD_BANK,
+    PHASE_FIT,
+    PHASE_SERVE_FIT,
+    PHASE_SWEEP,
+    PHASE_VERIFY_MODEL,
     PROGRESS_FILE,
     ManualEvaluationConfig,
     ManualEvaluationRunner,
@@ -33,6 +38,7 @@ from arm_rc_ctrl.experiments.run_record import RunArrays
 from arm_rc_ctrl.experiments.termination import completed
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.scenario import joint_target
+from arm_rc_ctrl.storage import StorageRoot
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -54,7 +60,11 @@ CONFIGURATION, ARM_LABEL = "feasible-best", "S/D01"
 WARMUP_MEASURED = 0.5
 WARMUP_SERVED = 0.55
 WARMUP_UNCHANGED = 0.6
-"""A warm-up of its own per test, so each starts from a store holding no evidence of its protocol."""
+WARMUP_PHASES = 0.65
+WARMUP_SERVE_FIT = 0.7
+WARMUP_VERIFY = 0.75
+"""A warm-up of its own per test. The phase tests additionally take a store of their own, because a
+warm-up alone leaves one test able to serve another's evidence."""
 
 SCENARIOS = (
     RobustnessScenario("nominal", "nominal", (0.0, 0.0)),
@@ -136,10 +146,10 @@ def _entry(f: ManualFixture) -> StudyModel:
     return next(e for e in f.manifest.entries if (e.configuration, e.arm.label) == (CONFIGURATION, ARM_LABEL))
 
 
-def _runner(f: ManualFixture) -> ManualEvaluationRunner:
+def _runner(f: ManualFixture, store: StorageRoot | None = None) -> ManualEvaluationRunner:
     config, file = _evaluation(f)
     return ManualEvaluationRunner(
-        store=f.store,
+        store=f.store if store is None else store,
         inputs=f.inputs,
         config=config,
         evaluation_file=file,
@@ -243,3 +253,87 @@ def test_measuring_does_not_change_the_evidence_it_measures(manual_fixture: Manu
     for pair in cast("list[dict[str, object]]", document["pairs"]):
         assert set(pair) == PAIR_FIELDS, f"an unexpected field entered the evidence: {sorted(pair)}"
     assert bank.identity == runner.replay_bank("D04", warmup_s=WARMUP_UNCHANGED, replay_cutoffs=REPLAY_CUTOFFS).identity
+
+
+# --- the phases a sweep spends its time in ------------------------------------------------------
+
+
+def _isolated(f: ManualFixture, path: Path) -> ManualEvaluationRunner:
+    """A runner over a store of its own, so nothing another test produced can be served into this one."""
+    path.mkdir(parents=True)
+    return _runner(f, StorageRoot(path, repositories=(REPO_ROOT,)))
+
+
+def test_a_span_that_encloses_other_measurements_says_so(manual_fixture: ManualFixture, tmp_path: Path) -> None:
+    """Phases are only meaningful if it is stated which of them contain the others.
+
+    The sweep encloses every run it simulates, so adding the sweep to those runs
+    would count the same seconds twice. Each timing therefore declares whether it
+    is an inclusive span or a disjoint phase, and the enclosure is asserted here
+    rather than merely labelled.
+    """
+    f = manual_fixture
+    runner = _isolated(f, tmp_path / "phases")
+    runner.evaluate(_entry(f), warmup_s=WARMUP_PHASES)
+    phases = runner.phase_timings
+    assert {p.phase for p in phases} >= {PHASE_FIT, PHASE_SWEEP}
+    sweep = next(p for p in phases if p.phase == PHASE_SWEEP)
+    assert sweep.inclusive is True
+    assert next(p for p in phases if p.phase == PHASE_FIT).inclusive is False
+    enclosed = sum(t.simulate_seconds + t.persist_seconds for t in runner.run_timings)
+    assert enclosed <= sweep.seconds + 1e-6, "the sweep span contains the runs it measured"
+    assert all(p.seconds >= 0 for p in phases)
+
+
+def test_building_a_replay_bank_is_a_span_over_the_runs_it_simulates(
+    manual_fixture: ManualFixture, tmp_path: Path
+) -> None:
+    """The other enclosing span, measured the same way and for the same reason."""
+    f = manual_fixture
+    runner = _isolated(f, tmp_path / "bank")
+    runner.replay_bank("D01", warmup_s=WARMUP_PHASES, replay_cutoffs=REPLAY_CUTOFFS)
+    built = next(p for p in runner.phase_timings if p.phase == PHASE_BUILD_BANK)
+    assert built.inclusive is True
+    enclosed = sum(t.simulate_seconds + t.persist_seconds for t in runner.run_timings)
+    assert enclosed <= built.seconds + 1e-6
+
+
+def test_serving_a_cached_fit_is_measured_apart_from_the_fit_it_reports(
+    manual_fixture: ManualFixture, tmp_path: Path
+) -> None:
+    """A cache hit refits the model to verify it, and that work is nowhere in ``fit_seconds``.
+
+    ``fit_seconds`` reports what the fit originally cost, which is the contract
+    a projection scales. The refit a hit performs is real work this invocation
+    does, so it is measured as its own phase instead of being folded into a
+    number that means something else.
+    """
+    f = manual_fixture
+    entry = _entry(f)
+    first = _isolated(f, tmp_path / "fitcache")
+    first.evaluate(entry, warmup_s=WARMUP_SERVE_FIT)
+    assert not [p for p in first.phase_timings if p.phase == PHASE_SERVE_FIT], "the first fit was no cache hit"
+
+    # A different warm-up is a different protocol, so the MODEL is not served; its fit still is.
+    second = _runner(f, first.store)
+    second.evaluate(entry, warmup_s=WARMUP_SERVE_FIT + 0.01)
+    served = second.model_timings[entry.label]
+    assert served.fit_cache_hit is True
+    assert served.fit_seconds == first.model_timings[entry.label].fit_seconds
+    serving = next(p for p in second.phase_timings if p.phase == PHASE_SERVE_FIT)
+    assert serving.inclusive is False
+    assert serving.seconds > 0, "serving a cached fit refits it, and the refit is this invocation's own cost"
+
+
+def test_verifying_served_evidence_is_measured(manual_fixture: ManualFixture, tmp_path: Path) -> None:
+    """Serving a stored model re-reads and re-digests every run behind it; that is not free."""
+    f = manual_fixture
+    entry = _entry(f)
+    first = _isolated(f, tmp_path / "verify")
+    first.evaluate(entry, warmup_s=WARMUP_VERIFY)
+    second = _runner(f, first.store)
+    second.evaluate(entry, warmup_s=WARMUP_VERIFY)
+    assert second.run_timings == (), "the second invocation simulated nothing"
+    verifying = next(p for p in second.phase_timings if p.phase == PHASE_VERIFY_MODEL)
+    assert verifying.inclusive is False
+    assert verifying.seconds > 0

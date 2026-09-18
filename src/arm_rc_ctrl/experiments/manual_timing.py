@@ -37,7 +37,9 @@ from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
 from arm_rc_ctrl.execution import ExecutionRecord
 from arm_rc_ctrl.experiments.manual_evaluation import (
     ManualModelTiming,
+    ManualPhaseTiming,
     ManualRunTiming,
+    ManualWorkerSpan,
     ManualWorkerTimings,
     evaluate_in_parallel,
     evaluation_scenarios,
@@ -425,6 +427,10 @@ class ManualTimingReport:
     revised_estimate: str
     provenance: ProvenanceRecord
     schema_version: int = field(default=TIMING_SCHEMA_VERSION)
+    phases: tuple[ManualPhaseTiming, ...] = ()
+    """Every measured interval, each declaring whether it encloses others."""
+    worker_spans: tuple[ManualWorkerSpan, ...] = ()
+    """Which process each worker was and when it ran, so overlap is read rather than inferred."""
     derivation: TimingDerivation | None = None
     """Set only on a report recomputed from another; a measured report has none."""
 
@@ -691,6 +697,17 @@ def render_timing_markdown(report: ManualTimingReport) -> str:
     return "\n".join(lines)
 
 
+@dataclass(frozen=True)
+class _Measured:
+    """What a whole invocation measured, merged across this process and every worker."""
+
+    runs: tuple[ManualRunTiming, ...] = ()
+    models: tuple[ManualModelTiming, ...] = ()
+    phases: tuple[ManualPhaseTiming, ...] = ()
+    spans: tuple[ManualWorkerSpan, ...] = ()
+    manifest_bytes: int = 0
+
+
 def _evaluate_entries(
     runner: ManualEvaluationRunner,
     context: ManualStudyContext,
@@ -699,7 +716,7 @@ def _evaluate_entries(
     workers: int,
     scenarios: Sequence[str],
     args: argparse.Namespace,
-) -> ManualWorkerTimings:
+) -> _Measured:
     """Evaluate every entry, serially or through workers, and collect what each process measured.
 
     A warm-up is part of the conditions a run is keyed by, and one group is
@@ -712,16 +729,17 @@ def _evaluate_entries(
     file to leave its timings in and they are merged here. Without it the report
     counts only the replay banks this process built and prices the rest at zero.
     """
-    nothing = ManualWorkerTimings(runs=(), models=(), manifest_bytes=0)
     if workers == 1:
         for entry in entries:
             runner.evaluate(entry, warmup_s=context.inputs.configuration(entry).warmup_s)
-        return nothing
+        return _Measured()
     groups: dict[float, list[StudyModel]] = {}
     for entry in entries:
         groups.setdefault(context.inputs.configuration(entry).warmup_s, []).append(entry)
     carried_runs: list[ManualRunTiming] = []
     carried_models: list[ManualModelTiming] = []
+    carried_phases: list[ManualPhaseTiming] = []
+    carried_spans: list[ManualWorkerSpan] = []
     carried_bytes = 0
     with tempfile.TemporaryDirectory(prefix="manual-timing-") as scratch:
         directory = Path(scratch)
@@ -748,8 +766,17 @@ def _evaluate_entries(
             )
             carried_runs.extend(measured.runs)
             carried_models.extend(measured.models)
+            carried_phases.extend(measured.phases)
+            if measured.span is not None:
+                carried_spans.append(measured.span)
             carried_bytes += measured.manifest_bytes
-    return ManualWorkerTimings(runs=tuple(carried_runs), models=tuple(carried_models), manifest_bytes=carried_bytes)
+    return _Measured(
+        runs=tuple(carried_runs),
+        models=tuple(carried_models),
+        phases=tuple(carried_phases),
+        spans=tuple(carried_spans),
+        manifest_bytes=carried_bytes,
+    )
 
 
 def _check_authorized(
@@ -877,6 +904,8 @@ def _smoke(args: argparse.Namespace) -> int:
         peak_rss_bytes=own,
         peak_rss_children_bytes=children,
         storage_bytes=sum(run.run_bytes for run in runs) + runner.manifest_bytes + carried.manifest_bytes,
+        phases=runner.phase_timings + carried.phases,
+        worker_spans=carried.spans,
         projection=projection,
         revised_estimate=estimate,
         provenance=runner.provenance,

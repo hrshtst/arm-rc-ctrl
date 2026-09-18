@@ -170,3 +170,32 @@ def test_worker_run_timings_reach_the_report(
     assert report.projection.rc_run_seconds > 0.0, "RC work is never free"
     assert report.storage_bytes > 0, "the workers' run payloads count towards storage"
     assert all(model.runs > 0 for model in report.models), "a worker's sweep is not an empty one"
+
+
+def test_a_worker_reports_which_process_it_was_and_when_it_ran(
+    manual_fixture: ManualFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Overlap is a fact about processes and instants, so both are recorded rather than inferred.
+
+    Summed work divided by the worker count is not elapsed time, and reasoning
+    that way once led me to call an overlapping schedule serial. A worker
+    therefore reports its process id and wall-clock instants on a clock the
+    parent shares, and says what those instants cover: interpreter startup
+    precedes the first of them and is not measured here.
+    """
+    f = manual_fixture
+    for name, value in f.env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(manual_timing, "repository_root", lambda: f.root)
+    wanted = tuple(entry.label for entry in f.manifest.entries[MODELS * 2 : MODELS * 3])
+    assert main(_argv(f, tmp_path, workers=2, entries=wanted)) == 0
+    capsys.readouterr()
+
+    report = load_timing(tmp_path / "timing.json")
+    workers = report.worker_spans
+    assert len(workers) == len(wanted), "one span per worker process"
+    assert len({span.pid for span in workers}) == len(wanted), "each worker is its own process"
+    for span in workers:
+        assert span.pid > 0
+        assert span.started_at <= span.prepared_at <= span.finished_at
+        assert "startup" in span.covers, "the span must say what it does not cover"

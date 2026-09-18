@@ -1299,6 +1299,79 @@ class ManualModelTiming:
     runs: int
 
 
+def _instant(moment: datetime) -> str:
+    """A UTC instant on a format two processes can compare as text."""
+    return moment.astimezone(UTC).isoformat(timespec="microseconds")
+
+
+PHASE_PREPARE: Final = "prepare"
+PHASE_FIT: Final = "fit"
+PHASE_SERVE_FIT: Final = "serve_fit"
+PHASE_VERIFY_MODEL: Final = "verify_served_model"
+PHASE_VERIFY_BANK: Final = "verify_served_bank"
+PHASE_SWEEP: Final = "sweep"
+PHASE_BUILD_BANK: Final = "build_replay_bank"
+
+INCLUSIVE_PHASES: Final = (PHASE_SWEEP, PHASE_BUILD_BANK)
+"""Spans that enclose other measured work; summing them with their contents double-counts seconds."""
+
+
+@dataclass(frozen=True)
+class ManualPhaseTiming:
+    """One measured interval, saying whether it encloses other measurements.
+
+    Elapsed time is not the sum of everything measured: a sweep contains the
+    runs it simulates, and a bank build contains its own. Adding those together
+    would count the same seconds twice, so each interval states which kind it
+    is and only the disjoint ones are ever summed.
+    """
+
+    phase: str
+    seconds: float
+    inclusive: bool
+    """True when this span contains other measured intervals (runs, or nested phases)."""
+    label: str = ""
+    """The model or parent this interval belongs to, where one applies."""
+
+    def __post_init__(self) -> None:
+        """A known phase, a non-negative duration, and the enclosure flag its phase implies."""
+        if self.seconds < 0:
+            msg = f"a phase lasts a non-negative time, got {self.seconds} for {self.phase!r}"
+            raise ValueError(msg)
+        if self.inclusive != (self.phase in INCLUSIVE_PHASES):
+            msg = f"{self.phase!r} is {'an inclusive span' if self.phase in INCLUSIVE_PHASES else 'disjoint'}"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
+class ManualWorkerSpan:
+    """Which process a worker was and when it ran, on the clock its parent shares.
+
+    Overlap is a fact about processes and instants. Dividing summed work by the
+    worker count is not elapsed time and cannot establish whether anything
+    overlapped, so the instants are recorded instead of inferred.
+    """
+
+    pid: int
+    label: str
+    started_at: str
+    """Worker ``main()`` entry. Interpreter startup precedes this and is not covered."""
+    prepared_at: str
+    """When ``prepare_runner`` returned: the preparation phase ends here."""
+    finished_at: str
+    """When ``evaluate`` returned: the evaluation phase ends here."""
+    covers: str = "worker main() entry to evaluate() return; interpreter startup precedes started_at and is not covered"
+
+    def __post_init__(self) -> None:
+        """A real process, and instants that do not run backwards."""
+        if self.pid <= 0:
+            msg = f"a worker span names a process, got pid {self.pid}"
+            raise ValueError(msg)
+        if not (self.started_at <= self.prepared_at <= self.finished_at):
+            msg = f"{self.label}: worker instants are out of order"
+            raise ValueError(msg)
+
+
 @dataclass(frozen=True)
 class ManualWorkerTimings:
     """What one worker process measured, carried back to the parent that reports it.
@@ -1313,6 +1386,8 @@ class ManualWorkerTimings:
     runs: tuple[ManualRunTiming, ...]
     models: tuple[ManualModelTiming, ...]
     manifest_bytes: int
+    phases: tuple[ManualPhaseTiming, ...] = ()
+    span: ManualWorkerSpan | None = None
 
     def __post_init__(self) -> None:
         """Bytes are non-negative; each timing validates itself."""
@@ -1423,6 +1498,7 @@ class ManualEvaluationRunner:
         self._pointers: dict[tuple[str, str], ManualEvidencePointer] = {}
         self._run_timings: list[ManualRunTiming] = []
         self._model_timings: dict[str, ManualModelTiming] = {}
+        self._phase_timings: list[ManualPhaseTiming] = []
         self._manifest_bytes = 0
 
     def conditions(self, warmup_s: float, replay_cutoffs: tuple[float, float]) -> ManualRunConditions:
@@ -1613,6 +1689,11 @@ class ManualEvaluationRunner:
     def model_timings(self) -> dict[str, ManualModelTiming]:
         """What each model reached in this invocation cost, by label."""
         return dict(self._model_timings)
+
+    @property
+    def phase_timings(self) -> tuple[ManualPhaseTiming, ...]:
+        """Every interval this invocation measured, each saying whether it encloses others."""
+        return tuple(self._phase_timings)
 
     @property
     def manifest_bytes(self) -> int:
@@ -1841,7 +1922,18 @@ class ManualEvaluationRunner:
         """
         cutoffs = self.replay_cutoffs(entry)
         conditions = self.conditions(warmup_s, cutoffs)
+        fit_started = time.perf_counter()
         cached = ManualFitStore(self.store).fit_or_load(entry, self.inputs)
+        # A cache hit refits the model to verify it. That is this invocation's own work, and
+        # fit_seconds reports the ORIGINAL fit, so the two are measured apart.
+        self._phase_timings.append(
+            ManualPhaseTiming(
+                phase=PHASE_SERVE_FIT if cached.cache_hit else PHASE_FIT,
+                seconds=time.perf_counter() - fit_started,
+                inclusive=False,
+                label=entry.label,
+            )
+        )
         sweep_started = time.perf_counter()
         self._model_timings[entry.label] = ManualModelTiming(
             label=entry.label,
@@ -1857,6 +1949,7 @@ class ManualEvaluationRunner:
         uri = model_uri(identity)
         stored = _existing_manifest(self.store, uri)
         if stored is not None:
+            verify_started = time.perf_counter()
             evidence = load_manual_model_evidence(stored)
             if evidence.identity != identity:
                 msg = f"{stored} holds the evidence {evidence.identity[:_SHORT]}, not {identity[:_SHORT]}"
@@ -1864,17 +1957,29 @@ class ManualEvaluationRunner:
             self._check_served_evidence(evidence, entry=entry, cached=cached, conditions=conditions, stored=stored)
             _verify_stored_runs(self.store, evidence.pairs)
             self._verify_sources(evidence.pairs, entry.arm.assignment, f"the evidence of {entry.label}")
+            nested = 0.0
             if entry.arm.assignment is not None:
                 # Also point at the baselines this model was compared against: they are equally
                 # part of the evidence, and a served model would otherwise cite a bank the
-                # repository has no pointer to.
+                # repository has no pointer to. That call measures itself, so its time is taken
+                # out of this phase rather than counted in both.
+                nested_started = time.perf_counter()
                 served = self.replay_bank(entry.arm.assignment, warmup_s=warmup_s, replay_cutoffs=cutoffs)
+                nested = time.perf_counter() - nested_started
                 if evidence.replay_bank != served.identity:
                     msg = f"{stored} cites another replay bank than its parent and protocol produce"
                     raise ValueError(msg)
             elif evidence.replay_bank is not None:
                 msg = f"{stored} cites a replay bank, but the all-ten arm is paired against no single one"
                 raise ValueError(msg)
+            self._phase_timings.append(
+                ManualPhaseTiming(
+                    phase=PHASE_VERIFY_MODEL,
+                    seconds=max(0.0, time.perf_counter() - verify_started - nested),
+                    inclusive=False,
+                    label=entry.label,
+                )
+            )
             self._register(evidence, _reference_of(stored, self.store))
             self._models[identity] = evidence
             return evidence
@@ -1901,12 +2006,16 @@ class ManualEvaluationRunner:
                 )
                 progress.add(pair)
                 pairs.append(pair)
+        swept = time.perf_counter() - sweep_started
         self._model_timings[entry.label] = ManualModelTiming(
             label=entry.label,
             fit_seconds=cached.record.fit_seconds,
             fit_cache_hit=cached.cache_hit,
-            sweep_seconds=time.perf_counter() - sweep_started,
+            sweep_seconds=swept,
             runs=sum(1 for pair in pairs if pair.run is not None),
+        )
+        self._phase_timings.append(
+            ManualPhaseTiming(phase=PHASE_SWEEP, seconds=swept, inclusive=True, label=entry.label)
         )
         self._verify_sources(pairs, assignment, f"the evidence of {entry.label}")
         counts = Counter(pair.status for pair in pairs)
@@ -1940,6 +2049,7 @@ class ManualEvaluationRunner:
         uri = replay_bank_uri(conditions, assignment)
         stored = _existing_manifest(self.store, uri)
         if stored is not None:
+            bank_verify_started = time.perf_counter()
             bank = load_manual_replay_bank(stored)
             if bank.identity != identity:
                 msg = f"{stored} holds the bank {bank.identity[:_SHORT]}, not {identity[:_SHORT]}"
@@ -1950,7 +2060,16 @@ class ManualEvaluationRunner:
             self._verify_sources(bank.pairs, assignment, f"the replay bank of {assignment}")
             self._register(bank, _reference_of(stored, self.store), warmup_s=warmup_s)
             self._banks[identity] = bank
+            self._phase_timings.append(
+                ManualPhaseTiming(
+                    phase=PHASE_VERIFY_BANK,
+                    seconds=time.perf_counter() - bank_verify_started,
+                    inclusive=False,
+                    label=assignment,
+                )
+            )
             return bank
+        build_started = time.perf_counter()
         progress = _ManualProgress(self.store, uri, identity)
         pairs: list[ManualPairRecord] = []
         for index, case in enumerate(self.scenarios):
@@ -1973,6 +2092,14 @@ class ManualEvaluationRunner:
         self._manifest_bytes += payload.size
         self._register(bank, payload, warmup_s=warmup_s)
         self._banks[identity] = bank
+        self._phase_timings.append(
+            ManualPhaseTiming(
+                phase=PHASE_BUILD_BANK,
+                seconds=time.perf_counter() - build_started,
+                inclusive=True,
+                label=assignment,
+            )
+        )
         return bank
 
 
@@ -2192,12 +2319,14 @@ def prepare_runner(
 
 def _evaluate_model(args: argparse.Namespace) -> int:
     """Worker subcommand: evaluate one model and leave its evidence in the store."""
+    started_at = datetime.now(tz=UTC)
     prepared = prepare_runner(
         args,
         role="worker",
         root=Path(cast("str", args.root)),
         scenario_ids=cast("list[str] | None", args.scenarios),
     )
+    prepared_at = datetime.now(tz=UTC)
     entries = evaluation_entries(prepared.context.manifest, [cast("str", args.entry)])
     prepared.runner.evaluate(entries[0], warmup_s=float(cast("str", args.warmup_s)))
     destination = cast("str | None", args.timings)
@@ -2207,6 +2336,14 @@ def _evaluate_model(args: argparse.Namespace) -> int:
             runs=runner.run_timings,
             models=tuple(runner.model_timings.values()),
             manifest_bytes=runner.manifest_bytes,
+            phases=runner.phase_timings,
+            span=ManualWorkerSpan(
+                pid=os.getpid(),
+                label=cast("str", args.entry),
+                started_at=_instant(started_at),
+                prepared_at=_instant(prepared_at),
+                finished_at=_instant(datetime.now(tz=UTC)),
+            ),
         )
         Path(destination).write_text(json.dumps(to_mapping(carried), sort_keys=True), encoding="utf-8")
     return 0
