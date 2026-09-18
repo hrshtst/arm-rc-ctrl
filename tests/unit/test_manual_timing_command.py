@@ -111,9 +111,10 @@ def test_the_smoke_check_measures_the_study_and_writes_its_report(
     # The study's own counts are exact whatever this check measured; pairs follow the evaluation
     # actually configured, which is narrowed here and is 65 x 2 in the real protocol.
     assert (projection.models, projection.replay_banks) == (186, 60)
-    # Scenario selection defaults to the authorized nominal case on every subset, so a
-    # narrowed prefix run measures one scenario under both trackers rather than all of them.
-    assert projection.pairs_per_model == 2
+    # The projection is of the locked study whatever this invocation measured: execution is
+    # narrowed to the nominal case, but the budget being estimated covers every locked scenario
+    # under both trackers -- 65 x 2 = 130 in the real protocol, len(NARROWED) x 2 here.
+    assert projection.pairs_per_model == len(NARROWED) * 2
     assert projection.total_runs == (projection.models + projection.replay_banks) * projection.pairs_per_model
     assert (tmp_path / "timing.md").read_text(encoding="utf-8") == render_timing_markdown(report)
     printed = json.loads(capsys.readouterr().out)
@@ -273,7 +274,9 @@ def test_only_the_selected_scenarios_are_run(
     assert main(argv) == 0
     capsys.readouterr()
     report = load_timing(tmp_path / "timing.json")
-    assert report.projection.pairs_per_model == 2, "one scenario under both trackers"
+    assert report.projection.pairs_per_model == len(NARROWED) * 2, (
+        "the projection is of the locked study; only what ran was restricted"
+    )
     assert report.runs, "this protocol was cold, so the invocation measured its own runs"
     assert {run.scenario_id for run in report.runs} == {"nominal"}
 

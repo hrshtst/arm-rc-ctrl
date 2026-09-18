@@ -41,6 +41,7 @@ ARMS = ("S/D09", "S/D10")
 
 WARMUP_WORKER = 5.0
 WARMUP_COMMAND = 5.25
+WARMUP_RESTRICTED = 5.5
 """A warm-up of its own per test, so each starts from a store holding no evidence of its protocol."""
 
 SMALL_DEVELOPMENT = """\
@@ -116,21 +117,33 @@ def test_a_worker_process_evaluates_one_model_in_the_parents_environment(manual_
         root=f.root,
         exploratory=True,
     )
-    evidence = _stored_evidence(f, entry.label)
+    evidence = _stored_evidence(f, entry.label, warmup_s=WARMUP_WORKER)
     assert evidence is not None
     assert evidence.conditions.execution_identity == f.execution.identity
     assert evidence.conditions.warmup_s == WARMUP_WORKER
     assert evidence.n_pairs == EXPECTED_SCENARIOS * 2
 
 
-def _stored_evidence(f: ManualFixture, label: str) -> ManualModelEvidence | None:
-    """The stored evidence of one model, found by what it says it is rather than by recomputing its key."""
+def _stored_evidence(f: ManualFixture, label: str, *, warmup_s: float) -> ManualModelEvidence | None:
+    """The stored evidence of one model under one protocol, found by what it says it is.
+
+    This module's store is shared by its tests and keeps one manifest per
+    protocol, so a label alone can name several: the run command evaluates
+    these same arms over the whole envelope. Selecting by label alone returned
+    whichever sorted first, and manifests sort by a conditions identity that
+    includes the run's temporary root -- so the choice varied between runs and
+    the assertions that followed were testing an arbitrary manifest. The
+    warm-up is what separates the protocols, which is why each test here has
+    one of its own.
+    """
     root = f.store.path(f"{REPORTS_PREFIX}/model", mode="write")
+    found: list[ManualModelEvidence] = []
     for manifest in sorted(root.glob("*/manifest-*.json")):
         evidence = load_manual_model_evidence(manifest)
-        if evidence.label == label:
-            return evidence
-    return None
+        if evidence.label == label and evidence.conditions.warmup_s == warmup_s:
+            found.append(evidence)
+    assert len(found) <= 1, f"{label} at warm-up {warmup_s}: {len(found)} manifests, expected at most one"
+    return found[0] if found else None
 
 
 # --- the command's worker count ------------------------------------------------------------------
@@ -193,3 +206,32 @@ def test_a_worker_count_below_one_is_refused(
     ]
     with pytest.raises(ValueError, match="workers"):
         main(argv)
+
+
+def test_a_worker_honours_the_scenario_restriction_it_is_given(manual_fixture: ManualFixture) -> None:
+    """A restriction the parent resolved must cross the process boundary, or it is not a bound at all.
+
+    A worker rebuilds its own scope from the configuration it is handed, so a
+    selection held only in the parent's runner reaches it not at all. A
+    benchmark authorized for 60 nominal runs executed 416 before it was
+    stopped, because every worker restored the whole locked set; the parent's
+    preflight had certified the shape it could see. The selection is therefore
+    part of the worker's own command.
+    """
+    f = manual_fixture
+    evaluation, _ = _configs(f)
+    entry = _entry(f, ARMS[1])
+    spawn_worker(
+        entry,
+        warmup_s=WARMUP_RESTRICTED,
+        env=f.env,
+        study_file=f.manifest_file,
+        evaluation_file=evaluation,
+        root=f.root,
+        exploratory=True,
+        scenario_ids=("nominal",),
+    )
+    evidence = _stored_evidence(f, entry.label, warmup_s=WARMUP_RESTRICTED)
+    assert evidence is not None
+    assert evidence.conditions.scenario_ids == ("nominal",)
+    assert evidence.n_pairs == 2, "one scenario under both trackers, not the five the envelope holds"

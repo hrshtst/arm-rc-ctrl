@@ -2046,6 +2046,7 @@ def spawn_worker(
     evaluation_file: Path,
     root: Path,
     exploratory: bool,
+    scenario_ids: Sequence[str] | None = None,
     python: str = sys.executable,
 ) -> None:
     """Evaluate one model in a fresh interpreter that inherits this environment.
@@ -2070,6 +2071,10 @@ def spawn_worker(
         "--root",
         str(root),
     ]
+    if scenario_ids is not None:
+        # The worker rebuilds its own scope from the configuration, so a selection held only in
+        # the parent reaches it not at all: a benchmark bounded to 60 nominal runs ran 416.
+        command += ["--scenarios", *scenario_ids]
     if exploratory:
         command.append("--exploratory")
     subprocess.run(command, check=True, env=dict(env))
@@ -2083,6 +2088,8 @@ class _Prepared:
     config: ManualEvaluationConfig
     runner: ManualEvaluationRunner
     execution: ExecutionRecord
+    locked_scenarios: int
+    """Cases the protocol locks, before any restriction: what a budget projection scales."""
 
 
 def prepare_runner(
@@ -2111,6 +2118,7 @@ def prepare_runner(
     config = load_manual_evaluation_config(evaluation_file)
     scenario = load_manual_scenario(config.scenario)
     cases = evaluation_scenarios(load_development_robustness(config.development), scenario)
+    locked_scenarios = len(cases)
     if scenario_ids is not None:
         # The selection is part of the conditions a run is keyed by, so a restricted sweep keys its
         # evidence differently and can never serve a broader sweep's runs back as its own.
@@ -2148,12 +2156,23 @@ def prepare_runner(
         provenance=provenance,
         command=command,
     )
-    return _Prepared(context=context, config=config, runner=runner, execution=execution)
+    return _Prepared(
+        context=context,
+        config=config,
+        runner=runner,
+        execution=execution,
+        locked_scenarios=locked_scenarios,
+    )
 
 
 def _evaluate_model(args: argparse.Namespace) -> int:
     """Worker subcommand: evaluate one model and leave its evidence in the store."""
-    prepared = prepare_runner(args, role="worker", root=Path(cast("str", args.root)))
+    prepared = prepare_runner(
+        args,
+        role="worker",
+        root=Path(cast("str", args.root)),
+        scenario_ids=cast("list[str] | None", args.scenarios),
+    )
     entries = evaluation_entries(prepared.context.manifest, [cast("str", args.entry)])
     prepared.runner.evaluate(entries[0], warmup_s=float(cast("str", args.warmup_s)))
     return 0
@@ -2236,6 +2255,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     worker.add_argument("--entry", type=str, required=True, help="model label, e.g. feasible-best/S/D01")
     worker.add_argument("--warmup-s", type=str, required=True, help="the model configuration's warm-up")
     worker.add_argument("--root", type=str, required=True, help="repository root the study is bound to")
+    worker.add_argument(
+        "--scenarios",
+        type=str,
+        nargs="*",
+        default=None,
+        help="scenario ids this worker evaluates (default: every locked case)",
+    )
     worker.add_argument("--exploratory", action="store_true", help="allow a dirty worktree")
     args = parser.parse_args(argv)
     args.argv = argv

@@ -497,6 +497,7 @@ def _evaluate_entries(
     entries: Sequence[StudyModel],
     *,
     workers: int,
+    scenarios: Sequence[str],
     args: argparse.Namespace,
 ) -> None:
     """Evaluate every entry, serially or through bounded worker processes.
@@ -526,6 +527,7 @@ def _evaluate_entries(
                 evaluation_file=Path(cast("str", args.evaluation)),
                 root=repository_root(),
                 exploratory=bool(args.exploratory),
+                scenario_ids=tuple(scenarios),
             ),
         )
 
@@ -584,12 +586,14 @@ def _smoke(args: argparse.Namespace) -> int:
         # Before anything expensive: zero workers would measure nothing and divide by it.
         msg = f"workers must be at least 1, got {workers}"
         raise ValueError(msg)
-    _evaluate_entries(runner, context, entries, workers=workers, args=args)
+    _evaluate_entries(runner, context, entries, workers=workers, scenarios=selected, args=args)
     written = runner.write_pointers(Path(cast("str", args.evidence_dir)))
     runs = runner.run_timings
     models = tuple(runner.model_timings[entry.label] for entry in entries)
     banks = sum(1 for pointer in runner.pointers if pointer.kind == "replay")
-    pairs_per_model = len(runner.scenarios) * len(runner.trackers)
+    # The projection is of the whole study: execution may be restricted to one scenario, but the
+    # budget being estimated covers every locked case under both trackers.
+    pairs_per_model = prepared.locked_scenarios * len(runner.trackers)
     projection = project_study(models, runs, pairs_per_model=pairs_per_model, completed_models=len(entries))
     wall = time.perf_counter() - started
     own, children = peak_rss_bytes()
