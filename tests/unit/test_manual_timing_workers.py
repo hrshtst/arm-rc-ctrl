@@ -26,7 +26,7 @@ import pytest
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
 from arm_rc_ctrl.experiments import manual_timing
 from arm_rc_ctrl.experiments.manual_evaluation import REPORTS_PREFIX, load_manual_model_evidence
-from arm_rc_ctrl.experiments.manual_timing import main
+from arm_rc_ctrl.experiments.manual_timing import load_timing, main
 from arm_rc_ctrl.repo import repository_root
 
 if TYPE_CHECKING:
@@ -94,7 +94,9 @@ def _stored(f: ManualFixture) -> list[ManualModelEvidence]:
     return [load_manual_model_evidence(path) for path in sorted(root.glob("*/manifest-*.json"))]
 
 
-def _argv(f: ManualFixture, tmp_path: Path, *, workers: int) -> list[str]:
+def _argv(f: ManualFixture, tmp_path: Path, *, workers: int, entries: tuple[str, ...] = ()) -> list[str]:
+    """The prefix subset by default; ``entries`` names its own models, so a test measures work of its own."""
+    subset = ["--entries", *entries] if entries else ["--subset", "prefix", "--models", str(MODELS)]
     return [
         "smoke",
         "--study",
@@ -107,10 +109,7 @@ def _argv(f: ManualFixture, tmp_path: Path, *, workers: int) -> list[str]:
         str(tmp_path / "timing.json"),
         "--markdown",
         str(tmp_path / "timing.md"),
-        "--subset",
-        "prefix",
-        "--models",
-        str(MODELS),
+        *subset,
         "--scenarios",
         "nominal",
         "--workers",
@@ -137,3 +136,37 @@ def test_workers_run_only_the_selected_scenarios(
             f"{evidence.label} ran {evidence.n_pairs} pairs; the selection allows one scenario "
             f"under both trackers, and the envelope holds {LOCKED_SCENARIOS}"
         )
+
+
+def test_worker_run_timings_reach_the_report(
+    manual_fixture: ManualFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """What a worker simulated must be measured in the report, not dropped because the parent did not simulate it.
+
+    The runner's instrumentation lives in the process that ran the work. Under
+    workers the parent simulates only the replay banks it builds before fanning
+    out, so reading its timings alone reported zero RC runs and projected RC
+    cost as 0.0 s -- free work, for the arm that dominates the study. The report
+    is checked against the evidence actually stored, which is the only record
+    that spans both processes.
+    """
+    f = manual_fixture
+    for name, value in f.env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(manual_timing, "repository_root", lambda: f.root)
+    # Its own models: this module's store is shared, and evidence another test already produced
+    # would be SERVED rather than simulated, so the workers would measure nothing at all.
+    wanted = tuple(entry.label for entry in f.manifest.entries[MODELS : MODELS * 2])
+    assert main(_argv(f, tmp_path, workers=2, entries=wanted)) == 0
+    capsys.readouterr()
+
+    report = load_timing(tmp_path / "timing.json")
+    assert report.entries == wanted
+    mine = [evidence for evidence in _stored(f) if evidence.label in wanted]
+    stored_rc = sum(1 for e in mine for pair in e.pairs if pair.arm == "rc" and pair.run is not None)
+    assert stored_rc == len(wanted) * TRACKERS, "the workers stored this many RC runs"
+    measured_rc = [run for run in report.runs if run.arm == "rc"]
+    assert len(measured_rc) == stored_rc, "every RC run a worker simulated is measured in the report"
+    assert report.projection.rc_run_seconds > 0.0, "RC work is never free"
+    assert report.storage_bytes > 0, "the workers' run payloads count towards storage"
+    assert all(model.runs > 0 for model in report.models), "a worker's sweep is not an empty one"

@@ -1300,6 +1300,28 @@ class ManualModelTiming:
 
 
 @dataclass(frozen=True)
+class ManualWorkerTimings:
+    """What one worker process measured, carried back to the parent that reports it.
+
+    The runner's instrumentation is per-process. Under workers the parent
+    simulates only the replay banks it builds before fanning out and then
+    serves the rest back, so reading its timings alone reports the runs it did
+    not make as none at all. Transient: written beside the sweep, read once by
+    the parent, and never part of the evidence.
+    """
+
+    runs: tuple[ManualRunTiming, ...]
+    models: tuple[ManualModelTiming, ...]
+    manifest_bytes: int
+
+    def __post_init__(self) -> None:
+        """Bytes are non-negative; each timing validates itself."""
+        if self.manifest_bytes < 0:
+            msg = f"manifest bytes are non-negative, got {self.manifest_bytes}"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
 class ManualRunArtifact:
     """Where one persisted run lives and what it contains."""
 
@@ -2047,6 +2069,7 @@ def spawn_worker(
     root: Path,
     exploratory: bool,
     scenario_ids: Sequence[str] | None = None,
+    timings_path: Path | None = None,
     python: str = sys.executable,
 ) -> None:
     """Evaluate one model in a fresh interpreter that inherits this environment.
@@ -2075,6 +2098,8 @@ def spawn_worker(
         # The worker rebuilds its own scope from the configuration, so a selection held only in
         # the parent reaches it not at all: a benchmark bounded to 60 nominal runs ran 416.
         command += ["--scenarios", *scenario_ids]
+    if timings_path is not None:
+        command += ["--timings", str(timings_path)]
     if exploratory:
         command.append("--exploratory")
     subprocess.run(command, check=True, env=dict(env))
@@ -2175,6 +2200,15 @@ def _evaluate_model(args: argparse.Namespace) -> int:
     )
     entries = evaluation_entries(prepared.context.manifest, [cast("str", args.entry)])
     prepared.runner.evaluate(entries[0], warmup_s=float(cast("str", args.warmup_s)))
+    destination = cast("str | None", args.timings)
+    if destination is not None:
+        runner = prepared.runner
+        carried = ManualWorkerTimings(
+            runs=runner.run_timings,
+            models=tuple(runner.model_timings.values()),
+            manifest_bytes=runner.manifest_bytes,
+        )
+        Path(destination).write_text(json.dumps(to_mapping(carried), sort_keys=True), encoding="utf-8")
     return 0
 
 
@@ -2261,6 +2295,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         nargs="*",
         default=None,
         help="scenario ids this worker evaluates (default: every locked case)",
+    )
+    worker.add_argument(
+        "--timings",
+        type=str,
+        default=None,
+        help="write this worker's measured timings here, for the parent that reports them",
     )
     worker.add_argument("--exploratory", action="store_true", help="allow a dirty worktree")
     args = parser.parse_args(argv)

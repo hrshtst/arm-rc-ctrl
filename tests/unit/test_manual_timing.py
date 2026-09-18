@@ -192,3 +192,23 @@ def test_a_study_with_no_measured_fit_still_projects_its_runs() -> None:
     projection = project_study((), _measured(), pairs_per_model=PAIRS_PER_MODEL, completed_models=0)
     assert projection.fit_seconds == 0.0
     assert projection.total_seconds > 0.0
+
+
+def test_an_unmeasured_arm_is_declared_rather_than_costed_at_zero() -> None:
+    """A class of runs with no measurements makes the projection incomplete; it never contributes free work.
+
+    The mean of nothing was taken as 0.0, so an invocation that measured no RC
+    run at all projected 24,180 RC runs at no cost and no storage, and the
+    total looked like a cheap study rather than an unmeasured one.
+    """
+    replay_only = [run for run in _measured() if run.arm == "replay"]
+    assert replay_only, "the fixture must still measure the other arm"
+    projection = project_study(_models(), replay_only, pairs_per_model=PAIRS_PER_MODEL, completed_models=0)
+    assert projection.rc_runs > 0, "the study still projects RC runs"
+    assert "rc" in projection.unmeasured_arms, "an arm with no measurement is declared, not silently zeroed"
+
+
+def test_a_fully_measured_projection_declares_nothing_unmeasured() -> None:
+    """The declaration is not decoration: with both arms measured it is empty."""
+    projection = project_study(_models(), _measured(), pairs_per_model=PAIRS_PER_MODEL, completed_models=0)
+    assert projection.unmeasured_arms == ()

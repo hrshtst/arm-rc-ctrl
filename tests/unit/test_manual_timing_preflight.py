@@ -17,12 +17,17 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from arm_rc_ctrl.experiments.manual_evaluation import load_manual_evaluation_config, manual_conditions
+from arm_rc_ctrl.experiments.manual_evaluation import (
+    ManualRunTiming,
+    load_manual_evaluation_config,
+    manual_conditions,
+)
 from arm_rc_ctrl.experiments.manual_timing import (
     AUTHORIZED_SHAPE,
     BudgetShape,
     budget_entries,
     preflight_budget,
+    verify_measurements,
 )
 
 if TYPE_CHECKING:
@@ -109,3 +114,44 @@ def test_selected_scenario_ids_enter_the_evidence_identity() -> None:
     two = manual_conditions(config, config_file, scenario_ids=("nominal", "force-12N-000deg"), **common)  # type: ignore[arg-type]
     assert one.scenario_ids == ("nominal",)
     assert one.identity != two.identity, "a different selection is a different protocol"
+
+
+# --- and what it actually measured, before the report is accepted -------------------------------
+
+
+def _timing(arm: str) -> ManualRunTiming:
+    """One measured run of an arm; only the arm matters to the acceptance check."""
+    return ManualRunTiming(
+        arm=arm,
+        scenario_id="nominal",
+        tracker="pd_v2",
+        rows=10,
+        simulate_seconds=1.0,
+        persist_seconds=0.1,
+        run_bytes=1000,
+    )
+
+
+def test_a_complete_measurement_is_accepted() -> None:
+    """48 RC and 12 replay runs are what the authorized benchmark must come back with."""
+    runs = [_timing("rc") for _ in range(48)] + [_timing("replay") for _ in range(12)]
+    verify_measurements(runs, shape=AUTHORIZED_SHAPE)
+
+
+def test_a_benchmark_missing_its_run_measurements_is_refused() -> None:
+    """The reported defect: every RC run happened in a worker process and none was measured.
+
+    The preflight passed, because the shape it resolved was the shape that ran.
+    What was missing was the measurement of it, which is a different question and
+    is why the report is checked against what came back as well.
+    """
+    runs = [_timing("replay") for _ in range(12)]
+    with pytest.raises(ValueError, match="incomplete"):
+        verify_measurements(runs, shape=AUTHORIZED_SHAPE)
+
+
+def test_a_partial_measurement_is_refused_too() -> None:
+    """Half the RC runs measured is not a benchmark either; the count has to be the whole of it."""
+    runs = [_timing("rc") for _ in range(24)] + [_timing("replay") for _ in range(12)]
+    with pytest.raises(ValueError, match="24 RC"):
+        verify_measurements(runs, shape=AUTHORIZED_SHAPE)

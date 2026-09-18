@@ -24,9 +24,9 @@ import json
 import os
 import resource
 import sys
+import tempfile
 import time
 from dataclasses import dataclass, field
-from functools import partial
 from pathlib import Path
 from statistics import mean, median
 from typing import TYPE_CHECKING, Final, cast
@@ -36,6 +36,7 @@ from arm_rc_ctrl.execution import ExecutionRecord
 from arm_rc_ctrl.experiments.manual_evaluation import (
     ManualModelTiming,
     ManualRunTiming,
+    ManualWorkerTimings,
     evaluate_in_parallel,
     prepare_runner,
     spawn_worker,
@@ -74,6 +75,7 @@ __all__ = [
     "smoke_entries",
     "summarize_timings",
     "timing_to_json",
+    "verify_measurements",
 ]
 
 TIMING_SCHEMA_VERSION: Final = 1
@@ -238,6 +240,8 @@ class ManualStudyProjection:
     completed_models: int
     """Models whose evidence already exists after the measuring invocation."""
     remaining_seconds: float
+    unmeasured_arms: tuple[str, ...] = ()
+    """Run classes nothing was measured of: their cost is MISSING from these totals, not zero."""
 
     def __post_init__(self) -> None:
         """The counts are consistent and nothing is negative."""
@@ -253,6 +257,26 @@ class ManualStudyProjection:
         if min(self.total_seconds, self.remaining_seconds, self.storage_bytes, self.completed_models) < 0:
             msg = "a projection has no negative figures"
             raise ValueError(msg)
+        self._check_arms()
+
+    def _check_arms(self) -> None:
+        """An arm with projected runs and no measured cost is declared, never quietly free.
+
+        The mean of nothing was taken as 0.0, so an invocation that measured
+        no RC run at all projected 24,180 of them at no time and no storage,
+        and an incomplete measurement read as a cheap study.
+        """
+        for arm, runs, seconds in (
+            ("rc", self.rc_runs, self.rc_run_seconds),
+            ("replay", self.replay_runs, self.replay_run_seconds),
+        ):
+            declared = arm in self.unmeasured_arms
+            if runs > 0 and seconds == 0.0 and not declared:
+                msg = f"{arm}: {runs:,} runs projected at no measured cost; declare it unmeasured instead"
+                raise ValueError(msg)
+            if declared and seconds != 0.0:
+                msg = f"{arm} is declared unmeasured yet carries a measured {seconds} s"
+                raise ValueError(msg)
 
 
 def summarize_timings(runs: Sequence[ManualRunTiming]) -> tuple[ManualRunStats, ...]:
@@ -302,6 +326,7 @@ def project_study(
     rc_bytes = float(mean(run.run_bytes for run in rc)) if rc else 0.0
     replay_bytes = float(mean(run.run_bytes for run in replay)) if replay else 0.0
     fit_per_model = float(mean(model.fit_seconds for model in models)) if models else 0.0
+    unmeasured = tuple(arm for arm, measured in (("rc", rc), ("replay", replay)) if not measured)
     total_models = configurations * arms
     replay_banks = configurations * parents
     rc_runs = total_models * pairs_per_model
@@ -327,6 +352,7 @@ def project_study(
         storage_bytes=int(rc_runs * rc_bytes + replay_runs * replay_bytes),
         completed_models=completed_models,
         remaining_seconds=remaining,
+        unmeasured_arms=unmeasured,
     )
 
 
@@ -466,6 +492,16 @@ def render_timing_markdown(report: ManualTimingReport) -> str:
         ),
         f"- {p.total_runs:,} runs in total; fits {_hours(p.fit_seconds)}.",
         f"- Projected total: {_hours(p.total_seconds)}; storage about {_gib(p.storage_bytes)}.",
+        *(
+            [
+                (
+                    f"- INCOMPLETE: nothing was measured for {', '.join(p.unmeasured_arms)}, so that "
+                    f"cost and storage are missing from these totals rather than zero."
+                )
+            ]
+            if p.unmeasured_arms
+            else []
+        ),
         (
             f"- Already complete after this check: {p.completed_models} model(s); remaining about "
             f"{_hours(p.remaining_seconds)}."
@@ -499,37 +535,57 @@ def _evaluate_entries(
     workers: int,
     scenarios: Sequence[str],
     args: argparse.Namespace,
-) -> None:
-    """Evaluate every entry, serially or through bounded worker processes.
+) -> ManualWorkerTimings:
+    """Evaluate every entry, serially or through workers, and collect what each process measured.
 
     A warm-up is part of the conditions a run is keyed by, and one group is
     dispatched under one warm-up, so the entries are grouped first: the budget
     subset spans three of them, and passing a single value would key models to a
     protocol they do not belong to.
+
+    The instrumentation is per-process. A worker does the simulating and this
+    process only serves the evidence back afterwards, so each worker is given a
+    file to leave its timings in and they are merged here. Without it the report
+    counts only the replay banks this process built and prices the rest at zero.
     """
+    nothing = ManualWorkerTimings(runs=(), models=(), manifest_bytes=0)
     if workers == 1:
         for entry in entries:
             runner.evaluate(entry, warmup_s=context.inputs.configuration(entry).warmup_s)
-        return
+        return nothing
     groups: dict[float, list[StudyModel]] = {}
     for entry in entries:
         groups.setdefault(context.inputs.configuration(entry).warmup_s, []).append(entry)
-    for warmup_s, group in sorted(groups.items()):
-        evaluate_in_parallel(
-            runner,
-            group,
-            warmup_s=warmup_s,
-            workers=workers,
-            env=os.environ,
-            spawn=partial(
-                spawn_worker,
+    carried_runs: list[ManualRunTiming] = []
+    carried_models: list[ManualModelTiming] = []
+    carried_bytes = 0
+    with tempfile.TemporaryDirectory(prefix="manual-timing-") as scratch:
+        directory = Path(scratch)
+
+        def spawn(entry: StudyModel, *, warmup_s: float, env: dict[str, str]) -> None:
+            """One worker, told where to leave the timings only it can measure."""
+            spawn_worker(
+                entry,
+                warmup_s=warmup_s,
+                env=env,
                 study_file=Path(cast("str", args.study)),
                 evaluation_file=Path(cast("str", args.evaluation)),
                 root=repository_root(),
                 exploratory=bool(args.exploratory),
                 scenario_ids=tuple(scenarios),
-            ),
-        )
+                timings_path=directory / f"{entry.label.replace('/', '__')}.json",
+            )
+
+        for warmup_s, group in sorted(groups.items()):
+            evaluate_in_parallel(runner, group, warmup_s=warmup_s, workers=workers, env=os.environ, spawn=spawn)
+        for path in sorted(directory.glob("*.json")):
+            measured = from_mapping(
+                cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8"))), ManualWorkerTimings
+            )
+            carried_runs.extend(measured.runs)
+            carried_models.extend(measured.models)
+            carried_bytes += measured.manifest_bytes
+    return ManualWorkerTimings(runs=tuple(carried_runs), models=tuple(carried_models), manifest_bytes=carried_bytes)
 
 
 def _check_authorized(
@@ -538,7 +594,7 @@ def _check_authorized(
     scenarios: Sequence[str],
     trackers: Sequence[str],
     expect_runs: int | None,
-) -> None:
+) -> BudgetShape:
     """Refuse an unauthorized shape before any fit or simulation begins.
 
     An earlier invocation evaluated every locked scenario rather than the
@@ -556,7 +612,33 @@ def _check_authorized(
             trackers=len(trackers),
             runs=int(expect_runs),
         )
-    preflight_budget(entries, scenarios=scenarios, trackers=trackers, expected=expected)
+    return preflight_budget(entries, scenarios=scenarios, trackers=trackers, expected=expected)
+
+
+def verify_measurements(runs: Sequence[ManualRunTiming], *, shape: BudgetShape) -> None:
+    """Refuse a benchmark report that is missing measurements the invocation was meant to take.
+
+    The preflight settles what WILL run; this settles what WAS measured. They
+    became different questions once workers did the running: an invocation
+    whose every RC run happened in another process passed the first and
+    reported no RC measurement at all, projecting that arm at no cost.
+
+    Only the authorized benchmark is held to this. Re-running over finished
+    evidence serves it and measures nothing by design, and that invocation
+    reports an incomplete projection rather than being refused -- but a
+    benchmark cannot be accepted from evidence it did not measure, including
+    a second benchmark run into a store that already holds the first.
+    """
+    rc = sum(1 for run in runs if run.arm == "rc")
+    replay = sum(1 for run in runs if run.arm == "replay")
+    expected_rc = shape.models * shape.trackers * shape.scenarios
+    expected_replay = shape.banks * shape.trackers * shape.scenarios
+    if (rc, replay) != (expected_rc, expected_replay):
+        msg = (
+            f"the measurement is incomplete -- {rc} RC and {replay} replay runs measured, expected "
+            f"{expected_rc} and {expected_replay}; a report is not written from missing measurements"
+        )
+        raise ValueError(msg)
 
 
 def _smoke(args: argparse.Namespace) -> int:
@@ -580,17 +662,26 @@ def _smoke(args: argparse.Namespace) -> int:
     else:
         entries = smoke_entries(context.manifest, count=int(cast("int", args.models)))
     workers = int(cast("int", args.workers))
+    shape: BudgetShape | None = None
     if not labels and cast("str", args.subset) == "budget":
-        _check_authorized(entries, scenarios=selected, trackers=tuple(runner.trackers), expect_runs=args.expect_runs)
+        shape = _check_authorized(
+            entries, scenarios=selected, trackers=tuple(runner.trackers), expect_runs=args.expect_runs
+        )
     if workers < 1:
         # Before anything expensive: zero workers would measure nothing and divide by it.
         msg = f"workers must be at least 1, got {workers}"
         raise ValueError(msg)
-    _evaluate_entries(runner, context, entries, workers=workers, scenarios=selected, args=args)
+    carried = _evaluate_entries(runner, context, entries, workers=workers, scenarios=selected, args=args)
     written = runner.write_pointers(Path(cast("str", args.evidence_dir)))
-    runs = runner.run_timings
-    models = tuple(runner.model_timings[entry.label] for entry in entries)
+    runs = runner.run_timings + carried.runs
+    # A worker measured its own model; this process only served that evidence back, and the
+    # placeholder it recorded while serving must not stand in for a sweep it never ran.
+    measured_models = {**runner.model_timings, **{model.label: model for model in carried.models}}
+    models = tuple(measured_models[entry.label] for entry in entries)
     banks = sum(1 for pointer in runner.pointers if pointer.kind == "replay")
+    if shape is not None and shape == AUTHORIZED_SHAPE:
+        # Only the sanctioned benchmark is held to its measured counts; see verify_measurements.
+        verify_measurements(runs, shape=shape)
     # The projection is of the whole study: execution may be restricted to one scenario, but the
     # budget being estimated covers every locked case under both trackers.
     pairs_per_model = prepared.locked_scenarios * len(runner.trackers)
@@ -621,7 +712,7 @@ def _smoke(args: argparse.Namespace) -> int:
         wall_seconds=wall,
         peak_rss_bytes=own,
         peak_rss_children_bytes=children,
-        storage_bytes=sum(run.run_bytes for run in runs) + runner.manifest_bytes,
+        storage_bytes=sum(run.run_bytes for run in runs) + runner.manifest_bytes + carried.manifest_bytes,
         projection=projection,
         revised_estimate=estimate,
         provenance=runner.provenance,
