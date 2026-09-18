@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import json
 import shutil
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
@@ -199,3 +199,55 @@ def test_named_entries_override_the_subset(
     assert main(argv) == 0
     capsys.readouterr()
     assert load_timing(tmp_path / "timing.json").entries == (wanted,)
+
+
+# --- bounded parallel execution, for the I1 benchmark -------------------------------------------
+
+
+def test_the_smoke_check_runs_serially_by_default(
+    manual_fixture: ManualFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """One worker unless asked otherwise, and the report records the count it ran under."""
+    _narrow(manual_fixture, monkeypatch)
+    assert main(_argv(manual_fixture, tmp_path)) == 0
+    capsys.readouterr()
+    assert load_timing(tmp_path / "timing.json").workers == 1
+
+
+def test_the_smoke_check_dispatches_by_warm_up_when_parallel(
+    manual_fixture: ManualFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Models are grouped by their inherited warm-up before being fanned out.
+
+    ``evaluate_in_parallel`` takes one warm-up for a whole group because the
+    warm-up is part of the conditions a run is keyed by. The budget subset spans
+    three of them, so passing a single value would key models to a protocol they
+    do not belong to.
+    """
+    f = manual_fixture
+    _narrow(f, monkeypatch)
+    groups: list[float] = []
+    real = manual_timing.evaluate_in_parallel
+
+    def recording(runner: object, entries: object, **kwargs: object) -> object:
+        groups.append(cast("float", kwargs["warmup_s"]))
+        return real(runner, entries, **kwargs)  # type: ignore[arg-type]
+
+    monkeypatch.setattr(manual_timing, "evaluate_in_parallel", recording)
+    argv = [*_argv(manual_fixture, tmp_path), "--workers", "2"]
+    assert main(argv) == 0
+    capsys.readouterr()
+    report = load_timing(tmp_path / "timing.json")
+    assert report.workers == 2
+    assert groups, "the parallel path must have been taken"
+    assert groups == sorted(set(groups)), "each warm-up is dispatched once, in order"
+
+
+def test_the_smoke_check_refuses_a_non_positive_worker_count(
+    manual_fixture: ManualFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Zero workers would measure nothing and report a projection divided by nothing."""
+    _narrow(manual_fixture, monkeypatch)
+    argv = [*_argv(manual_fixture, tmp_path), "--workers", "0"]
+    with pytest.raises(ValueError, match="workers"):
+        main(argv)

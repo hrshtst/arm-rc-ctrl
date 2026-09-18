@@ -21,17 +21,25 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import resource
 import sys
 import time
 from dataclasses import dataclass, field
+from functools import partial
 from pathlib import Path
 from statistics import mean, median
 from typing import TYPE_CHECKING, Final, cast
 
 from arm_rc_ctrl.config import from_mapping, to_mapping
 from arm_rc_ctrl.execution import ExecutionRecord
-from arm_rc_ctrl.experiments.manual_evaluation import ManualModelTiming, ManualRunTiming, prepare_runner
+from arm_rc_ctrl.experiments.manual_evaluation import (
+    ManualModelTiming,
+    ManualRunTiming,
+    evaluate_in_parallel,
+    prepare_runner,
+    spawn_worker,
+)
 from arm_rc_ctrl.experiments.manual_recipes import ASSIGNMENTS
 from arm_rc_ctrl.experiments.manual_study import ARM_COUNT, CONFIGURATION_COUNT, EXPERIMENT_LABEL
 from arm_rc_ctrl.provenance import ProvenanceRecord, canonical_json, sha256_file
@@ -285,6 +293,8 @@ class ManualTimingReport:
     runs_this_invocation: int
     """Runs this invocation simulated; anything else in ``runs`` was served from the store."""
     replay_banks_built: int
+    workers: int
+    """Workers this invocation ran under; 1 is serial, which is what a projection scales."""
     wall_seconds: float
     peak_rss_bytes: int
     peak_rss_children_bytes: int
@@ -309,6 +319,9 @@ class ManualTimingReport:
             raise ValueError(msg)
         if not self.revised_estimate.strip():
             msg = "the revised estimate must be stated: it is what this report exists to report"
+            raise ValueError(msg)
+        if self.workers < 1:
+            msg = f"a timing report runs under at least one worker, got {self.workers}"
             raise ValueError(msg)
         if min(self.runs_this_invocation, self.replay_banks_built, self.wall_seconds, self.storage_bytes) < 0:
             msg = "a timing report has no negative figures"
@@ -444,8 +457,36 @@ def _smoke(args: argparse.Namespace) -> int:
         entries = budget_entries(context.manifest, parent=cast("str", args.parent))
     else:
         entries = smoke_entries(context.manifest, count=int(cast("int", args.models)))
-    for entry in entries:
-        runner.evaluate(entry, warmup_s=context.inputs.configuration(entry).warmup_s)
+    workers = int(cast("int", args.workers))
+    if workers < 1:
+        # Before anything expensive: zero workers would measure nothing and divide by it.
+        msg = f"workers must be at least 1, got {workers}"
+        raise ValueError(msg)
+    if workers == 1:
+        for entry in entries:
+            runner.evaluate(entry, warmup_s=context.inputs.configuration(entry).warmup_s)
+    else:
+        # A warm-up is part of the conditions a run is keyed by, and one group is dispatched under
+        # one warm-up, so the subset is grouped first: the budget subset spans three of them, and
+        # passing a single value would key models to a protocol they do not belong to.
+        groups: dict[float, list[StudyModel]] = {}
+        for entry in entries:
+            groups.setdefault(context.inputs.configuration(entry).warmup_s, []).append(entry)
+        for warmup_s, group in sorted(groups.items()):
+            evaluate_in_parallel(
+                runner,
+                group,
+                warmup_s=warmup_s,
+                workers=workers,
+                env=os.environ,
+                spawn=partial(
+                    spawn_worker,
+                    study_file=Path(cast("str", args.study)),
+                    evaluation_file=Path(cast("str", args.evaluation)),
+                    root=repository_root(),
+                    exploratory=bool(args.exploratory),
+                ),
+            )
     written = runner.write_pointers(Path(cast("str", args.evidence_dir)))
     runs = runner.run_timings
     models = tuple(runner.model_timings[entry.label] for entry in entries)
@@ -474,6 +515,7 @@ def _smoke(args: argparse.Namespace) -> int:
         run_stats=summarize_timings(runs),
         runs_this_invocation=len(runs),
         replay_banks_built=banks,
+        workers=workers,
         wall_seconds=wall,
         peak_rss_bytes=own,
         peak_rss_children_bytes=children,
@@ -491,6 +533,7 @@ def _smoke(args: argparse.Namespace) -> int:
                 "models": len(models),
                 "runs": len(runs),
                 "replay_banks": banks,
+                "workers": workers,
                 "wall_seconds": round(wall, 1),
                 "projected_total_hours": round(projection.total_seconds / 3600.0, 2),
                 "projected_storage_gib": round(projection.storage_bytes / 2**30, 1),
@@ -524,6 +567,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     smoke.add_argument("--parent", type=str, default=BUDGET_PARENT, help="the budget subset's fixed parent")
     smoke.add_argument("--models", type=int, default=3, help="models to measure when --subset prefix")
     smoke.add_argument("--entries", type=str, nargs="*", default=None, help="measure these labels instead")
+    smoke.add_argument(
+        "--workers", type=int, default=1, help="models measured at once in worker processes (1 is serial)"
+    )
     smoke.add_argument("--exploratory", action="store_true", help="allow a dirty worktree")
     args = parser.parse_args(argv)
     args.argv = argv

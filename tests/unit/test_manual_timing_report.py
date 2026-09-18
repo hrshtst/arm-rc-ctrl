@@ -12,6 +12,7 @@ estimate and not a bound.
 
 from __future__ import annotations
 
+import json
 from typing import TYPE_CHECKING
 
 import pytest
@@ -87,6 +88,7 @@ def _report(f: ManualFixture, **overrides: object) -> ManualTimingReport:
         "run_stats": summarize_timings(runs),
         "runs_this_invocation": len(runs),
         "replay_banks_built": 1,
+        "workers": 1,
         "wall_seconds": 210.0,
         "peak_rss_bytes": 277_340_160,
         "peak_rss_children_bytes": 277_340_160,
@@ -180,3 +182,18 @@ def test_a_served_fit_is_rendered_as_a_cache_hit(manual_fixture: ManualFixture) 
     markdown = render_timing_markdown(_report(manual_fixture, models=served))
     assert "cache hit" in markdown
     assert "fitted now" not in markdown
+
+
+def test_a_report_runs_under_at_least_one_worker(manual_fixture: ManualFixture) -> None:
+    """Zero workers would mean the report describes work nobody did."""
+    with pytest.raises(ValueError, match="at least one worker"):
+        _report(manual_fixture, workers=0)
+
+
+def test_the_worker_count_survives_the_round_trip(manual_fixture: ManualFixture, tmp_path: Path) -> None:
+    """The benchmark reads the count back out of the JSON, so it has to be in there."""
+    report = _report(manual_fixture, workers=4)
+    path = tmp_path / "timing.json"
+    path.write_text(timing_to_json(report) + "\n", encoding="utf-8")
+    assert json.loads(path.read_text(encoding="utf-8"))["workers"] == 4
+    assert load_timing(path).workers == 4
