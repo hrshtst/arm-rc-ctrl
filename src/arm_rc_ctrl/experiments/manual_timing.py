@@ -49,13 +49,18 @@ from arm_rc_ctrl.validation import is_hex
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
+    from arm_rc_ctrl.experiments.manual_evaluation import ManualEvaluationRunner
+    from arm_rc_ctrl.experiments.manual_numerics import ManualStudyContext
     from arm_rc_ctrl.experiments.manual_study import StudyManifest, StudyModel
 
 __all__ = [
+    "AUTHORIZED_SHAPE",
     "BUDGET_ARMS",
     "BUDGET_PARENT",
+    "BUDGET_SCENARIOS",
     "PARENT_COUNT",
     "TIMING_SCHEMA_VERSION",
+    "BudgetShape",
     "ManualRunStats",
     "ManualStudyProjection",
     "ManualTimingReport",
@@ -63,6 +68,7 @@ __all__ = [
     "load_timing",
     "main",
     "peak_rss_bytes",
+    "preflight_budget",
     "project_study",
     "render_timing_markdown",
     "smoke_entries",
@@ -76,6 +82,9 @@ PARENT_COUNT: Final = len(ASSIGNMENTS)
 BUDGET_PARENT: Final = "D01"
 """The one parent the budget subset's parent-specific arms all use, so configurations stay comparable."""
 BUDGET_ARMS: Final = ("S", "M10", "R10", "C10")
+"""Every arm kind, because training cost differs by kind and the projection scales what it measured."""
+BUDGET_SCENARIOS: Final = ("nominal",)
+"""The authorized measurement runs the nominal case only; the broader sweep is a separate measurement."""
 """Every arm kind, because training cost differs by kind and the projection scales what it measured."""
 _SHA256_HEX: Final = 64
 _MODULE: Final = "arm_rc_ctrl.experiments.manual_timing"
@@ -103,6 +112,50 @@ def budget_entries(manifest: StudyManifest, *, parent: str = BUDGET_PARENT) -> t
         raise ValueError(msg)
     wanted = {kind if kind == "M10" else f"{kind}/{parent}" for kind in BUDGET_ARMS}
     return tuple(entry for entry in manifest.entries if entry.arm.label in wanted)
+
+
+@dataclass(frozen=True)
+class BudgetShape:
+    """The size of a measurement: what it resolves to before anything is fitted or simulated."""
+
+    models: int
+    banks: int
+    scenarios: int
+    trackers: int
+    runs: int
+
+
+AUTHORIZED_SHAPE: Final = BudgetShape(models=24, banks=6, scenarios=1, trackers=2, runs=60)
+"""The sanctioned benchmark: 24 models over six banks, one nominal scenario, both trackers."""
+
+
+def preflight_budget(
+    entries: Sequence[StudyModel],
+    *,
+    scenarios: Sequence[str],
+    trackers: Sequence[str],
+    expected: BudgetShape = AUTHORIZED_SHAPE,
+) -> BudgetShape:
+    """Resolve what this invocation would run, and refuse it unless that is what was authorized.
+
+    An earlier invocation evaluated every locked scenario rather than the
+    nominal one and executed 3,900 runs instead of 60. The shape is cheap to
+    resolve and expensive to discover afterwards, so it is checked here, before
+    a single fit or simulation begins.
+    """
+    banks = len({(entry.configuration, entry.arm.assignment) for entry in entries if entry.arm.assignment is not None})
+    models, scenario_count, tracker_count = len(entries), len(scenarios), len(trackers)
+    runs = (models + banks) * tracker_count * scenario_count
+    resolved = BudgetShape(models=models, banks=banks, scenarios=scenario_count, trackers=tracker_count, runs=runs)
+    if resolved != expected:
+        differences = [
+            f"{name}: {getattr(resolved, name)} (expected {getattr(expected, name)})"
+            for name in ("models", "banks", "scenarios", "trackers", "runs")
+            if getattr(resolved, name) != getattr(expected, name)
+        ]
+        msg = "this invocation would not run the authorized measurement -- " + "; ".join(differences)
+        raise ValueError(msg)
+    return resolved
 
 
 def smoke_entries(
@@ -438,6 +491,72 @@ def render_timing_markdown(report: ManualTimingReport) -> str:
     return "\n".join(lines)
 
 
+def _evaluate_entries(
+    runner: ManualEvaluationRunner,
+    context: ManualStudyContext,
+    entries: Sequence[StudyModel],
+    *,
+    workers: int,
+    args: argparse.Namespace,
+) -> None:
+    """Evaluate every entry, serially or through bounded worker processes.
+
+    A warm-up is part of the conditions a run is keyed by, and one group is
+    dispatched under one warm-up, so the entries are grouped first: the budget
+    subset spans three of them, and passing a single value would key models to a
+    protocol they do not belong to.
+    """
+    if workers == 1:
+        for entry in entries:
+            runner.evaluate(entry, warmup_s=context.inputs.configuration(entry).warmup_s)
+        return
+    groups: dict[float, list[StudyModel]] = {}
+    for entry in entries:
+        groups.setdefault(context.inputs.configuration(entry).warmup_s, []).append(entry)
+    for warmup_s, group in sorted(groups.items()):
+        evaluate_in_parallel(
+            runner,
+            group,
+            warmup_s=warmup_s,
+            workers=workers,
+            env=os.environ,
+            spawn=partial(
+                spawn_worker,
+                study_file=Path(cast("str", args.study)),
+                evaluation_file=Path(cast("str", args.evaluation)),
+                root=repository_root(),
+                exploratory=bool(args.exploratory),
+            ),
+        )
+
+
+def _check_authorized(
+    entries: Sequence[StudyModel],
+    *,
+    scenarios: Sequence[str],
+    trackers: Sequence[str],
+    expect_runs: int | None,
+) -> None:
+    """Refuse an unauthorized shape before any fit or simulation begins.
+
+    An earlier invocation evaluated every locked scenario rather than the
+    nominal one and executed 3,900 runs instead of 60. ``expect_runs`` states a
+    differently sanctioned size, so it is checked the same way rather than the
+    check being disabled for it.
+    """
+    expected = AUTHORIZED_SHAPE
+    if expect_runs is not None:
+        banks = {(entry.configuration, entry.arm.assignment) for entry in entries if entry.arm.assignment is not None}
+        expected = BudgetShape(
+            models=len(entries),
+            banks=len(banks),
+            scenarios=len(scenarios),
+            trackers=len(trackers),
+            runs=int(expect_runs),
+        )
+    preflight_budget(entries, scenarios=scenarios, trackers=trackers, expected=expected)
+
+
 def _smoke(args: argparse.Namespace) -> int:
     """Measure a deterministic subset end to end and write the report and its rendering."""
     output, markdown = Path(cast("str", args.output)), Path(cast("str", args.markdown))
@@ -448,7 +567,8 @@ def _smoke(args: argparse.Namespace) -> int:
             msg = f"refusing to overwrite {target}"
             raise FileExistsError(msg)
     started = time.perf_counter()
-    prepared = prepare_runner(args, role="main", root=repository_root(), module=_MODULE)
+    selected = tuple(cast("list[str] | None", args.scenarios) or BUDGET_SCENARIOS)
+    prepared = prepare_runner(args, role="main", root=repository_root(), module=_MODULE, scenario_ids=selected)
     context, runner = prepared.context, prepared.runner
     labels = cast("list[str] | None", args.entries)
     if labels:
@@ -458,35 +578,13 @@ def _smoke(args: argparse.Namespace) -> int:
     else:
         entries = smoke_entries(context.manifest, count=int(cast("int", args.models)))
     workers = int(cast("int", args.workers))
+    if not labels and cast("str", args.subset) == "budget":
+        _check_authorized(entries, scenarios=selected, trackers=tuple(runner.trackers), expect_runs=args.expect_runs)
     if workers < 1:
         # Before anything expensive: zero workers would measure nothing and divide by it.
         msg = f"workers must be at least 1, got {workers}"
         raise ValueError(msg)
-    if workers == 1:
-        for entry in entries:
-            runner.evaluate(entry, warmup_s=context.inputs.configuration(entry).warmup_s)
-    else:
-        # A warm-up is part of the conditions a run is keyed by, and one group is dispatched under
-        # one warm-up, so the subset is grouped first: the budget subset spans three of them, and
-        # passing a single value would key models to a protocol they do not belong to.
-        groups: dict[float, list[StudyModel]] = {}
-        for entry in entries:
-            groups.setdefault(context.inputs.configuration(entry).warmup_s, []).append(entry)
-        for warmup_s, group in sorted(groups.items()):
-            evaluate_in_parallel(
-                runner,
-                group,
-                warmup_s=warmup_s,
-                workers=workers,
-                env=os.environ,
-                spawn=partial(
-                    spawn_worker,
-                    study_file=Path(cast("str", args.study)),
-                    evaluation_file=Path(cast("str", args.evaluation)),
-                    root=repository_root(),
-                    exploratory=bool(args.exploratory),
-                ),
-            )
+    _evaluate_entries(runner, context, entries, workers=workers, args=args)
     written = runner.write_pointers(Path(cast("str", args.evidence_dir)))
     runs = runner.run_timings
     models = tuple(runner.model_timings[entry.label] for entry in entries)
@@ -567,6 +665,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     smoke.add_argument("--parent", type=str, default=BUDGET_PARENT, help="the budget subset's fixed parent")
     smoke.add_argument("--models", type=int, default=3, help="models to measure when --subset prefix")
     smoke.add_argument("--entries", type=str, nargs="*", default=None, help="measure these labels instead")
+    smoke.add_argument(
+        "--scenarios",
+        type=str,
+        nargs="*",
+        default=None,
+        help="scenario ids to measure (default: the authorized nominal case)",
+    )
+    smoke.add_argument(
+        "--expect-runs",
+        type=int,
+        default=None,
+        help="check against this run count instead of the authorized 60, for a differently sanctioned size",
+    )
     smoke.add_argument(
         "--workers", type=int, default=1, help="models measured at once in worker processes (1 is serial)"
     )

@@ -19,7 +19,7 @@ import pytest
 
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
 from arm_rc_ctrl.experiments import manual_evaluation, manual_timing
-from arm_rc_ctrl.experiments.manual_evaluation import load_manual_pointer
+from arm_rc_ctrl.experiments.manual_evaluation import ManualEvaluationRunner, load_manual_pointer
 from arm_rc_ctrl.experiments.manual_timing import load_timing, main, render_timing_markdown
 from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
 from arm_rc_ctrl.repo import repository_root
@@ -111,7 +111,9 @@ def test_the_smoke_check_measures_the_study_and_writes_its_report(
     # The study's own counts are exact whatever this check measured; pairs follow the evaluation
     # actually configured, which is narrowed here and is 65 x 2 in the real protocol.
     assert (projection.models, projection.replay_banks) == (186, 60)
-    assert projection.pairs_per_model == len(NARROWED) * 2
+    # Scenario selection defaults to the authorized nominal case on every subset, so a
+    # narrowed prefix run measures one scenario under both trackers rather than all of them.
+    assert projection.pairs_per_model == 2
     assert projection.total_runs == (projection.models + projection.replay_banks) * projection.pairs_per_model
     assert (tmp_path / "timing.md").read_text(encoding="utf-8") == render_timing_markdown(report)
     printed = json.loads(capsys.readouterr().out)
@@ -183,7 +185,10 @@ def test_the_default_subset_is_the_frozen_budget_subset(
         return (only,)
 
     monkeypatch.setattr(manual_timing, "budget_entries", one)
-    assert main(_budget_argv(manual_fixture, tmp_path)) == 0
+    # One model stands in for the twenty-four, so the size it runs is stated rather than
+    # having the preflight weakened to accommodate a stub.
+    argv = [*_budget_argv(manual_fixture, tmp_path), "--scenarios", "nominal", "--expect-runs", "4"]
+    assert main(argv) == 0
     capsys.readouterr()
     assert consulted == ["budget"], "the default path must consult the frozen subset"
     assert load_timing(tmp_path / "timing.json").entries == (only.label,)
@@ -251,3 +256,80 @@ def test_the_smoke_check_refuses_a_non_positive_worker_count(
     argv = [*_argv(manual_fixture, tmp_path), "--workers", "0"]
     with pytest.raises(ValueError, match="workers"):
         main(argv)
+
+
+# --- the authorized shape, checked before anything is fitted or simulated -----------------------
+
+
+def test_only_the_selected_scenarios_are_run(
+    manual_fixture: ManualFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """``--scenarios`` restricts what runs; the report's pairs follow the selection, not the locked set."""
+    _narrow(manual_fixture, monkeypatch)
+    # Its own model, so this starts from a store holding no evidence of this protocol: a served
+    # invocation simulates nothing and would measure no runs at all.
+    wanted = manual_fixture.manifest.entries[7].label
+    argv = [*_argv(manual_fixture, tmp_path), "--scenarios", "nominal", "--entries", wanted]
+    assert main(argv) == 0
+    capsys.readouterr()
+    report = load_timing(tmp_path / "timing.json")
+    assert report.projection.pairs_per_model == 2, "one scenario under both trackers"
+    assert report.runs, "this protocol was cold, so the invocation measured its own runs"
+    assert {run.scenario_id for run in report.runs} == {"nominal"}
+
+
+def test_the_command_refuses_before_any_simulation_when_the_shape_is_wrong(
+    manual_fixture: ManualFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The preflight fires first: a wrong shape is refused without fitting or simulating anything.
+
+    ``evaluate`` is blocked outright, so if the command reached it the failure
+    would be an AssertionError rather than the preflight's ValueError. That is
+    what makes this a test of ordering and not merely of the message.
+    """
+    f = manual_fixture
+    _narrow(f, monkeypatch)
+
+    def never(*_args: object, **_kwargs: object) -> object:
+        msg = "the preflight must refuse before any model is evaluated"
+        raise AssertionError(msg)
+
+    monkeypatch.setattr(ManualEvaluationRunner, "evaluate", never)
+    argv = [
+        *_budget_argv(f, tmp_path),
+        "--scenarios",
+        "nominal",
+        "--expect-runs",
+        "999",
+    ]
+    with pytest.raises(ValueError, match="authorized measurement"):
+        main(argv)
+    assert not (tmp_path / "timing.json").exists(), "no report is written for a refused shape"
+
+
+def test_the_authorized_shape_is_checked_without_an_explicit_expectation(
+    manual_fixture: ManualFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With no --expect-runs, the sanctioned shape is what a wrong subset is measured against.
+
+    Every other command test states a size explicitly, which leaves untested the
+    branch the real benchmark actually takes. A short subset makes the check
+    refuse through that default path, and blocking ``evaluate`` proves it
+    refused before any model was fitted or simulated.
+    """
+    f = manual_fixture
+    _narrow(f, monkeypatch)
+
+    def never(*_args: object, **_kwargs: object) -> object:
+        msg = "the preflight must refuse before any model is evaluated"
+        raise AssertionError(msg)
+
+    def short(*_args: object, **_kwargs: object) -> tuple[object, ...]:
+        return tuple(f.manifest.entries[:4])
+
+    monkeypatch.setattr(ManualEvaluationRunner, "evaluate", never)
+    monkeypatch.setattr(manual_timing, "budget_entries", short)
+    argv = [*_budget_argv(f, tmp_path), "--scenarios", "nominal"]
+    with pytest.raises(ValueError, match="authorized measurement"):
+        main(argv)
+    assert not (tmp_path / "timing.json").exists()

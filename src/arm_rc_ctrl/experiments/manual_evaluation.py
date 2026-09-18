@@ -2085,7 +2085,14 @@ class _Prepared:
     execution: ExecutionRecord
 
 
-def prepare_runner(args: argparse.Namespace, *, role: str, root: Path, module: str = _MODULE) -> _Prepared:
+def prepare_runner(
+    args: argparse.Namespace,
+    *,
+    role: str,
+    root: Path,
+    module: str = _MODULE,
+    scenario_ids: Sequence[str] | None = None,
+) -> _Prepared:
     """Verify the environment, bind the study and the configuration, and build the runner.
 
     ``module`` names the caller, because the command a run records must be the
@@ -2104,6 +2111,16 @@ def prepare_runner(args: argparse.Namespace, *, role: str, root: Path, module: s
     config = load_manual_evaluation_config(evaluation_file)
     scenario = load_manual_scenario(config.scenario)
     cases = evaluation_scenarios(load_development_robustness(config.development), scenario)
+    if scenario_ids is not None:
+        # The selection is part of the conditions a run is keyed by, so a restricted sweep keys its
+        # evidence differently and can never serve a broader sweep's runs back as its own.
+        wanted = tuple(scenario_ids)
+        available = {case.scenario_id: case for case in cases}
+        unknown = sorted(set(wanted) - set(available))
+        if unknown:
+            msg = f"unknown scenario ids {unknown}; the locked set has {len(available)} cases"
+            raise ValueError(msg)
+        cases = tuple(available[scenario_id] for scenario_id in wanted)
     resolved: dict[str, object] = {
         "study_manifest": context.manifest_sha256,
         "evaluation": {evaluation_file.name: sha256_file(evaluation_file)},
