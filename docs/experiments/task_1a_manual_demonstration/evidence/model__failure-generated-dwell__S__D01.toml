@@ -1,0 +1,14 @@
+schema = "task-1a-manual-evidence"
+experiment = "task_1a_manual_v1"
+kind = "model"
+identity = "6e4c9f5a8fd5a28e08f60362b8a9e5d07a34b27a3fbef8e5daa372b550bd4ee1"
+label = "failure-generated-dwell/S/D01"
+status = "infeasible"
+n_pairs = 2
+n_completed = 0
+n_infeasible = 2
+
+[payload]
+uri = "armrc://reports/task_1a_manual_v1/model/6e4c9f5a8fd5a28e08f60362b8a9e5d07a34b27a3fbef8e5daa372b550bd4ee1/manifest-c710502ee0b2.json"
+sha256 = "c710502ee0b21791813c0dc684f6b48503209acde53f56d79db6a28e47474cc0"
+size = 4078
