@@ -68,10 +68,24 @@ class Selection:
 
 
 def _by_scenario(verdicts: Sequence[ArmVerdict], order: Sequence[str]) -> dict[str, dict[str, bool]]:
-    """Group verdicts by scenario, refusing any that is not a complete four-arm comparison."""
+    """Group verdicts by scenario, refusing any that is not one complete four-arm comparison under one tracker.
+
+    Grouping is by scenario, so verdicts from two trackers -- or two verdicts for
+    one arm -- would collapse into a single entry and silently keep whichever came
+    last. One application of the rule covers one configuration under one tracker,
+    and that is enforced here rather than left to the caller.
+    """
+    trackers = sorted({verdict.tracker for verdict in verdicts})
+    if len(trackers) > 1:
+        msg = f"the rule is applied to one tracker at a time, got verdicts for {trackers}"
+        raise ValueError(msg)
     grouped: dict[str, dict[str, bool]] = {}
     for verdict in verdicts:
-        grouped.setdefault(verdict.scenario_id, {})[verdict.arm] = verdict.succeeded
+        arms = grouped.setdefault(verdict.scenario_id, {})
+        if verdict.arm in arms:
+            msg = f"{verdict.scenario_id}: arm {verdict.arm} has a verdict more than once"
+            raise ValueError(msg)
+        arms[verdict.arm] = verdict.succeeded
     for scenario_id, arms in grouped.items():
         if set(arms) != set(ILLUSTRATION_ARMS):
             msg = f"{scenario_id}: an illustrated case needs all four arms, got {sorted(arms)}"

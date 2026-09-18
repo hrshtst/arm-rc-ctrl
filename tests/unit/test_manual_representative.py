@@ -140,3 +140,29 @@ def test_a_scenario_outside_the_frozen_order_is_refused() -> None:
     verdicts = _verdicts(**{"invented-case": _all(succeeded=True)})
     with pytest.raises(ValueError, match="outside the frozen order"):
         representative_cases(verdicts, order=ORDER)
+
+
+# --- the unit one application covers -------------------------------------------------------------
+
+
+def test_verdicts_from_more_than_one_tracker_are_refused() -> None:
+    """The rule is applied to one configuration under one tracker, and that is enforced, not assumed.
+
+    Verdicts are grouped by scenario, so two trackers' verdicts for one scenario
+    and arm would collapse into one entry, silently keeping whichever came last.
+    """
+    from arm_rc_ctrl.experiments.manual_representative import ArmVerdict
+
+    mixed = _verdicts(nominal=_all(succeeded=True)) + tuple(
+        ArmVerdict(scenario_id="nominal", tracker="computed_torque", arm=arm, succeeded=False)
+        for arm in ILLUSTRATION_ARMS
+    )
+    with pytest.raises(ValueError, match="tracker"):
+        representative_cases(mixed, order=ORDER)
+
+
+def test_a_repeated_verdict_for_one_arm_is_refused() -> None:
+    """Two verdicts for the same scenario and arm cannot both be kept, and neither may silently win."""
+    doubled = _verdicts(nominal=_all(succeeded=True)) + _verdicts(nominal={"S": False})
+    with pytest.raises(ValueError, match="more than once"):
+        representative_cases(doubled, order=ORDER)
