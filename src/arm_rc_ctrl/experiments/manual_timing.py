@@ -44,11 +44,14 @@ if TYPE_CHECKING:
     from arm_rc_ctrl.experiments.manual_study import StudyManifest, StudyModel
 
 __all__ = [
+    "BUDGET_ARMS",
+    "BUDGET_PARENT",
     "PARENT_COUNT",
     "TIMING_SCHEMA_VERSION",
     "ManualRunStats",
     "ManualStudyProjection",
     "ManualTimingReport",
+    "budget_entries",
     "load_timing",
     "main",
     "peak_rss_bytes",
@@ -62,8 +65,36 @@ __all__ = [
 TIMING_SCHEMA_VERSION: Final = 1
 PARENT_COUNT: Final = len(ASSIGNMENTS)
 """The ten locked demonstrations; one replay bank per parent per configuration."""
+BUDGET_PARENT: Final = "D01"
+"""The one parent the budget subset's parent-specific arms all use, so configurations stay comparable."""
+BUDGET_ARMS: Final = ("S", "M10", "R10", "C10")
+"""Every arm kind, because training cost differs by kind and the projection scales what it measured."""
 _SHA256_HEX: Final = 64
 _MODULE: Final = "arm_rc_ctrl.experiments.manual_timing"
+
+
+def budget_entries(manifest: StudyManifest, *, parent: str = BUDGET_PARENT) -> tuple[StudyModel, ...]:
+    """The subset the measured budget rests on: every configuration crossed with every arm kind.
+
+    A growing prefix is deterministic but can sit inside one configuration and
+    miss the expensive training arms, so a projection built on it would scale
+    costs it never measured. This spans both dimensions that drive cost -- the
+    six inherited configurations and the four arm kinds -- at one fixed parent,
+    which is 24 models and, because the all-ten arm has no single parent while
+    the other three share their configuration's, six replay banks.
+
+    Nothing here consults an outcome: the configurations are inherited to avoid
+    selecting after seeing results, and the parent is fixed in advance.
+
+    The manifest already guarantees six configurations crossed with the
+    approved arms, so the subset cannot come up short without the study itself
+    being invalid; only an unknown parent is checked here.
+    """
+    if parent not in ASSIGNMENTS:
+        msg = f"unknown parent {parent!r}; the study's parents are {list(ASSIGNMENTS)}"
+        raise ValueError(msg)
+    wanted = {kind if kind == "M10" else f"{kind}/{parent}" for kind in BUDGET_ARMS}
+    return tuple(entry for entry in manifest.entries if entry.arm.label in wanted)
 
 
 def smoke_entries(
@@ -406,9 +437,13 @@ def _smoke(args: argparse.Namespace) -> int:
     started = time.perf_counter()
     prepared = prepare_runner(args, role="main", root=repository_root(), module=_MODULE)
     context, runner = prepared.context, prepared.runner
-    entries = smoke_entries(
-        context.manifest, count=int(cast("int", args.models)), labels=cast("list[str] | None", args.entries)
-    )
+    labels = cast("list[str] | None", args.entries)
+    if labels:
+        entries = smoke_entries(context.manifest, count=len(labels), labels=labels)
+    elif cast("str", args.subset) == "budget":
+        entries = budget_entries(context.manifest, parent=cast("str", args.parent))
+    else:
+        entries = smoke_entries(context.manifest, count=int(cast("int", args.models)))
     for entry in entries:
         runner.evaluate(entry, warmup_s=context.inputs.configuration(entry).warmup_s)
     written = runner.write_pointers(Path(cast("str", args.evidence_dir)))
@@ -480,8 +515,14 @@ def main(argv: Sequence[str] | None = None) -> int:
     smoke.add_argument("--output", type=str, required=True, help="timing report JSON to write (must not exist)")
     smoke.add_argument("--markdown", type=str, required=True, help="timing Markdown to write (must not exist)")
     smoke.add_argument(
-        "--models", type=int, default=3, help="models to measure, taken by position from the frozen study"
+        "--subset",
+        choices=("budget", "prefix"),
+        default="budget",
+        help="budget: every configuration crossed with every arm kind at one parent (the frozen subset); "
+        "prefix: the first --models entries, for a quick implementation check",
     )
+    smoke.add_argument("--parent", type=str, default=BUDGET_PARENT, help="the budget subset's fixed parent")
+    smoke.add_argument("--models", type=int, default=3, help="models to measure when --subset prefix")
     smoke.add_argument("--entries", type=str, nargs="*", default=None, help="measure these labels instead")
     smoke.add_argument("--exploratory", action="store_true", help="allow a dirty worktree")
     args = parser.parse_args(argv)

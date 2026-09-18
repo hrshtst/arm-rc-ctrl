@@ -74,6 +74,7 @@ def _narrow(f: ManualFixture, monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def _argv(f: ManualFixture, tmp_path: Path, *, models: int = 1) -> list[str]:
+    """The prefix subset keeps these tests to one model; the frozen budget subset is covered separately."""
     return [
         "smoke",
         "--study",
@@ -86,6 +87,8 @@ def _argv(f: ManualFixture, tmp_path: Path, *, models: int = 1) -> list[str]:
         str(tmp_path / "timing.json"),
         "--markdown",
         str(tmp_path / "timing.md"),
+        "--subset",
+        "prefix",
         "--models",
         str(models),
         "--exploratory",
@@ -141,3 +144,58 @@ def test_the_smoke_check_refuses_to_overwrite_a_committed_report(
     capsys.readouterr()
     with pytest.raises(FileExistsError, match="refusing to overwrite"):
         main(argv)
+
+
+def _budget_argv(f: ManualFixture, tmp_path: Path) -> list[str]:
+    """The default invocation: no subset flag, so the frozen budget subset is what runs."""
+    return [
+        "smoke",
+        "--study",
+        str(f.manifest_file),
+        "--evaluation",
+        str(_evaluation_file(f)),
+        "--evidence-dir",
+        str(tmp_path / "evidence"),
+        "--output",
+        str(tmp_path / "timing.json"),
+        "--markdown",
+        str(tmp_path / "timing.md"),
+        "--exploratory",
+    ]
+
+
+def test_the_default_subset_is_the_frozen_budget_subset(
+    manual_fixture: ManualFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Without a flag the command measures the frozen budget subset, not a prefix.
+
+    The rule itself is tested against the real manifest elsewhere; what matters
+    here is that the default path consults it, since that is what decides which
+    models the measured budget actually runs. One model stands in for the
+    twenty-four so this stays a unit test.
+    """
+    _narrow(manual_fixture, monkeypatch)
+    consulted: list[str] = []
+    only = manual_fixture.manifest.entries[0]
+
+    def one(*_args: object, **_kwargs: object) -> tuple[object, ...]:
+        consulted.append("budget")
+        return (only,)
+
+    monkeypatch.setattr(manual_timing, "budget_entries", one)
+    assert main(_budget_argv(manual_fixture, tmp_path)) == 0
+    capsys.readouterr()
+    assert consulted == ["budget"], "the default path must consult the frozen subset"
+    assert load_timing(tmp_path / "timing.json").entries == (only.label,)
+
+
+def test_named_entries_override_the_subset(
+    manual_fixture: ManualFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A targeted check measures exactly what it names, whatever the subset rule would have chosen."""
+    _narrow(manual_fixture, monkeypatch)
+    wanted = manual_fixture.manifest.entries[3].label
+    argv = [*_budget_argv(manual_fixture, tmp_path), "--entries", wanted]
+    assert main(argv) == 0
+    capsys.readouterr()
+    assert load_timing(tmp_path / "timing.json").entries == (wanted,)

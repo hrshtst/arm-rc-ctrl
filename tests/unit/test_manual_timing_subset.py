@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from arm_rc_ctrl.experiments.manual_timing import smoke_entries
+from arm_rc_ctrl.experiments.manual_timing import BUDGET_PARENT, budget_entries, smoke_entries
 
 if TYPE_CHECKING:
     from arm_rc_ctrl.experiments.manual_fixture import ManualFixture
@@ -79,3 +79,54 @@ def test_an_unknown_label_is_refused_rather_than_quietly_dropped(manual_fixture:
     manifest = manual_fixture.manifest
     with pytest.raises(ValueError, match="unknown model labels"):
         smoke_entries(manifest, count=2, labels=(manifest.entries[0].label, "feasible-best/S/D99"))
+
+
+# --- the subset the measured budget rests on ---------------------------------------------------
+
+
+def test_the_budget_subset_covers_every_configuration_and_arm_kind(manual_fixture: ManualFixture) -> None:
+    """Coverage rather than a prefix: all six configurations and all four arm kinds, 24 models.
+
+    A growing prefix is deterministic but can sit inside one configuration and
+    miss the expensive training arms, so the projection would scale costs it
+    never measured. This subset spans both dimensions that drive cost.
+    """
+    chosen = budget_entries(manual_fixture.manifest)
+    assert len(chosen) == 24
+    by_configuration: dict[str, set[str]] = {}
+    for entry in chosen:
+        by_configuration.setdefault(entry.configuration, set()).add(entry.arm.arm)
+    assert len(by_configuration) == 6, "every inherited configuration is represented"
+    assert all(kinds == {"S", "M10", "R10", "C10"} for kinds in by_configuration.values())
+
+
+def test_the_budget_subset_fixes_one_parent_for_parent_specific_arms(manual_fixture: ManualFixture) -> None:
+    """One fixed parent keeps the subset comparable across configurations; the all-ten arm has none."""
+    chosen = budget_entries(manual_fixture.manifest)
+    for entry in chosen:
+        if entry.arm.arm == "M10":
+            assert entry.arm.assignment is None, "the all-ten arm trains on the whole bank"
+        else:
+            assert entry.arm.assignment == BUDGET_PARENT
+
+
+def test_the_budget_subset_needs_exactly_six_replay_banks(manual_fixture: ManualFixture) -> None:
+    """One bank per configuration: the parent-specific arms of a configuration share its policy and parent."""
+    chosen = budget_entries(manual_fixture.manifest)
+    banks = {(entry.configuration, entry.arm.assignment) for entry in chosen if entry.arm.assignment is not None}
+    assert len(banks) == 6
+
+
+def test_the_budget_subset_is_deterministic_and_in_manifest_order(manual_fixture: ManualFixture) -> None:
+    """Chosen by rule and never by result: the same models, in the study's own order, every time."""
+    manifest = manual_fixture.manifest
+    first = budget_entries(manifest)
+    assert [entry.label for entry in first] == [entry.label for entry in budget_entries(manifest)]
+    positions = [manifest.entries.index(entry) for entry in first]
+    assert positions == sorted(positions), "manifest order is kept"
+
+
+def test_the_budget_subset_refuses_a_parent_the_study_does_not_have(manual_fixture: ManualFixture) -> None:
+    """A missing parent would quietly shrink the subset and the denominator the projection divides by."""
+    with pytest.raises(ValueError, match="parent"):
+        budget_entries(manual_fixture.manifest, parent="D99")
