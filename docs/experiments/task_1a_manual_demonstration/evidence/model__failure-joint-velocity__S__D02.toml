@@ -1,0 +1,14 @@
+schema = "task-1a-manual-evidence"
+experiment = "task_1a_manual_v1"
+kind = "model"
+identity = "65ab9de220471ac2ea8742f022f2c5d6a60b79c640aa24189502ea6d9b86cf79"
+label = "failure-joint-velocity/S/D02"
+status = "feasible"
+n_pairs = 130
+n_completed = 130
+n_infeasible = 0
+
+[payload]
+uri = "armrc://reports/task_1a_manual_v1/model/65ab9de220471ac2ea8742f022f2c5d6a60b79c640aa24189502ea6d9b86cf79/manifest-1a046bdd811e.json"
+sha256 = "1a046bdd811ea00f70f6686e734dbfd0a6e8f90fba90ab948ab9edcacca3aabc"
+size = 163305

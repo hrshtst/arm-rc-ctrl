@@ -1,0 +1,14 @@
+schema = "task-1a-manual-evidence"
+experiment = "task_1a_manual_v1"
+kind = "model"
+identity = "13215e48a52241f65d06cbdf1e0b8097b96be0d9403f94233b12cbd3e0a01682"
+label = "feasible-best/S/D09"
+status = "infeasible"
+n_pairs = 130
+n_completed = 118
+n_infeasible = 12
+
+[payload]
+uri = "armrc://reports/task_1a_manual_v1/model/13215e48a52241f65d06cbdf1e0b8097b96be0d9403f94233b12cbd3e0a01682/manifest-74bb451500da.json"
+sha256 = "74bb451500da7de6dbacb38a3d0a5332210db05bf8b0c987ad49cd1a24e56ba2"
+size = 160673
