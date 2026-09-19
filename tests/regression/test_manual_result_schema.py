@@ -1,7 +1,7 @@
 # Copyright (c) 2026 Hiroshi Atsuta
 # SPDX-License-Identifier: GPL-3.0-only
 
-"""M3MAN-009: the frozen result schema describes exactly the evidence the sweep writes.
+"""M3MAN-009, M3MAN-010: the frozen result schema describes exactly the evidence the study writes.
 
 Plan section 7.1 requires the machine-readable evidence to ship with documented
 field definitions and units. A document that can drift from the code is worse
@@ -32,7 +32,11 @@ SCHEMA = DOCS / "result_schema_v1.json"
 MARKDOWN = DOCS / "result_schema_v1.md"
 SCHEMA_V2 = DOCS / "result_schema_v2.json"
 MARKDOWN_V2 = DOCS / "result_schema_v2.md"
-FROZEN = ((1, SCHEMA, MARKDOWN), (2, SCHEMA_V2, MARKDOWN_V2))
+SCHEMA_V3 = DOCS / "result_schema_v3.json"
+MARKDOWN_V3 = DOCS / "result_schema_v3.md"
+FROZEN = ((1, SCHEMA, MARKDOWN), (2, SCHEMA_V2, MARKDOWN_V2), (3, SCHEMA_V3, MARKDOWN_V3))
+LATEST = SCHEMA_V3
+"""The newest frozen version, which carries every record; the field-level checks read it."""
 """Every frozen version. A new one is added here; an existing one is never edited."""
 
 
@@ -51,7 +55,7 @@ def test_the_frozen_schema_matches_the_records_the_sweep_writes(version: int, sc
 
 def test_every_frozen_field_carries_a_definition() -> None:
     """A field nobody defined is a column a reader has to guess at; the freeze refuses to ship one."""
-    frozen = load_schema(SCHEMA_V2)
+    frozen = load_schema(LATEST)
     undefined = [
         f"{record.name}.{field.name}"
         for record in frozen.records
@@ -63,7 +67,7 @@ def test_every_frozen_field_carries_a_definition() -> None:
 
 def test_an_optional_field_says_what_its_absence_means() -> None:
     """Nulls survive serialization, so each one has to mean something stated rather than inferred."""
-    frozen = load_schema(SCHEMA_V2)
+    frozen = load_schema(LATEST)
     unexplained = [
         f"{record.name}.{field.name}"
         for record in frozen.records
@@ -92,7 +96,7 @@ def test_the_markdown_renders_from_the_committed_schema(version: int, schema: ob
 
 def test_a_numeric_field_declares_its_unit_and_what_it_aggregates_over() -> None:
     """A number without a unit or a denominator cannot be read back correctly by anyone but its author."""
-    frozen = load_schema(SCHEMA_V2)
+    frozen = load_schema(LATEST)
     numeric = [
         (record.name, field)
         for record in frozen.records
@@ -118,12 +122,16 @@ def test_the_frozen_document_states_the_version_it_belongs_to(version: int, sche
 
 def test_version_one_is_retained_exactly_as_frozen() -> None:
     """Raising the version adds a document beside v1; it never edits the one already frozen."""
-    assert RESULT_SCHEMA_VERSION == 2
+    assert RESULT_SCHEMA_VERSION == 3
     assert len(RECORDS_BY_VERSION[1]) == 11
     assert list(RECORDS_BY_VERSION[2][:11]) == list(RECORDS_BY_VERSION[1]), (
         "v2 extends v1's records rather than reordering them"
     )
+    assert list(RECORDS_BY_VERSION[3][:17]) == list(RECORDS_BY_VERSION[2]), (
+        "v3 extends v2's records rather than reordering them"
+    )
     assert load_schema(SCHEMA).schema_version == 1
+    assert load_schema(SCHEMA_V2).schema_version == 2
 
 
 def test_the_new_records_are_the_handoff_definitions() -> None:
@@ -141,8 +149,28 @@ def test_the_new_records_are_the_handoff_definitions() -> None:
 
 def test_the_unexecuted_count_is_defined_and_currently_zero_by_construction() -> None:
     """Section 7.1 wants not-executed reported; the sweep cannot produce it, and the schema says so."""
-    frozen = load_schema(SCHEMA_V2)
+    frozen = load_schema(LATEST)
     evidence = next(record for record in frozen.records if record.name == "ManualModelEvidence")
     unexecuted = next(field for field in evidence.fields if field.name == "n_unexecuted")
     assert "zero" in unexecuted.definition.lower()
     assert unexecuted.scope.strip()
+
+
+def test_the_third_version_adds_the_derived_evidence_records() -> None:
+    """M3MAN-010: the per-run and per-comparison tables, the summaries, the selections and the figure inputs."""
+    added = set(RECORDS_BY_VERSION[3]) - set(RECORDS_BY_VERSION[2])
+    assert added == {
+        "ManualRunRow",
+        "ManualContrastRow",
+        "ManualContrastSummary",
+        "ManualArmSummary",
+        "ManualSelection",
+        "ManualSelections",
+        "ManualFigureRun",
+        "ManualFigureCase",
+        "ManualFigureInputs",
+        "ManualResultInputs",
+        "ManualResultTable",
+        "ManualResultDocument",
+        "ManualResults",
+    }

@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import io
 import json
 import math
 import os
@@ -90,6 +91,7 @@ if TYPE_CHECKING:
     from arm_rc_ctrl.storage import StorageRoot
 
 __all__ = [
+    "GRID_TOLERANCE_S",
     "POINTER_SCHEMA",
     "PROGRESS_FILE",
     "CausalReplayReference",
@@ -103,6 +105,7 @@ __all__ = [
     "ManualModelTiming",
     "ManualPairRecord",
     "ManualReplayBank",
+    "ManualRunArtifact",
     "ManualRunConditions",
     "ManualRunOutcome",
     "ManualRunTiming",
@@ -119,6 +122,8 @@ __all__ = [
     "load_manual_model_evidence",
     "load_manual_pointer",
     "load_manual_replay_bank",
+    "load_verified_payload",
+    "load_verified_run",
     "main",
     "manual_bank_to_json",
     "manual_conditions",
@@ -136,8 +141,9 @@ __all__ = [
 
 _SHA256_HEX: Final = 64
 _SHORT: Final = 12
-_GRID_TOLERANCE_S: Final = 1e-9
+GRID_TOLERANCE_S: Final = 1e-9
 """Slack for comparing times that are exact multiples of the control period."""
+_GRID_TOLERANCE_S: Final = GRID_TOLERANCE_S
 
 REPORTS_PREFIX: Final = "armrc://reports/task_1a_manual_v1"
 """Where this experiment's evidence lives in the store."""
@@ -981,7 +987,11 @@ def _verify_run_arrays(where: str, arrays: Path, run: ManualRunArtifact, stored:
     if not arrays.is_file():
         msg = f"{where}: {RUN_ARRAYS_FILE} is missing from the store"
         raise ValueError(msg)
-    digest = sha256_file(arrays)
+    _check_arrays_digest(where, sha256_file(arrays), run, stored)
+
+
+def _check_arrays_digest(where: str, digest: str, run: ManualRunArtifact, stored: RunSummary) -> None:
+    """One arrays digest, against the record's copy and the summary's own reference."""
     if digest != run.arrays_sha256:
         msg = f"{where}: {RUN_ARRAYS_FILE} no longer matches its record"
         raise ValueError(msg)
@@ -1041,6 +1051,48 @@ def _verify_run_payload(store: StorageRoot, pair: ManualPairRecord) -> None:
     stored = _verify_run_summary(where, summary, run)
     _verify_run_arrays(where, summary.parent / RUN_ARRAYS_FILE, run, stored)
     _verify_run_verdict(where, pair, stored)
+
+
+def load_verified_payload(
+    store: StorageRoot, run: ManualRunArtifact, *, where: str
+) -> tuple[RunSummary, dict[str, NDArray[Any]]]:
+    """One stored run's summary and arrays, each checked against every digest that describes it.
+
+    The arrays file is read once: its digest is checked against both references
+    and the same bytes are then parsed, so what a caller measures is what was
+    verified.
+    """
+    try:
+        summary = store.path(run.uri, mode="read")
+    except FileNotFoundError as error:
+        msg = f"{where}: {RUN_SUMMARY_FILE} is missing from the store"
+        raise ValueError(msg) from error
+    stored = _verify_run_summary(where, summary, run)
+    arrays_file = summary.parent / RUN_ARRAYS_FILE
+    if not arrays_file.is_file():
+        msg = f"{where}: {RUN_ARRAYS_FILE} is missing from the store"
+        raise ValueError(msg)
+    data = arrays_file.read_bytes()
+    _check_arrays_digest(where, sha256_bytes(data), run, stored)
+    with np.load(io.BytesIO(data), allow_pickle=False) as archive:
+        if set(archive.files) != set(stored.arrays):
+            msg = f"{where}: {RUN_ARRAYS_FILE} holds {sorted(archive.files)}, not {sorted(stored.arrays)}"
+            raise ValueError(msg)
+        arrays = {name: cast("NDArray[Any]", archive[name]) for name in stored.arrays}
+    return stored, arrays
+
+
+def load_verified_run(store: StorageRoot, pair: ManualPairRecord) -> tuple[RunSummary, dict[str, NDArray[Any]]]:
+    """One recorded run's summary and arrays, after exactly the checks a resume applies before serving it."""
+    run = pair.run
+    where = f"{pair.scenario_id} [{pair.tracker}] {pair.arm}"
+    if run is None:
+        msg = f"{where} was not simulated, so it has no run to load"
+        raise ValueError(msg)
+    where = f"run {run.artifact_id} of {where}"
+    stored, arrays = load_verified_payload(store, run, where=where)
+    _verify_run_verdict(where, pair, stored)
+    return stored, arrays
 
 
 def _verify_stored_runs(store: StorageRoot, pairs: Sequence[ManualPairRecord]) -> None:

@@ -13,11 +13,13 @@ is the one thing this experiment has learned not to trust.
 
 from __future__ import annotations
 
+import json
 import shutil
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pytest
 
+from arm_rc_ctrl.config import from_mapping, to_mapping
 from arm_rc_ctrl.controllers.tracking import TrackerConfig
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
 from arm_rc_ctrl.experiments.manual_accounting import (
@@ -33,7 +35,7 @@ from arm_rc_ctrl.experiments.manual_evaluation import (
 )
 from arm_rc_ctrl.experiments.manual_study import EXPERIMENT_LABEL
 from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
-from arm_rc_ctrl.provenance import ArtifactReference
+from arm_rc_ctrl.provenance import ArtifactReference, canonical_json
 from arm_rc_ctrl.repo import repository_root
 
 if TYPE_CHECKING:
@@ -171,6 +173,16 @@ def test_the_totals_re_derive_from_the_lines(manual_fixture: ManualFixture, tmp_
     assert accounting.n_replay_runs == sum(bank.n_pairs for bank in accounting.banks)
     assert accounting.all_bind_canonical_execution is True
     assert accounting.canonical_execution_identity == f.execution.identity
+
+
+def test_the_accounting_reads_back_from_its_own_json(manual_fixture: ManualFixture, tmp_path: Path) -> None:
+    """M3MAN-010 commits the accounting, so a reader must be able to load it strictly, stored references included."""
+    f = manual_fixture
+    accounting = account_study(
+        store=f.store, evidence_dir=_evidence_of_one_model(f, tmp_path), manifest=f.manifest, provenance=f.provenance
+    )
+    text = canonical_json(to_mapping(accounting))
+    assert from_mapping(cast("dict[str, object]", json.loads(text)), StudyAccounting) == accounting
 
 
 def test_an_empty_evidence_directory_accounts_for_everything_as_missing(

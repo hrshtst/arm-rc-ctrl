@@ -26,13 +26,12 @@ from arm_rc_ctrl.experiments.manual_evaluation import (
     manual_pointer_name,
 )
 from arm_rc_ctrl.experiments.manual_study import EXPERIMENT_LABEL
-from arm_rc_ctrl.provenance import ProvenanceRecord, verify_artifact
+from arm_rc_ctrl.provenance import ArtifactReference, ProvenanceRecord, verify_artifact  # loaded back at run time
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from arm_rc_ctrl.experiments.manual_study import StudyManifest
-    from arm_rc_ctrl.provenance import ArtifactReference
     from arm_rc_ctrl.storage import StorageRoot
 
 __all__ = [

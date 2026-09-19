@@ -249,6 +249,24 @@ not a bound, and the report says so beside the numbers and next to the earlier
 planning estimate. Timings are wall-clock in the canonical single-threaded
 environment; bounded parallel execution reduces elapsed time and not storage. An
 existing report is never overwritten.
+`scripts/derive_manual_results.py derive --study … --evaluation …
+--evidence-dir … --run-ordering … --representative-rule … --result-schema
+…/result_schema_v3.json --output …/results [--workers N] [--exploratory]`
+derives the executed study's machine-readable evidence: one row per run (its
+verdict, terminal state, and diagnostic metrics read from its own verified
+trajectories over the active segment), the paired comparisons per parent with
+both measures (success-count differences over shared scenarios with their
+denominators, and improved/worsened/tied tallies), the ten-parent summaries with
+median and range, the class summaries with the all-ten arm counted once, the
+accounting, the frozen representative rule applied per configuration and
+tracker, and the figure inputs. The per-run and per-comparison tables go to the
+store behind digest-and-size pointers; everything else is committed, and nothing
+is ever overwritten. `scripts/render_manual_case.py cases|plot|animate --inputs
+…/results/figure_inputs_v1.json …` lists the illustrated cases and renders one
+as a figure, or one of its runs as a GIF, keeping the recorded demonstration,
+the commanded reference, and the actual motion visibly apart.
+`docs/experiments/task_1a_manual_demonstration/results/usage_v1.md` explains
+how to read and reproduce every output.
 
 ## Requirements
 
