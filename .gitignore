@@ -90,6 +90,7 @@ storage.toml
 !/docs/experiments/task_1a/animations/*.gif
 !/docs/experiments/task_1a_state_conditioned_recovery/animations/*.gif
 !/docs/experiments/task_1a_repeated_demonstration/animations/repetition_v1/*.gif
+!/docs/experiments/task_1a_manual_demonstration/results/figures/*.gif
 
 # --- Editors / OS -----------------------------------------------------------
 .vscode/
