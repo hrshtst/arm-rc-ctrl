@@ -170,10 +170,22 @@ uv run python -m arm_rc_ctrl.execution run --policy p-cores -- \
     --output <new directory> --workers 8
 ```
 
-The command verifies every model and bank manifest and every run's summary and
-arrays against their recorded digests before measuring anything, refuses a
-dirty worktree unless `--exploratory` is given, and refuses to overwrite any
-output. The stored tables are content-addressed, so re-deriving the same
+The command starts the way the sweep does: in the canonical pinned environment,
+from the frozen study with its demonstrations verified, and refusing a dirty
+worktree unless `--exploratory` is given. Every model and bank manifest is
+verified by digest and then checked against the study's trusted inputs with the
+same functions a resume uses. A model's fit binding is compared whole with the
+fit recorded under the study's own fit identity, whose recipe and weights
+digests are verified and whose recipe construction is checked against the study
+entry; the derivation does not refit, which the sweep did. Each manifest's
+conditions are compared whole with those the evaluation configuration produces
+for its configuration, and its runs' training sources with the parent's
+demonstrations. A bank is accepted only under the identity its trusted
+conditions and parent produce. Every run's summary and arrays are verified
+against their recorded digests before anything is measured, and no output is
+ever overwritten. As of the second review of M3MAN-010, the committed v1 outputs
+are reproduced exactly by the checked derivation, except for the provenance of
+the invocation. The stored tables are content-addressed, so re-deriving the same
 evidence writes the same bytes to the same locations. The exact command that
 produced these outputs is recorded in `results_v1.json`.
 

@@ -15,11 +15,13 @@ from __future__ import annotations
 
 import json
 import shutil
-from typing import TYPE_CHECKING
+from dataclasses import replace
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
 from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
+from arm_rc_ctrl.data.records import write_record
 from arm_rc_ctrl.experiments import manual_evaluation, manual_figures, manual_results
 from arm_rc_ctrl.experiments.manual_contrasts import ManualArmSummary, ManualContrastRow, ManualContrastSummary
 from arm_rc_ctrl.experiments.manual_evaluation import (
@@ -43,11 +45,11 @@ from arm_rc_ctrl.experiments.manual_results import (
 from arm_rc_ctrl.experiments.manual_schema import result_schema, schema_to_json
 from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
 from arm_rc_ctrl.experiments.recovery_search import RECOVERY_TRACKERS
-from arm_rc_ctrl.provenance import sha256_file, verify_artifact
+from arm_rc_ctrl.provenance import ArtifactReference, sha256_bytes, sha256_file, verify_artifact
 from arm_rc_ctrl.repo import repository_root
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
     from pathlib import Path
 
     from arm_rc_ctrl.experiments.manual_evaluation import ManualPairRecord
@@ -123,7 +125,7 @@ class _Study:
         self.rule = base / "representative_rule_v1.json"
         self.rule.write_text(handoff_to_json(rule) + "\n", encoding="utf-8")
 
-    def derive_argv(self, output: Path) -> list[str]:
+    def derive_argv(self, output: Path, evidence: Path | None = None) -> list[str]:
         return [
             "derive",
             "--study",
@@ -131,7 +133,7 @@ class _Study:
             "--evaluation",
             str(self.evaluation),
             "--evidence-dir",
-            str(self.evidence),
+            str(self.evidence if evidence is None else evidence),
             "--run-ordering",
             str(self.ordering),
             "--representative-rule",
@@ -169,14 +171,19 @@ def study(manual_fixture: ManualFixture, tmp_path_factory: pytest.TempPathFactor
         yield built
 
 
-@pytest.fixture
-def derived(study: _Study, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> Path:
-    """Derive the evidence into a fresh directory and return it."""
+def _patch_derivation(study: _Study, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Point the derivation at the fixture: its environment, its root, and the two narrowed scenarios."""
     for name, value in study.f.env.items():
         monkeypatch.setenv(name, value)
     monkeypatch.setattr(manual_results, "repository_root", lambda: study.f.root)
-    monkeypatch.setattr(manual_results, "evaluation_scenarios", _narrowed)
+    monkeypatch.setattr(manual_evaluation, "evaluation_scenarios", _narrowed)
     monkeypatch.setattr(manual_figures, "repository_root", lambda: study.f.root)
+
+
+@pytest.fixture
+def derived(study: _Study, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]) -> Path:
+    """Derive the evidence into a fresh directory and return it."""
+    _patch_derivation(study, monkeypatch)
     output = tmp_path / "results"
     assert manual_results.main(study.derive_argv(output)) == 0
     capsys.readouterr()
@@ -308,10 +315,7 @@ def test_deriving_again_over_existing_outputs_is_refused(derived: Path, study: _
 
 def test_a_tampered_run_stops_the_derivation(study: _Study, tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     """A run whose payload changed after it was recorded is never measured into the tables."""
-    for name, value in study.f.env.items():
-        monkeypatch.setenv(name, value)
-    monkeypatch.setattr(manual_results, "repository_root", lambda: study.f.root)
-    monkeypatch.setattr(manual_results, "evaluation_scenarios", _narrowed)
+    _patch_derivation(study, monkeypatch)
     pair = _pair(study, f"{CONFIGURATION}/C10/D01")
     arrays = _arrays_file(study, pair)
     backup = tmp_path / "arrays.npz"
@@ -322,6 +326,124 @@ def test_a_tampered_run_stops_the_derivation(study: _Study, tmp_path: Path, monk
             manual_results.main(study.derive_argv(tmp_path / "results"))
     finally:
         shutil.copyfile(backup, arrays)
+
+
+# --- trusted inputs, not the manifests' own claims -------------------------------------------------
+
+
+def _tampered(study: _Study, tmp_path: Path, pointer_name: str, mutate: Callable[[dict[str, Any]], None]) -> Path:
+    """A copy of the evidence whose one pointer cites an altered manifest, stored under its own correct digest.
+
+    The digest then vouches for the altered file, so only a comparison with the
+    study's trusted inputs can refuse it.
+    """
+    evidence = tmp_path / "evidence"
+    shutil.copytree(study.evidence, evidence)
+    path = evidence / pointer_name
+    pointer = load_manual_pointer(path)
+    mapping = json.loads(verify_artifact(study.f.store, pointer.payload).read_text(encoding="utf-8"))
+    mutate(mapping)
+    body = (json.dumps(mapping, sort_keys=True) + "\n").encode("utf-8")
+    digest = sha256_bytes(body)
+    uri = f"armrc://reports/task_1a_manual_v1/tampered/manifest-{digest[:12]}.json"
+    study.f.store.path(uri, mode="write").write_bytes(body)
+    path.unlink()  # a copy in a scratch directory; the study's own pointers are untouched
+    write_record(path, replace(pointer, payload=ArtifactReference(uri=uri, sha256=digest, size=len(body))))
+    return evidence
+
+
+def _drop_last_pair(mapping: dict[str, Any]) -> None:
+    """Remove one run and keep the manifest self-consistent, as a careful alteration would."""
+    mapping["pairs"] = mapping["pairs"][:-1]
+    if "n_pairs" in mapping:
+        statuses = [pair["status"] for pair in mapping["pairs"]]
+        mapping["n_pairs"] = len(statuses)
+        mapping["n_completed"] = statuses.count("completed")
+        mapping["n_infeasible"] = statuses.count("infeasible")
+        mapping["status"] = "feasible" if statuses.count("completed") == len(statuses) else "infeasible"
+
+
+def _set(*keys: str, value: object) -> Callable[[dict[str, Any]], None]:
+    def mutate(mapping: dict[str, Any]) -> None:
+        target = mapping
+        for key in keys[:-1]:
+            target = target[key]
+        target[keys[-1]] = value
+
+    return mutate
+
+
+def _other_source(study: _Study) -> Callable[[dict[str, Any]], None]:
+    """Claim the first run trained on D02's demonstration rather than its own parent's."""
+    other = next(d.dataset.artifact_id for d in study.f.manifest.demonstrations if d.assignment == "D02")
+
+    def mutate(mapping: dict[str, Any]) -> None:
+        mapping["pairs"][0]["run"]["sources"] = [other]
+
+    return mutate
+
+
+MODEL_TAMPERING = {
+    "fit identity": (_set("fit", "identity", value="1" * 64), "records fit"),
+    "fit weights": (_set("fit", "weights_sha256", value="3" * 64), "records fit"),
+    "warm-up": (_set("conditions", "warmup_s", value=2.0), "records conditions"),
+    "execution identity": (_set("conditions", "execution_identity", value="2" * 64), "records conditions"),
+    "dropped pair": (_drop_last_pair, "pairs"),
+}
+"""Each alteration the owner's review showed the derivation accepting, and one it did not try."""
+
+
+@pytest.mark.parametrize("change", sorted(MODEL_TAMPERING))
+def test_a_model_manifest_that_contradicts_the_study_is_refused(
+    study: _Study, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    """The fit, the conditions and the pair set are compared with the study's trusted inputs, not with themselves."""
+    _patch_derivation(study, monkeypatch)
+    mutate, reason = MODEL_TAMPERING[change]
+    evidence = _tampered(study, tmp_path, manual_pointer_name("model", f"{CONFIGURATION}/S/D01"), mutate)
+    with pytest.raises(ValueError, match=reason):
+        manual_results.main(study.derive_argv(tmp_path / "results", evidence))
+
+
+def test_a_model_run_that_names_another_training_source_is_refused(
+    study: _Study, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """What a run claims to have trained on is compared with what its arm's parent demands."""
+    _patch_derivation(study, monkeypatch)
+    evidence = _tampered(study, tmp_path, manual_pointer_name("model", f"{CONFIGURATION}/S/D01"), _other_source(study))
+    with pytest.raises(ValueError, match="training sources"):
+        manual_results.main(study.derive_argv(tmp_path / "results", evidence))
+
+
+BANK_TAMPERING = {
+    "warm-up": (_set("conditions", "warmup_s", value=2.0), "protocol keys"),
+    "execution identity": (_set("conditions", "execution_identity", value="2" * 64), "protocol keys"),
+    "dropped pair": (_drop_last_pair, "pairs"),
+}
+
+
+@pytest.mark.parametrize("change", sorted(BANK_TAMPERING))
+def test_a_replay_bank_that_contradicts_the_study_is_refused(
+    study: _Study, tmp_path: Path, monkeypatch: pytest.MonkeyPatch, change: str
+) -> None:
+    """A bank is accepted only under the conditions the study keys it by, with every pair those conditions name."""
+    _patch_derivation(study, monkeypatch)
+    mutate, reason = BANK_TAMPERING[change]
+    name = next(path.name for path in study.evidence.glob("replay__*.toml"))
+    evidence = _tampered(study, tmp_path, name, mutate)
+    with pytest.raises(ValueError, match=reason):
+        manual_results.main(study.derive_argv(tmp_path / "results", evidence))
+
+
+def test_a_replay_run_that_names_another_training_source_is_refused(
+    study: _Study, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A replay run names the demonstration it replays, and that must be the bank's own parent."""
+    _patch_derivation(study, monkeypatch)
+    name = next(path.name for path in study.evidence.glob("replay__*.toml"))
+    evidence = _tampered(study, tmp_path, name, _other_source(study))
+    with pytest.raises(ValueError, match="training sources"):
+        manual_results.main(study.derive_argv(tmp_path / "results", evidence))
 
 
 # --- the figure tools ------------------------------------------------------------------------------
@@ -341,3 +463,15 @@ def test_one_case_renders_as_a_plot_and_one_run_as_an_animation(derived: Path, s
         plot_case(inputs, case_id, png, store=study.f.store, root=study.f.root)
     with pytest.raises(KeyError, match="no case"):
         plot_case(inputs, "invented", tmp_path / "other.png", store=study.f.store, root=study.f.root)
+
+
+def test_both_renderers_refuse_a_task_configuration_other_than_the_bound_one(
+    derived: Path, study: _Study, tmp_path: Path
+) -> None:
+    """The kinematics and the target come from the configuration the inputs bind by digest, for plots and animations."""
+    inputs = replace(load_figure_inputs(derived / "figure_inputs_v1.json"), scenario_sha256="0" * 64)
+    case_id = f"{CONFIGURATION}__pd_v2__nominal"
+    with pytest.raises(ValueError, match="not the task configuration"):
+        plot_case(inputs, case_id, tmp_path / "case.png", store=study.f.store, root=study.f.root)
+    with pytest.raises(ValueError, match="not the task configuration"):
+        animate_case(inputs, case_id, "M10", tmp_path / "case.gif", store=study.f.store, root=study.f.root)

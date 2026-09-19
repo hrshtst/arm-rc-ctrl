@@ -43,7 +43,6 @@ import json
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Final, cast
@@ -51,7 +50,6 @@ from typing import TYPE_CHECKING, Any, Final, cast
 import numpy as np
 
 from arm_rc_ctrl.config import from_mapping, to_mapping
-from arm_rc_ctrl.data.manual_scenario import load_manual_scenario
 from arm_rc_ctrl.experiments.manual_accounting import StudyAccounting, account_study
 from arm_rc_ctrl.experiments.manual_contrasts import (
     ManualArmSummary,
@@ -65,41 +63,42 @@ from arm_rc_ctrl.experiments.manual_contrasts import (
 )
 from arm_rc_ctrl.experiments.manual_evaluation import (
     GRID_TOLERANCE_S,
-    evaluation_scenarios,
-    load_manual_evaluation_config,
+    bank_identity,
     load_manual_model_evidence,
     load_manual_pointer,
     load_manual_replay_bank,
     load_verified_run,
     manual_pointer_name,
+    prepare_runner,
 )
 from arm_rc_ctrl.experiments.manual_figures import ManualFigureInputs, figure_inputs, figure_inputs_to_json
 from arm_rc_ctrl.experiments.manual_handoff import RepresentativeRule, RunOrdering, load_handoff
 from arm_rc_ctrl.experiments.manual_representative import ArmVerdict, Selection, representative_cases
 from arm_rc_ctrl.experiments.manual_schema import load_schema
-from arm_rc_ctrl.experiments.manual_study import EXPERIMENT_LABEL, load_study
-from arm_rc_ctrl.experiments.perturbations import load_development_robustness
+from arm_rc_ctrl.experiments.manual_study import EXPERIMENT_LABEL
 from arm_rc_ctrl.experiments.recovery_search import RECOVERY_TRACKERS
 from arm_rc_ctrl.provenance import (
     ArtifactReference,
     ProvenanceRecord,
     canonical_json,
-    collect_provenance,
-    command_line,
-    require_clean_for_confirmatory,
     sha256_bytes,
     sha256_file,
     verify_artifact,
 )
 from arm_rc_ctrl.repo import repository_root
-from arm_rc_ctrl.storage import ArtifactUri, StorageRoot, open_storage
+from arm_rc_ctrl.storage import ArtifactUri, StorageRoot
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     from numpy.typing import NDArray
 
-    from arm_rc_ctrl.experiments.manual_evaluation import ManualModelEvidence, ManualPairRecord, ManualReplayBank
+    from arm_rc_ctrl.experiments.manual_evaluation import (
+        ManualEvaluationRunner,
+        ManualModelEvidence,
+        ManualPairRecord,
+        ManualReplayBank,
+    )
     from arm_rc_ctrl.experiments.manual_study import StudyManifest
     from arm_rc_ctrl.experiments.run_record import RunSummary
 
@@ -138,6 +137,7 @@ RESULTS_SCHEMA_VERSION: Final = 1
 REFERENCED_RESULT_SCHEMA: Final = 3
 """The result schema version whose records these outputs are."""
 RESULTS_PREFIX: Final = "armrc://reports/task_1a_manual_v1/results"
+_MODULE: Final = "arm_rc_ctrl.experiments.manual_results"
 RUN_STATUSES: Final = ("completed", "infeasible", "unexecuted", "unavailable")
 """A pair's recorded status, or ``unavailable`` for a run whose model has no evidence at all."""
 _SIMULATED: Final = ("completed", "infeasible")
@@ -824,8 +824,10 @@ class _Loaded:
     """(configuration, parent) -> the bank identity the run ordering keys there."""
 
 
-def _load_models(evidence_dir: Path, store: StorageRoot, manifest: StudyManifest) -> dict[str, ManualModelEvidence]:
-    """Every study model a pointer names, read from its verified manifest and checked to be that model."""
+def _load_models(
+    evidence_dir: Path, store: StorageRoot, manifest: StudyManifest, runner: ManualEvaluationRunner
+) -> dict[str, ManualModelEvidence]:
+    """Every study model a pointer names, verified by digest and then checked the way a resume checks it."""
     models: dict[str, ManualModelEvidence] = {}
     for entry in manifest.entries:
         path = evidence_dir / manual_pointer_name("model", entry.label)
@@ -833,34 +835,54 @@ def _load_models(evidence_dir: Path, store: StorageRoot, manifest: StudyManifest
             continue
         pointer = load_manual_pointer(path)
         evidence = load_manual_model_evidence(verify_artifact(store, pointer.payload))
-        if evidence.identity != pointer.identity or evidence.label != entry.label:
+        if evidence.identity != pointer.identity:
             msg = f"{path.name} resolves to {evidence.label} {evidence.identity[:12]}, not its own"
             raise ValueError(msg)
+        runner.verify_stored_model(entry, evidence, where=path.name)
         models[entry.label] = evidence
     return models
 
 
-def _key_banks(banks: Mapping[str, ManualReplayBank], ordering: RunOrdering) -> dict[tuple[str, str], str]:
-    """Map each (configuration, parent) the run ordering keys to the one bank run under that protocol."""
+def _key_banks(
+    banks: Mapping[str, tuple[str, ManualReplayBank]],
+    ordering: RunOrdering,
+    manifest: StudyManifest,
+    runner: ManualEvaluationRunner,
+) -> dict[tuple[str, str], str]:
+    """Map each (configuration, parent) the run ordering keys to the bank its trusted conditions identify.
+
+    The expected identity is derived from the evaluation configuration and the
+    study's configuration, never from a stored bank, and a bank found under it
+    is checked the way a resume checks it. A pointer naming a bank that no
+    configuration's protocol produces is refused rather than left unused.
+    """
     bank_of: dict[tuple[str, str], str] = {}
     for key in ordering.replay_banks:
-        wanted = (key.assignment, key.warmup_s, key.velocity_cutoff_hz, key.acceleration_cutoff_hz)
-        matches = [
-            identity
-            for identity, bank in banks.items()
-            if (
-                bank.assignment,
-                bank.conditions.warmup_s,
-                bank.conditions.replay_velocity_cutoff_hz,
-                bank.conditions.replay_acceleration_cutoff_hz,
-            )
-            == wanted
-        ]
-        if len(matches) > 1:
-            msg = f"{key.configuration}/{key.assignment}: {len(matches)} replay banks match one protocol key"
+        configuration = manifest.configuration(key.configuration)
+        cutoffs = (key.velocity_cutoff_hz, key.acceleration_cutoff_hz)
+        if (key.warmup_s, *cutoffs) != (
+            configuration.warmup_s,
+            configuration.velocity_cutoff_hz,
+            configuration.acceleration_cutoff_hz,
+        ):
+            msg = f"the run ordering keys {key.configuration}/{key.assignment} under another protocol than the study's"
             raise ValueError(msg)
-        if matches:
-            bank_of[key.configuration, key.assignment] = matches[0]
+        identity = bank_identity(runner.conditions(key.warmup_s, cutoffs), key.assignment)
+        found = banks.get(identity)
+        if found is None:
+            continue
+        name, bank = found
+        runner.verify_stored_bank(
+            bank, assignment=key.assignment, warmup_s=key.warmup_s, replay_cutoffs=cutoffs, where=name
+        )
+        bank_of[key.configuration, key.assignment] = identity
+    unkeyed = sorted(name for identity, (name, _) in banks.items() if identity not in bank_of.values())
+    if unkeyed:
+        msg = (
+            f"{unkeyed} hold replay banks the study's protocol keys nowhere: no configuration's conditions and "
+            f"parent produce them"
+        )
+        raise ValueError(msg)
     if len(set(bank_of.values())) != len(bank_of):
         msg = "a replay bank is keyed to more than one configuration; each row must belong to one"
         raise ValueError(msg)
@@ -868,28 +890,23 @@ def _key_banks(banks: Mapping[str, ManualReplayBank], ordering: RunOrdering) -> 
 
 
 def _load_evidence(
-    evidence_dir: Path, store: StorageRoot, manifest: StudyManifest, ordering: RunOrdering, evaluation_sha256: str
+    evidence_dir: Path,
+    store: StorageRoot,
+    manifest: StudyManifest,
+    ordering: RunOrdering,
+    runner: ManualEvaluationRunner,
 ) -> _Loaded:
-    """Every model and bank the pointers name, each bound to this evaluation and mapped to its configuration."""
-    models = _load_models(evidence_dir, store, manifest)
-    banks: dict[str, ManualReplayBank] = {}
+    """Every model and bank the pointers name, each checked against the study's trusted inputs and keyed."""
+    models = _load_models(evidence_dir, store, manifest, runner)
+    banks: dict[str, tuple[str, ManualReplayBank]] = {}
     for path in sorted(evidence_dir.glob("replay__*.toml")):
         bank = load_manual_replay_bank(verify_artifact(store, load_manual_pointer(path).payload))
-        banks[bank.identity] = bank
-    if any(r.conditions.evaluation_sha256 != evaluation_sha256 for r in [*models.values(), *banks.values()]):
-        msg = "evidence was produced under another evaluation configuration than the one given"
-        raise ValueError(msg)
-    bank_of = _key_banks(banks, ordering)
-    for entry in manifest.entries:
-        evidence, parent = models.get(entry.label), entry.arm.assignment
-        if (
-            evidence is not None
-            and parent is not None
-            and evidence.replay_bank != bank_of.get((entry.configuration, parent))
-        ):
-            msg = f"{entry.label} is paired against another bank than the run ordering keys"
+        if bank.identity in banks:
+            msg = f"{path.name} and {banks[bank.identity][0]} point at the same replay bank"
             raise ValueError(msg)
-    return _Loaded(models=models, banks=banks, bank_of=bank_of)
+        banks[bank.identity] = (path.name, bank)
+    bank_of = _key_banks(banks, ordering, manifest, runner)
+    return _Loaded(models=models, banks={identity: bank for identity, (_, bank) in banks.items()}, bank_of=bank_of)
 
 
 def _jobs(
@@ -1093,7 +1110,7 @@ def _derive_command(args: argparse.Namespace) -> int:
     root = repository_root()
     output = Path(cast("str", args.output))
     _refuse_existing(output)
-    study_file, evaluation_file = Path(cast("str", args.study)), Path(cast("str", args.evaluation))
+    evaluation_file = Path(cast("str", args.evaluation))
     ordering_file, rule_file = Path(cast("str", args.run_ordering)), Path(cast("str", args.representative_rule))
     schema_file, evidence_dir = Path(cast("str", args.result_schema)), Path(cast("str", args.evidence_dir))
     workers = int(cast("int", args.workers))
@@ -1104,17 +1121,17 @@ def _derive_command(args: argparse.Namespace) -> int:
     if schema.schema_version != REFERENCED_RESULT_SCHEMA:
         msg = f"{schema_file.name} is result schema {schema.schema_version}, not {REFERENCED_RESULT_SCHEMA}"
         raise ValueError(msg)
-    manifest = load_study(study_file)
     ordering = load_handoff(ordering_file, RunOrdering)
     rule = load_handoff(rule_file, RepresentativeRule)
     ordering_sha256 = sha256_file(ordering_file)
     if rule.ordering_sha256 != ordering_sha256:
         msg = "the representative rule was frozen against another run ordering"
         raise ValueError(msg)
-    config = load_manual_evaluation_config(evaluation_file)
-    scenario = load_manual_scenario(config.scenario)
-    cases = evaluation_scenarios(load_development_robustness(config.development), scenario)
-    scenarios = tuple((case.scenario_id, str(case.kind)) for case in cases)
+    # The trusted inputs are the ones the sweep itself ran from: the canonical environment, the frozen
+    # study with its verified demonstrations, the evaluation configuration and its locked scenarios.
+    prepared = prepare_runner(args, role="main", root=root, module=_MODULE)
+    runner, config, manifest = prepared.runner, prepared.config, prepared.context.manifest
+    scenarios = tuple((case.scenario_id, str(case.kind)) for case in runner.scenarios)
     trackers = RECOVERY_TRACKERS
     if (
         tuple(sid for sid, _ in scenarios) != ordering.scenarios
@@ -1124,26 +1141,18 @@ def _derive_command(args: argparse.Namespace) -> int:
         msg = "the evaluation, trackers or study do not reproduce the frozen run ordering"
         raise ValueError(msg)
     evidence_sha256, n_pointers = evidence_digest(evidence_dir)
-    evaluation_sha256 = sha256_file(evaluation_file)
-    store = open_storage()
-    loaded = _load_evidence(evidence_dir, store, manifest, ordering, evaluation_sha256)
+    store = runner.store
+    loaded = _load_evidence(evidence_dir, store, manifest, ordering, runner)
     inputs = ManualResultInputs(
-        study_manifest_sha256=sha256_file(study_file),
-        evaluation_sha256=evaluation_sha256,
+        study_manifest_sha256=prepared.context.manifest_sha256,
+        evaluation_sha256=sha256_file(evaluation_file),
         run_ordering_sha256=ordering_sha256,
         representative_rule_sha256=sha256_file(rule_file),
         result_schema_sha256=sha256_file(schema_file),
         evidence_sha256=evidence_sha256,
         n_pointers=n_pointers,
     )
-    command = command_line("arm_rc_ctrl.experiments.manual_results", cast("list[str]", args.argv))
-    provenance = collect_provenance(
-        {"inputs": to_mapping(inputs), "workers": workers, "command": command},
-        seeds={},
-        exploratory=bool(args.exploratory),
-        now=datetime.now(tz=UTC),
-    )
-    require_clean_for_confirmatory(provenance)
+    command, provenance = runner.command, runner.provenance
     accounting = account_study(store=store, evidence_dir=evidence_dir, manifest=manifest, provenance=provenance)
     derived = _derive(
         store=store,

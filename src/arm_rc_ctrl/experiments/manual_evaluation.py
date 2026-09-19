@@ -46,7 +46,7 @@ from arm_rc_ctrl.data.manual_scenario import load_manual_scenario, manual_endpoi
 from arm_rc_ctrl.data.records import load_record, write_record
 from arm_rc_ctrl.execution import collect_execution, require_canonical
 from arm_rc_ctrl.experiments.baselines import frozen_baseline_digest, load_frozen_baseline
-from arm_rc_ctrl.experiments.manual_fits import ManualFitStore
+from arm_rc_ctrl.experiments.manual_fits import ManualFitStore, recipe_mismatches
 from arm_rc_ctrl.experiments.manual_numerics import ManualStudyContext
 from arm_rc_ctrl.experiments.manual_recipes import ASSIGNMENTS
 from arm_rc_ctrl.experiments.manual_study import EXPERIMENT_LABEL
@@ -82,12 +82,13 @@ if TYPE_CHECKING:
     from arm_rc_ctrl.data.samples import SampleSet
     from arm_rc_ctrl.execution import ExecutionRecord
     from arm_rc_ctrl.experiments.disturbances import ForcePulse
-    from arm_rc_ctrl.experiments.manual_fits import CachedFit, ManualFitInputs
+    from arm_rc_ctrl.experiments.manual_fits import CachedFit, ManualFitInputs, ManualFitRecord
     from arm_rc_ctrl.experiments.manual_study import StudyConfiguration, StudyManifest, StudyModel
     from arm_rc_ctrl.experiments.perturbations import DevelopmentRobustness, RobustnessScenario
     from arm_rc_ctrl.experiments.run_record import RunArrays
     from arm_rc_ctrl.experiments.termination import Termination
     from arm_rc_ctrl.provenance import ProvenanceRecord
+    from arm_rc_ctrl.rc.recipe import ModelRecipe
     from arm_rc_ctrl.storage import StorageRoot
 
 __all__ = [
@@ -114,9 +115,14 @@ __all__ = [
     "SimulateFn",
     "TriggerOutcome",
     "WorkerSpawn",
+    "bank_identity",
+    "check_bank_manifest",
+    "check_model_manifest",
+    "check_training_sources",
     "evaluate_in_parallel",
     "evaluation_entries",
     "evaluation_scenarios",
+    "fit_binding",
     "horizon_completed",
     "load_manual_evaluation_config",
     "load_manual_model_evidence",
@@ -1309,9 +1315,12 @@ def replay_bank_uri(conditions: ManualRunConditions, assignment: str) -> str:
     return f"{REPORTS_PREFIX}/replay/{_bank_identity(conditions, assignment)}"
 
 
-def _bank_identity(conditions: ManualRunConditions, assignment: str) -> str:
+def bank_identity(conditions: ManualRunConditions, assignment: str) -> str:
     """Conditions and parent together: the same protocol over another recording is another bank."""
     return sha256_bytes(f"{conditions.identity}:{assignment}".encode("ascii"))
+
+
+_bank_identity = bank_identity
 
 
 @dataclass(frozen=True)
@@ -1496,10 +1505,117 @@ class ManualReplayBank:
     assignment: str
     pairs: tuple[ManualPairRecord, ...]
 
+    def __post_init__(self) -> None:
+        """The pairs are every scenario and tracker of the conditions, each a replay of this bank's parent."""
+        if self.assignment not in ASSIGNMENTS:
+            msg = f"assignment must be a bank position in {list(ASSIGNMENTS)}, got {self.assignment!r}"
+            raise ValueError(msg)
+        if [(p.scenario_id, p.tracker) for p in self.pairs] != list(self.conditions.pairs):
+            msg = "the bank's pairs are every scenario and tracker of its conditions, in evaluation order"
+            raise ValueError(msg)
+        if any(p.arm != "replay" for p in self.pairs):
+            msg = "every pair of a replay bank is a replay pair"
+            raise ValueError(msg)
+
     @property
     def identity(self) -> str:
         """The key this bank is stored and served under."""
         return _bank_identity(self.conditions, self.assignment)
+
+
+def fit_binding(entry: StudyModel, record: ManualFitRecord, recipe: ModelRecipe) -> ManualFitBinding:
+    """The complete fit binding the evidence of ``entry`` must carry, from the fit recorded for it.
+
+    One construction serves writing and checking alike: evidence records
+    exactly this, and stored evidence is compared against exactly this, so the
+    two cannot drift apart and no recorded field is left vouching for itself.
+    """
+    return ManualFitBinding(
+        identity=record.identity,
+        configuration=entry.configuration,
+        arm=entry.arm.label,
+        solver_alpha=recipe.solver_alpha,
+        recipe_sha256=record.recipe_sha256,
+        weights_sha256=record.weights_sha256,
+    )
+
+
+def check_training_sources(pairs: Sequence[ManualPairRecord], expected: tuple[str, ...], described: str) -> None:
+    """Check every run names the demonstrations its arm trained on, as the study demands them.
+
+    Renaming an altered manifest to its own digest satisfies the name check,
+    so what the runs claim is compared with what the arm's assignment demands:
+    all ten for the all-ten arm, the replayed or singleton parent otherwise.
+    """
+    for pair in pairs:
+        if pair.run is None:
+            continue
+        if pair.run.sources != expected:
+            msg = (
+                f"{described}: {pair.scenario_id} [{pair.tracker}] {pair.arm} names "
+                f"{len(pair.run.sources)} training sources {list(pair.run.sources)}, not the {len(expected)} "
+                f"its assignment demands"
+            )
+            raise ValueError(msg)
+
+
+def check_model_manifest(
+    evidence: ManualModelEvidence,
+    *,
+    entry: StudyModel,
+    fit: ManualFitBinding,
+    conditions: ManualRunConditions,
+    sources: tuple[str, ...],
+    where: str,
+) -> None:
+    """Check a stored model manifest against what the study demands for ``entry``, never against itself.
+
+    The recorded identity binds the fit and the conditions and nothing else,
+    so every other recorded field is unconstrained by it: an alteration that
+    rewrote them together, and renamed the file to its new digest, would be
+    checked against its own claims and pass. Each is compared with a trusted
+    source instead -- the study entry, the fit recorded under the study's own
+    fit identity, the conditions derived from the evaluation configuration,
+    and the demonstrations the arm trained on. The conditions and the fit are
+    compared whole, because an identity is a recorded field too and cannot
+    vouch for the bindings beside it.
+    """
+    identity = sha256_bytes(f"{fit.identity}:{conditions.identity}".encode("ascii"))
+    if evidence.identity != identity:
+        msg = f"{where} holds the evidence {evidence.identity[:_SHORT]}, not {identity[:_SHORT]}"
+        raise ValueError(msg)
+    if evidence.conditions != conditions:
+        msg = (
+            f"{where} records conditions {evidence.conditions.identity[:_SHORT]}, not the "
+            f"{conditions.identity[:_SHORT]} this study entry demands"
+        )
+        raise ValueError(msg)
+    checks: tuple[tuple[str, object, object], ...] = (
+        ("label", evidence.label, entry.label),
+        ("assignment", evidence.assignment, entry.arm.assignment),
+        ("fit", evidence.fit, fit),
+    )
+    for field_name, found, expected in checks:
+        if found != expected:
+            msg = f"{where} records {field_name} {found!r}, not the {expected!r} this study entry demands"
+            raise ValueError(msg)
+    check_training_sources(evidence.pairs, sources, f"the evidence of {entry.label}")
+
+
+def check_bank_manifest(
+    bank: ManualReplayBank, *, assignment: str, conditions: ManualRunConditions, sources: tuple[str, ...], where: str
+) -> None:
+    """Check a stored replay bank against the conditions and parent the study keys it by.
+
+    The bank's identity is derived from its own conditions and parent, so
+    matching the identity the trusted conditions produce compares both whole;
+    the runs' training sources are not in the identity and are checked apart.
+    """
+    identity = _bank_identity(conditions, assignment)
+    if bank.identity != identity:
+        msg = f"{where} holds the bank {bank.identity[:_SHORT]}, not {identity[:_SHORT]}"
+        raise ValueError(msg)
+    check_training_sources(bank.pairs, sources, f"the replay bank of {assignment}")
 
 
 class ManualEvaluationRunner:
@@ -1798,71 +1914,69 @@ class ManualEvaluationRunner:
         return sha256_bytes(f"{entry.fit_identity}:{conditions.identity}".encode("ascii"))
 
     def _fit_binding(self, entry: StudyModel, cached: CachedFit) -> ManualFitBinding:
-        """The complete fit binding this entry's evidence must carry.
+        """The complete fit binding this entry's evidence must carry, from the fit this runner loaded."""
+        return fit_binding(entry, cached.record, cached.recipe)
 
-        One construction serves both writing and checking: evidence records
-        exactly this, and served evidence is compared against exactly this, so
-        the two cannot drift apart and no recorded field is left vouching for
-        itself.
-        """
-        return ManualFitBinding(
-            identity=cached.record.identity,
-            configuration=entry.configuration,
-            arm=entry.arm.label,
-            solver_alpha=cached.recipe.solver_alpha,
-            recipe_sha256=cached.record.recipe_sha256,
-            weights_sha256=cached.record.weights_sha256,
-        )
-
-    def _check_served_evidence(
-        self,
-        evidence: ManualModelEvidence,
-        *,
-        entry: StudyModel,
-        cached: CachedFit,
-        conditions: ManualRunConditions,
-        stored: Path,
-    ) -> None:
-        """Check a stored manifest against what was asked for, never against itself.
-
-        The recorded identity binds the fit and the conditions and nothing
-        else, so every other recorded field is unconstrained by it: an
-        alteration that rewrote them together would be checked against its own
-        claims and pass. Each is compared with the trusted source instead --
-        the study entry that was requested, the fit this runner loaded, and the
-        conditions it derived. The fit is compared whole, because its identity
-        is a recorded field too and cannot vouch for the bindings beside it.
-        """
-        checks: tuple[tuple[str, object, object], ...] = (
-            ("label", evidence.label, entry.label),
-            ("assignment", evidence.assignment, entry.arm.assignment),
-            ("conditions", evidence.conditions.identity, conditions.identity),
-            ("fit", evidence.fit, self._fit_binding(entry, cached)),
-        )
-        for field, found, expected in checks:
-            if found != expected:
-                msg = f"{stored} records {field} {found!r}, not the {expected!r} this study entry demands"
-                raise ValueError(msg)
+    def _sources(self, assignment: str | None) -> tuple[str, ...]:
+        """The demonstrations an arm trained on: all ten for the all-ten arm, its own parent otherwise."""
+        names = ASSIGNMENTS if assignment is None else (assignment,)
+        return tuple(self.inputs.sources[name].artifact_id for name in names)
 
     def _verify_sources(self, pairs: Sequence[ManualPairRecord], assignment: str | None, described: str) -> None:
-        """Check served runs still name the demonstrations their arm trained on.
+        """Check runs name the demonstrations their arm trained on, before they become or remain evidence."""
+        check_training_sources(pairs, self._sources(assignment), described)
 
-        Renaming an altered manifest to its own digest satisfies the name
-        check, so what the runs claim to have trained on is compared against
-        what this arm's assignment demands: all ten for the all-ten arm, its
-        own parent otherwise.
+    def verify_stored_model(self, entry: StudyModel, evidence: ManualModelEvidence, *, where: str) -> None:
+        """Apply a resume's checks to one stored model manifest, without refitting the model.
+
+        A resume refits a served model before trusting it; a reader of finished
+        evidence need not. The binding is read instead from the fit cache under
+        the study's own fit identity, with its recipe's and weights' digests
+        verified and the recipe's construction compared with the one the entry
+        demands, and the manifest is then checked by exactly the function a
+        resume uses. The runs themselves are verified separately, when read.
         """
-        names = ASSIGNMENTS if assignment is None else (assignment,)
-        expected = tuple(self.inputs.sources[name].artifact_id for name in names)
-        for pair in pairs:
-            if pair.run is None:
-                continue
-            if pair.run.sources != expected:
-                msg = (
-                    f"{described}: {pair.scenario_id} [{pair.tracker}] {pair.arm} names "
-                    f"{len(pair.run.sources)} training sources, not the {len(expected)} its assignment demands"
-                )
-                raise ValueError(msg)
+        fits = ManualFitStore(self.store)
+        record = fits.read_record(entry.fit_identity)
+        recipe = fits.read_recipe(record)
+        fits.read_weights(record)
+        mismatches = recipe_mismatches(entry, recipe, self.inputs)
+        if mismatches:
+            msg = f"{entry.label}: the cached recipe is not the construction the study froze: {'; '.join(mismatches)}"
+            raise ValueError(msg)
+        warmup_s = self.inputs.configuration(entry).warmup_s
+        conditions = self.conditions(warmup_s, self.replay_cutoffs(entry))
+        check_model_manifest(
+            evidence,
+            entry=entry,
+            fit=fit_binding(entry, record, recipe),
+            conditions=conditions,
+            sources=self._sources(entry.arm.assignment),
+            where=where,
+        )
+        parent = entry.arm.assignment
+        expected = None if parent is None else _bank_identity(conditions, parent)
+        if evidence.replay_bank != expected:
+            msg = f"{where} cites another replay bank than its parent and protocol produce"
+            raise ValueError(msg)
+
+    def verify_stored_bank(
+        self,
+        bank: ManualReplayBank,
+        *,
+        assignment: str,
+        warmup_s: float,
+        replay_cutoffs: tuple[float, float],
+        where: str,
+    ) -> None:
+        """Apply a resume's checks to one stored replay bank, under the conditions the study keys it by."""
+        check_bank_manifest(
+            bank,
+            assignment=assignment,
+            conditions=self.conditions(warmup_s, replay_cutoffs),
+            sources=self._sources(assignment),
+            where=where,
+        )
 
     def _configuration(self, entry: StudyModel) -> StudyConfiguration:
         """The inherited configuration of ``entry``, which carries its evaluation-side estimator cutoffs."""
@@ -2003,12 +2117,15 @@ class ManualEvaluationRunner:
         if stored is not None:
             verify_started = time.perf_counter()
             evidence = load_manual_model_evidence(stored)
-            if evidence.identity != identity:
-                msg = f"{stored} holds the evidence {evidence.identity[:_SHORT]}, not {identity[:_SHORT]}"
-                raise ValueError(msg)
-            self._check_served_evidence(evidence, entry=entry, cached=cached, conditions=conditions, stored=stored)
+            check_model_manifest(
+                evidence,
+                entry=entry,
+                fit=self._fit_binding(entry, cached),
+                conditions=conditions,
+                sources=self._sources(entry.arm.assignment),
+                where=str(stored),
+            )
             _verify_stored_runs(self.store, evidence.pairs)
-            self._verify_sources(evidence.pairs, entry.arm.assignment, f"the evidence of {entry.label}")
             nested = 0.0
             if entry.arm.assignment is not None:
                 # Also point at the baselines this model was compared against: they are equally
@@ -2103,13 +2220,12 @@ class ManualEvaluationRunner:
         if stored is not None:
             bank_verify_started = time.perf_counter()
             bank = load_manual_replay_bank(stored)
-            if bank.identity != identity:
-                msg = f"{stored} holds the bank {bank.identity[:_SHORT]}, not {identity[:_SHORT]}"
-                raise ValueError(msg)
+            # The requested parent, not the stored one: deriving the expectation from the file being
+            # checked would be circular.
+            check_bank_manifest(
+                bank, assignment=assignment, conditions=conditions, sources=self._sources(assignment), where=str(stored)
+            )
             _verify_stored_runs(self.store, bank.pairs)
-            # The requested parent, not the stored one: the bank identity already pins them together,
-            # and deriving the expectation from the file being checked would be circular.
-            self._verify_sources(bank.pairs, assignment, f"the replay bank of {assignment}")
             self._register(bank, _reference_of(stored, self.store), warmup_s=warmup_s)
             self._banks[identity] = bank
             self._phase_timings.append(

@@ -252,7 +252,8 @@ existing report is never overwritten.
 `scripts/derive_manual_results.py derive --study … --evaluation …
 --evidence-dir … --run-ordering … --representative-rule … --result-schema
 …/result_schema_v3.json --output …/results [--workers N] [--exploratory]`
-derives the executed study's machine-readable evidence: one row per run (its
+derives the executed study's machine-readable evidence, from the canonical pinned environment and after checking
+every model and bank manifest against the study's trusted inputs exactly as a resume does: one row per run (its
 verdict, terminal state, and diagnostic metrics read from its own verified
 trajectories over the active segment), the paired comparisons per parent with
 both measures (success-count differences over shared scenarios with their

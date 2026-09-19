@@ -61,6 +61,7 @@ if TYPE_CHECKING:
 
     from numpy.typing import NDArray
 
+    from arm_rc_ctrl.data.manual_scenario import ManualScenarioConfig
     from arm_rc_ctrl.data.samples import SampleSet
     from arm_rc_ctrl.experiments.manual_handoff import RepresentativeRule
     from arm_rc_ctrl.experiments.manual_results import ManualRunRow, ManualSelections
@@ -302,6 +303,15 @@ def _load_teacher(store: StorageRoot, root: Path, case: ManualFigureCase) -> Sam
     return samples
 
 
+def _verified_scenario(inputs: ManualFigureInputs, root: Path) -> ManualScenarioConfig:
+    """The task configuration the inputs bind by digest: every renderer takes its target and kinematics from here."""
+    path = root / inputs.scenario_file
+    if sha256_file(path) != inputs.scenario_sha256:
+        msg = f"{inputs.scenario_file} is not the task configuration the inputs were derived under"
+        raise ValueError(msg)
+    return load_manual_scenario(path)
+
+
 def _case(inputs: ManualFigureInputs, case_id: str) -> ManualFigureCase:
     for case in inputs.cases:
         if case.case_id == case_id:
@@ -350,10 +360,7 @@ def plot_case(inputs: ManualFigureInputs, case_id: str, out: Path, *, store: Sto
     """Render one case: endpoint paths, distance to the target, and both joints, against the demonstration."""
     _refuse(out)
     case = _case(inputs, case_id)
-    scenario = load_manual_scenario(root / inputs.scenario_file)
-    if sha256_file(root / inputs.scenario_file) != inputs.scenario_sha256:
-        msg = f"{inputs.scenario_file} is not the task configuration the inputs were derived under"
-        raise ValueError(msg)
+    scenario = _verified_scenario(inputs, root)
     target = np.asarray(scenario.task.target, dtype=np.float64)
     teacher = _load_teacher(store, root, case)
     drawn = [_load_run(store, scenario.robot, case, run) for run in case.runs]
@@ -428,7 +435,7 @@ def animate_case(
     if len(chosen) != 1:
         msg = f"{case_id} has {len(chosen)} runs in role {role!r}; roles present: {[r.role for r in case.runs]}"
         raise ValueError(msg)
-    scenario = load_manual_scenario(root / inputs.scenario_file)
+    scenario = _verified_scenario(inputs, root)
     teacher = _load_teacher(store, root, case)
     d = _load_run(store, scenario.robot, case, chosen[0])
     actual, commanded = _points(scenario.robot, d.q), _points(scenario.robot, d.q_reference)
