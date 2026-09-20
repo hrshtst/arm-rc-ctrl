@@ -12,8 +12,11 @@ generated from the record rather than written beside it.
 
 Audits are versioned and retained, so each issued record is locked as issued:
 version 1 under audit schema 1, as it was before the owner's review of
-2026-09-20, and version 2 under schema 2, which added unavailable steps and the
-retained re-simulation and strengthened the row and raw-record checks.
+2026-09-20; version 2 under schema 2, which added unavailable steps and the
+retained re-simulation and strengthened the row and raw-record checks; and
+version 4, which judges every stored run again from its own arrays. Version 3
+was run and not issued, so no record of it is committed and its number stays
+retired.
 """
 
 from __future__ import annotations
@@ -35,7 +38,7 @@ pytestmark = pytest.mark.regression
 
 REPO_ROOT = repository_root()
 DOCS = REPO_ROOT / "docs" / "experiments" / "task_1a_manual_demonstration"
-ISSUED = (1, 2)
+ISSUED = (1, 2, 4)
 """Every audit version committed so far; each stays locked to what it claimed when it was issued."""
 EXPECTED_STEPS = (
     "checkout",
