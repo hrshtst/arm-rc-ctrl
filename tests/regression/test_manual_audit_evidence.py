@@ -11,15 +11,22 @@ cites repository files that still have those digests, and that its rendering is
 generated from the record rather than written beside it.
 
 Audits are versioned and retained, so each issued record is locked as issued:
-version 1 under audit schema 1, before the owner's review of 2026-09-20
-strengthened what the audit guarantees.
+version 1 under audit schema 1, as it was before the owner's review of
+2026-09-20, and version 2 under schema 2, which added unavailable steps and the
+retained re-simulation and strengthened the row and raw-record checks.
 """
 
 from __future__ import annotations
 
 import pytest
 
-from arm_rc_ctrl.experiments.manual_audit import SUPPORTED_AUDIT_SCHEMAS, load_audit, render_audit_markdown
+from arm_rc_ctrl.experiments.manual_audit import (
+    AUDIT_SCHEMA_VERSION,
+    AUDIT_VERSION,
+    SUPPORTED_AUDIT_SCHEMAS,
+    load_audit,
+    render_audit_markdown,
+)
 from arm_rc_ctrl.experiments.manual_results import load_results
 from arm_rc_ctrl.provenance import sha256_file
 from arm_rc_ctrl.repo import repository_root
@@ -28,7 +35,7 @@ pytestmark = pytest.mark.regression
 
 REPO_ROOT = repository_root()
 DOCS = REPO_ROOT / "docs" / "experiments" / "task_1a_manual_demonstration"
-ISSUED = (1,)
+ISSUED = (1, 2)
 """Every audit version committed so far; each stays locked to what it claimed when it was issued."""
 EXPECTED_STEPS = (
     "checkout",
@@ -43,6 +50,14 @@ EXPECTED_STEPS = (
     "resimulation",
     "gates",
 )
+
+
+def test_the_current_audit_is_committed_and_carries_the_current_record_schema() -> None:
+    """The audit of record is this code's own: a later version is evidence, not a plan."""
+    assert AUDIT_VERSION in ISSUED, "the current audit version is committed beside the ones it retains"
+    audit = load_audit(DOCS / "audit" / f"reproduction_audit_v{AUDIT_VERSION}.json")
+    assert audit.schema_version == AUDIT_SCHEMA_VERSION
+    assert len(audit.validated_commits) >= 3, "it applies the derivation's checks and its own"
 
 
 @pytest.mark.parametrize("version", ISSUED)
