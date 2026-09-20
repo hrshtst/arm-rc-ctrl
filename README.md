@@ -268,6 +268,20 @@ as a figure, or one of its runs as a GIF, keeping the recorded demonstration,
 the commanded reference, and the actual motion visibly apart.
 `docs/experiments/task_1a_manual_demonstration/results/usage_v1.md` explains
 how to read and reproduce every output.
+`scripts/reproduce_manual_study.py audit --study … --evaluation … --evidence-dir …
+--results …/results --docs … --output …/audit [--workers N] [--gates]
+[--no-resimulate] [--exploratory]` audits that evidence from a clean checkout:
+it verifies every source, demonstration, manifest, fit and stored run against
+the digests the committed records keep for them, checks each manifest against
+the study's trusted inputs as a resume does, recomputes every run's metrics
+from its own trajectories and every comparison, summary and selection from the
+per-run table, renders a case from the committed figure inputs, and
+re-simulates the subset frozen before execution in a scratch store, comparing
+each run's arrays digest with the stored one. Failures are retained rather than
+raised: each step records what it checked and every disagreement, the record
+lists the declared tolerances and the handoff bundle, and the command exits
+non-zero when any step failed. It writes `reproduction_audit_v1.{json,md}` and
+never overwrites an existing audit.
 
 ## Requirements
 

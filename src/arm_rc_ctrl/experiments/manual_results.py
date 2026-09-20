@@ -123,9 +123,11 @@ __all__ = [
     "render_results_markdown",
     "results_to_json",
     "run_metrics",
+    "selections_of",
     "table_columns",
     "table_from_csv",
     "table_to_csv",
+    "verdicts_of",
 ]
 
 DEPARTURE_RADIUS_M: Final = 0.01
@@ -617,7 +619,7 @@ class ManualSelections:
     schema_version: int = field(default=RESULTS_SCHEMA_VERSION)
 
 
-def _selections(
+def selections_of(
     rows: Sequence[ManualRunRow],
     rule: RepresentativeRule,
     *,
@@ -625,7 +627,12 @@ def _selections(
     rule_sha256: str,
     ordering_sha256: str,
 ) -> ManualSelections:
-    """Apply the frozen rule to each configuration under each tracker, exactly as it was frozen."""
+    """Apply the frozen rule to each configuration under each tracker, exactly as it was frozen.
+
+    Public because the clean-checkout audit rebuilds the selections from the
+    committed per-run table and compares them with the committed ones: a second
+    implementation of the rule would be a second thing to keep right.
+    """
     kinds = dict(zip(rule.arm_labels, rule.arms, strict=True))
     verdicts: dict[tuple[str, str, str], dict[str, bool | None]] = {}
     for row in rows:
@@ -952,7 +959,8 @@ def _jobs(
     return jobs, missing
 
 
-def _verdicts(rows: Sequence[ManualRunRow]) -> list[ScenarioVerdict]:
+def verdicts_of(rows: Sequence[ManualRunRow]) -> list[ScenarioVerdict]:
+    """One verdict per row for the comparisons: a run that was not simulated has none, never a failure."""
     return [
         ScenarioVerdict(
             configuration=row.configuration,
@@ -1030,9 +1038,9 @@ def _derive(
         with ThreadPoolExecutor(max_workers=workers) as pool:
             measured = list(pool.map(partial(_rows_of, store), jobs))
     rows = (*[row for rows in measured for row in rows], *missing)
-    verdicts = _verdicts(rows)
+    verdicts = verdicts_of(rows)
     contrasts = contrast_rows(verdicts, scenarios=scenarios)
-    selections = _selections(
+    selections = selections_of(
         rows,
         rule,
         order=[sid for sid, _ in scenarios],

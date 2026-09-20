@@ -20,7 +20,7 @@ import shutil
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Final
 
 import numpy as np
 
@@ -54,8 +54,15 @@ from arm_rc_ctrl.data.records import (
 from arm_rc_ctrl.data.samples import SAMPLES_SCHEMA_VERSION, SampleSet, save_samples
 from arm_rc_ctrl.experiments.manual_augmentation import ManualParent
 from arm_rc_ctrl.experiments.manual_bank import BankManifest, TakeMeasurements, TakeVerdict, write_bank_manifest
+from arm_rc_ctrl.experiments.manual_evaluation import (
+    load_manual_model_evidence,
+    load_manual_pointer,
+    manual_pointer_name,
+)
 from arm_rc_ctrl.experiments.manual_fits import ManualFitInputs
+from arm_rc_ctrl.experiments.manual_handoff import handoff_inputs, handoff_to_json, representative_rule, run_ordering
 from arm_rc_ctrl.experiments.manual_recipes import ASSIGNMENTS
+from arm_rc_ctrl.experiments.manual_schema import result_schema, schema_to_json
 from arm_rc_ctrl.experiments.manual_study import (
     EXPERIMENT_LABEL,
     build_study_manifest,
@@ -63,8 +70,10 @@ from arm_rc_ctrl.experiments.manual_study import (
     frozen_transform,
     study_to_json,
 )
+from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
+from arm_rc_ctrl.experiments.recovery_search import RECOVERY_TRACKERS
 from arm_rc_ctrl.experiments.repetition_panel import load_panel
-from arm_rc_ctrl.provenance import collect_provenance, sha256_file
+from arm_rc_ctrl.provenance import collect_provenance, sha256_file, verify_artifact
 from arm_rc_ctrl.rc.recipe import RclibIdentity, TrainingValidation
 from arm_rc_ctrl.rc.train import load_model_config
 from arm_rc_ctrl.repo import repository_root
@@ -73,7 +82,8 @@ from arm_rc_ctrl.storage import StorageRoot
 if TYPE_CHECKING:
     from arm_rc_ctrl.data.manual_scenario import ManualScenarioConfig
     from arm_rc_ctrl.execution import ExecutionRecord
-    from arm_rc_ctrl.experiments.manual_study import StudyManifest
+    from arm_rc_ctrl.experiments.manual_evaluation import ManualPairRecord
+    from arm_rc_ctrl.experiments.manual_study import StudyManifest, StudyModel
     from arm_rc_ctrl.provenance import ArtifactReference, ProvenanceRecord
 
 __all__ = [
@@ -81,10 +91,14 @@ __all__ = [
     "DWELL_START_S",
     "GOAL_Q",
     "HOLD_S",
+    "MANUAL_ARMS",
+    "MANUAL_CONFIGURATION",
+    "MANUAL_SCENARIOS",
     "NOW",
     "SEED_BANK",
     "SESSION",
     "ManualFixture",
+    "ManualStudyEvidence",
     "build_manual_fixture",
     "fixture_samples",
 ]
@@ -497,3 +511,122 @@ def build_manual_fixture(base: Path, *, execution: ExecutionRecord, env: dict[st
         env=env,
         execution=execution,
     )
+
+
+# --- the manual study's evidence, evaluated once per test module -----------------------------------
+
+MANUAL_CONFIGURATION: Final = "feasible-best"
+MANUAL_ARMS: Final = ("S/D01", "M10", "R10/D01", "C10/D01")
+"""The frozen rule's four illustrated arms, so selections and figure inputs have something to choose."""
+MANUAL_HOLD_S, MANUAL_PULSE_S, MANUAL_HORIZON_S = 0.05, 0.02, 1.0
+MANUAL_SCENARIOS: Final = (
+    RobustnessScenario("nominal", "nominal", (0.0, 0.0)),
+    RobustnessScenario("small-1", "posture_small", (0.02, -0.01), seed=1, draw=0, magnitude_rad=0.05),
+)
+"""Two cases stand in for the locked sixty-five; the commands' own logic is what these tests exercise."""
+_ROOT: Final = repository_root()
+_DOCS: Final = _ROOT / "docs" / "experiments" / "task_1a_manual_demonstration"
+_DEVELOPMENT: Final = _ROOT / "configs" / "evaluations" / "task_1a_recovery_dev_v1.toml"
+
+
+def manual_entries(manifest: StudyManifest) -> tuple[StudyModel, ...]:
+    """The illustrated arms of one configuration."""
+    return tuple(e for e in manifest.entries if e.configuration == MANUAL_CONFIGURATION and e.arm.label in MANUAL_ARMS)
+
+
+def manual_four_arms(manifest: StudyManifest, labels: tuple[str, ...] | None = None) -> tuple[StudyModel, ...]:
+    del labels
+    return manual_entries(manifest)
+
+
+def manual_narrowed(*_args: object, **_kwargs: object) -> tuple[RobustnessScenario, ...]:
+    return MANUAL_SCENARIOS
+
+
+def _evaluation_file(f: ManualFixture) -> Path:
+    """An evaluation configuration inside the fixture root, with the fixture's own task and abort."""
+    evaluations = f.root / "configs" / "evaluations"
+    evaluations.mkdir(parents=True, exist_ok=True)
+    development = evaluations / _DEVELOPMENT.name
+    shutil.copyfile(_DEVELOPMENT, development)
+    scenario = f.scenario_file
+    limits = ", ".join(f"{v}" for v in load_manual_scenario(scenario).limits.velocity)
+    target = evaluations / "task_1a_manual_dev_fixture.toml"
+    target.write_text(
+        f'name = "task-1a-manual-dev-fixture"\n'
+        f'development = "{development.as_posix()}"\n'
+        f'scenario = "{scenario.as_posix()}"\n'
+        f"horizon_s = {MANUAL_HORIZON_S}\n\n"
+        f"[trigger]\nhold_s = {MANUAL_HOLD_S}\nduration_s = {MANUAL_PULSE_S}\nmagnitude_n = 3.0\n\n"
+        f"[simulation]\nvelocity_abort = [{limits}]\n",
+        encoding="utf-8",
+    )
+    return target
+
+
+class ManualStudyEvidence:
+    """The fixture study's evaluated evidence and the frozen inputs a derivation or audit binds."""
+
+    def __init__(self, f: ManualFixture, base: Path) -> None:
+        """Write the evaluation configuration and the freezes this study is run and checked under."""
+        self.f = f
+        self.evaluation = _evaluation_file(f)
+        self.evidence = base / "evidence"
+        self.schema_v3 = base / "result_schema_v3.json"
+        self.schema_v3.write_text(schema_to_json(result_schema(3)) + "\n", encoding="utf-8")
+        inputs = handoff_inputs(f.manifest_file, self.evaluation, _DOCS / "result_schema_v2.json")
+        ordering = run_ordering(
+            f.manifest, scenarios=[s.scenario_id for s in MANUAL_SCENARIOS], trackers=RECOVERY_TRACKERS, inputs=inputs
+        )
+        self.ordering = base / "run_ordering_v1.json"
+        self.ordering.write_text(handoff_to_json(ordering) + "\n", encoding="utf-8")
+        rule = representative_rule(
+            f.manifest, trackers=RECOVERY_TRACKERS, inputs=inputs, ordering_sha256=sha256_file(self.ordering)
+        )
+        self.rule = base / "representative_rule_v1.json"
+        self.rule.write_text(handoff_to_json(rule) + "\n", encoding="utf-8")
+
+    def derive_argv(self, output: Path, evidence: Path | None = None) -> list[str]:
+        """The derivation's command line over this study, optionally over another evidence directory."""
+        return [
+            "derive",
+            "--study",
+            str(self.f.manifest_file),
+            "--evaluation",
+            str(self.evaluation),
+            "--evidence-dir",
+            str(self.evidence if evidence is None else evidence),
+            "--run-ordering",
+            str(self.ordering),
+            "--representative-rule",
+            str(self.rule),
+            "--result-schema",
+            str(self.schema_v3),
+            "--output",
+            str(output),
+            "--exploratory",
+        ]
+
+    def pair(self, label: str) -> ManualPairRecord:
+        """The first recorded pair of one model's evidence."""
+        pointer = load_manual_pointer(self.evidence / manual_pointer_name("model", label))
+        evidence = load_manual_model_evidence(verify_artifact(self.f.store, pointer.payload))
+        return evidence.pairs[0]
+
+    def arrays_file(self, pair: ManualPairRecord) -> Path:
+        """Where one recorded run's arrays live in the fixture store."""
+        assert pair.run is not None
+        return self.f.store.path(pair.run.uri, mode="read").parent / "arrays.npz"
+
+    def run_argv(self) -> list[str]:
+        """The evaluation command line that produces this study's evidence."""
+        return [
+            "run",
+            "--study",
+            str(self.f.manifest_file),
+            "--evaluation",
+            str(self.evaluation),
+            "--evidence-dir",
+            str(self.evidence),
+            "--exploratory",
+        ]
