@@ -972,9 +972,9 @@ def render_audit_markdown(audit: ManualAudit) -> str:
         ),
         "",
         (
-            f"The derived evidence was produced by `{audit.results_commit[:12]}`; its checks were then "
-            f"strengthened in {', '.join(commit[:12] for commit in audit.validated_commits)}, and this audit "
-            f"applies them."
+            f"The derived evidence was produced by `{audit.results_commit[:12]}`. This audit ran from "
+            f"`{audit.checkout_commit[:12]}` and applies the checks of "
+            f"{', '.join(f'`{commit[:12]}`' for commit in audit.validated_commits)}."
         ),
         "",
         "## Steps",
