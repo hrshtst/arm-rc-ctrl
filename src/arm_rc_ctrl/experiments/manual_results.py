@@ -117,16 +117,19 @@ __all__ = [
     "ManualRunRow",
     "ManualSelection",
     "ManualSelections",
+    "RunOrigin",
     "evidence_digest",
     "load_results",
     "main",
     "render_results_markdown",
     "results_to_json",
     "run_metrics",
+    "run_row",
     "selections_of",
     "table_columns",
     "table_from_csv",
     "table_to_csv",
+    "unavailable_row",
     "verdicts_of",
 ]
 
@@ -327,8 +330,13 @@ class ManualRunRow:
 
 
 @dataclass(frozen=True)
-class _Origin:
-    """What every run of one model, or of one replay bank, has in common."""
+class RunOrigin:
+    """What every run of one model, or of one replay bank, has in common.
+
+    Public because the clean-checkout audit rebuilds each committed row from
+    the study's trusted inputs and compares it whole: a second row builder
+    would be a second thing to keep right.
+    """
 
     source: str
     configuration: str
@@ -340,8 +348,8 @@ class _Origin:
     fit_identity: str | None
 
 
-def _row(
-    origin: _Origin,
+def run_row(
+    origin: RunOrigin,
     pair: ManualPairRecord,
     loaded: tuple[RunSummary, Mapping[str, NDArray[Any]]] | None,
     *,
@@ -439,7 +447,7 @@ def _row(
     )
 
 
-def _unavailable_row(origin: _Origin, index: int, scenario_id: str, scenario_class: str, tracker: str) -> ManualRunRow:
+def unavailable_row(origin: RunOrigin, index: int, scenario_id: str, scenario_class: str, tracker: str) -> ManualRunRow:
     """A run the protocol names whose model has no evidence: every measured field is absent."""
     empty = {f.name: None for f in dc.fields(ManualRunRow)}
     fixed: dict[str, object] = {
@@ -457,7 +465,7 @@ def _unavailable_row(origin: _Origin, index: int, scenario_id: str, scenario_cla
 class _Job:
     """The runs of one model or one replay bank, read and measured together."""
 
-    origin: _Origin
+    origin: RunOrigin
     pairs: tuple[ManualPairRecord, ...]
     radius_m: float
 
@@ -467,7 +475,7 @@ def _rows_of(store: StorageRoot, job: _Job) -> list[ManualRunRow]:
     rows: list[ManualRunRow] = []
     for pair in job.pairs:
         loaded = load_verified_run(store, pair) if pair.status in _SIMULATED else None
-        rows.append(_row(job.origin, pair, loaded, radius_m=job.radius_m))
+        rows.append(run_row(job.origin, pair, loaded, radius_m=job.radius_m))
     return rows
 
 
@@ -925,7 +933,7 @@ def _jobs(
     for entry in manifest.entries:
         parent = entry.arm.assignment
         evidence = loaded.models.get(entry.label)
-        origin = _Origin(
+        origin = RunOrigin(
             source=_RC,
             configuration=entry.configuration,
             arm=entry.arm.label,
@@ -937,7 +945,7 @@ def _jobs(
         )
         if evidence is None:
             missing.extend(
-                _unavailable_row(origin, index, sid, kind, tracker)
+                unavailable_row(origin, index, sid, kind, tracker)
                 for index, (sid, kind) in enumerate(scenarios)
                 for tracker in trackers
             )
@@ -945,7 +953,7 @@ def _jobs(
             jobs.append(_Job(origin, evidence.pairs, evidence.conditions.dwell_tolerance_m))
     for (configuration, parent), identity in loaded.bank_of.items():
         bank = loaded.banks[identity]
-        origin = _Origin(
+        origin = RunOrigin(
             source=_REPLAY,
             configuration=configuration,
             arm=arm_label(_REPLAY, parent),

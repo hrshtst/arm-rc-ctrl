@@ -277,11 +277,17 @@ the study's trusted inputs as a resume does, recomputes every run's metrics
 from its own trajectories and every comparison, summary and selection from the
 per-run table, renders a case from the committed figure inputs, and
 re-simulates the subset frozen before execution in a scratch store, comparing
-each run's arrays digest with the stored one. Failures are retained rather than
-raised: each step records what it checked and every disagreement, the record
-lists the declared tolerances and the handoff bundle, and the command exits
-non-zero when any step failed. It writes `reproduction_audit_v1.{json,md}` and
-never overwrites an existing audit.
+each run's arrays digest with the stored one. Every row of the per-run table is
+rebuilt whole from the frozen study and the run's own arrays, and every raw
+record behind a demonstration is loaded, bound to its source and checked
+against its payload digest. Failures are retained rather than raised: each step
+records what it checked and every disagreement, a step whose evidence cannot be
+read is recorded as unavailable instead of ending the audit, a re-simulation
+that did not reproduce keeps its payloads and the record cites where, the
+record lists the declared tolerances and the handoff bundle, and the command
+exits non-zero when any step failed. It writes
+`reproduction_audit_v<version>.{json,md}` and never overwrites an existing
+audit.
 
 ## Requirements
 
