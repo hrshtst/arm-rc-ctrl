@@ -342,7 +342,7 @@ def _guarded(name: str, run: Callable[[], AuditStep]) -> AuditStep:
     started = time.perf_counter()
     try:
         return run()
-    except EVIDENCE_ERRORS as error:
+    except (*EVIDENCE_ERRORS, StopIteration) as error:  # a lookup that found nothing is evidence that disagrees too
         failure = f"the step could not run: {type(error).__name__}: {str(error)[:300]}"
         return AuditStep(
             name=name,
@@ -537,7 +537,12 @@ def check_manifests(inputs: _Inputs) -> AuditStep:
 
 def _bank_pointer(inputs: _Inputs, configuration: str, parent: str) -> Path | None:
     """The pointer of the bank the run ordering keys at (configuration, parent), by its trusted identity."""
-    key = next(k for k in inputs.ordering.replay_banks if (k.configuration, k.assignment) == (configuration, parent))
+    key = next(
+        (k for k in inputs.ordering.replay_banks if (k.configuration, k.assignment) == (configuration, parent)), None
+    )
+    if key is None:
+        msg = f"the run ordering names no replay bank for {configuration}/{parent}"
+        raise ValueError(msg)
     conditions = inputs.runner.conditions(key.warmup_s, (key.velocity_cutoff_hz, key.acceleration_cutoff_hz))
     wanted = sha256_bytes(f"{conditions.identity}:{parent}".encode("ascii"))
     for path in sorted(inputs.evidence_dir.glob("replay__*.toml")):
@@ -797,7 +802,10 @@ def _first_difference(kind: str, rebuilt: Sequence[object], committed: Sequence[
 
 def _stored_table[T](inputs: _Inputs, record: str, cls: type[T]) -> tuple[T, ...]:
     """One table the results index keeps in the store, verified by digest and read back strictly."""
-    table = next(t for t in inputs.results.tables if t.record == record)
+    table = next((t for t in inputs.results.tables if t.record == record), None)
+    if table is None:
+        msg = f"the results index names no {record} table"
+        raise ValueError(msg)
     return table_from_csv(verify_artifact(inputs.store, table.payload).read_text(encoding="utf-8"), cls)
 
 

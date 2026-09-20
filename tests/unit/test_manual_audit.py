@@ -359,6 +359,24 @@ def test_unreadable_derived_evidence_leaves_every_dependent_step_marked_unavaila
     assert record.results_commit == "", "no index was read, so no generating commit is claimed"
 
 
+def test_an_index_missing_a_stored_table_is_recorded_rather_than_crashing_the_audit(
+    study: ManualStudyEvidence, derived: Path, docs: Path, tmp_path: Path, patch_manual: Callable[..., None]
+) -> None:
+    """An index that names no comparison table fails the step that needed it; the other steps still report."""
+    target = tmp_path / "without_contrasts"
+    shutil.copytree(derived, target)
+    results = load_results(target / "results_v1.json")
+    kept = tuple(table for table in results.tables if table.record != "ManualContrastRow")
+    (target / "results_v1.json").write_text(results_to_json(replace(results, tables=kept)) + "\n", encoding="utf-8")
+    status, record = _audit(study, target, docs, tmp_path, patch_manual)
+    assert status == 1
+    assert [step.name for step in record.steps] == list(AUDIT_STEPS)
+    step = next(s for s in record.steps if s.name == "aggregates")
+    assert step.unavailable
+    assert any("ManualContrastRow" in failure for failure in step.failures), step.failures
+    assert next(s for s in record.steps if s.name == "payloads_and_metrics").ok, "one step's gap is not another's"
+
+
 # --- re-simulation -----------------------------------------------------------------------------------
 
 
