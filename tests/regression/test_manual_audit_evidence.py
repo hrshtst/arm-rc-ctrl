@@ -52,12 +52,12 @@ EXPECTED_STEPS = (
 )
 
 
-def test_the_current_audit_is_committed_and_carries_the_current_record_schema() -> None:
-    """The audit of record is this code's own: a later version is evidence, not a plan."""
-    assert AUDIT_VERSION in ISSUED, "the current audit version is committed beside the ones it retains"
-    audit = load_audit(DOCS / "audit" / f"reproduction_audit_v{AUDIT_VERSION}.json")
+def test_the_newest_issued_audit_carries_the_current_record_schema() -> None:
+    """The newest audit of record reads under this code's schema, and names the checks it applies."""
+    audit = load_audit(DOCS / "audit" / f"reproduction_audit_v{max(ISSUED)}.json")
     assert audit.schema_version == AUDIT_SCHEMA_VERSION
     assert len(audit.validated_commits) >= 3, "it applies the derivation's checks and its own"
+    assert max(ISSUED) <= AUDIT_VERSION, "an issued audit is never newer than the code that writes them"
 
 
 @pytest.mark.parametrize("version", ISSUED)

@@ -58,6 +58,7 @@ from arm_rc_ctrl.config import from_mapping, to_mapping
 from arm_rc_ctrl.data.manual import ManualDatasetRecord, load_raw_record
 from arm_rc_ctrl.data.records import load_record, verify_payload
 from arm_rc_ctrl.data.samples import load_samples
+from arm_rc_ctrl.experiments.disturbances import FORCE_PULSE_KIND, ForcePulse
 from arm_rc_ctrl.experiments.manual_accounting import account_study
 from arm_rc_ctrl.experiments.manual_contrasts import (
     ManualArmSummary,
@@ -68,12 +69,14 @@ from arm_rc_ctrl.experiments.manual_contrasts import (
     contrast_summaries,
 )
 from arm_rc_ctrl.experiments.manual_evaluation import (
+    ManualRunOutcome,
     bank_identity,
     load_manual_model_evidence,
     load_manual_pointer,
     load_manual_replay_bank,
     load_verified_run,
     manual_pointer_name,
+    manual_run_outcome,
     prepare_runner,
     spawn_worker,
 )
@@ -97,6 +100,7 @@ from arm_rc_ctrl.experiments.manual_results import (
     verdicts_of,
 )
 from arm_rc_ctrl.experiments.manual_study import EXPERIMENT_LABEL
+from arm_rc_ctrl.experiments.run_record import RunArrays
 from arm_rc_ctrl.provenance import (
     ArtifactMismatchError,
     ProvenanceRecord,
@@ -111,8 +115,12 @@ from arm_rc_ctrl.storage import ENV_VAR, StorageError, StorageRoot
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
 
+    from numpy.typing import NDArray
+
     from arm_rc_ctrl.experiments.manual_evaluation import ManualEvaluationRunner, ManualPairRecord
     from arm_rc_ctrl.experiments.manual_study import StudyManifest
+    from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
+    from arm_rc_ctrl.experiments.run_record import RunSummary
 
 __all__ = [
     "AUDIT_SCHEMA_VERSION",
@@ -131,17 +139,26 @@ __all__ = [
     "render_audit_markdown",
 ]
 
-AUDIT_VERSION: Final = 2
+AUDIT_VERSION: Final = 3
 """Version of this audit's outputs; a re-audit is a new version beside it, never an edit.
 
 Version 1 audited the same evidence with a weaker guarantee: it compared only
 the row fields its metric recomputation produced, checked a raw record's
 existence rather than its content, could be stopped by a corrupt manifest
 before writing its record, and discarded a failed re-simulation's payloads.
-Version 1 is retained as issued.
+Version 2 closed those, but still copied a run's outcome measurements from the
+manifest that reported them instead of judging the run again, could end without
+a record when a re-simulated run had no committed pair to compare with, and
+cited retained payloads by a path that omitted the scratch store's own
+directory. Both are retained as issued.
 """
 AUDIT_SCHEMA_VERSION: Final = 2
-"""Version of the audit record: 2 adds unavailable steps and the retained re-simulation."""
+"""Version of the audit record: 2 adds unavailable steps and the retained re-simulation.
+
+Version 3 of the audit reports more, but records it in the same shape, so the
+schema stays 2: a re-simulated run the evidence cannot answer for is an
+``unavailable`` committed status rather than a new field.
+"""
 SUPPORTED_AUDIT_SCHEMAS: Final = (1, 2)
 """Both versions load, so the retained v1 record stays readable."""
 _MODULE: Final = "arm_rc_ctrl.experiments.manual_audit"
@@ -163,6 +180,10 @@ AUDIT_STEPS: Final = (
 _UNAVAILABLE: Final = "the evidence this step needs could not be read"
 _RETAINED_PREFIX: Final = "armrc://reports/task_1a_manual_audit"
 """Where a re-simulation's runs are written: outside the study's own prefix, so they are never its evidence."""
+_SCRATCH_STORE: Final = "store"
+"""The scratch store's directory inside a re-simulation, named once so a citation cannot lose it."""
+_UNAVAILABLE_STATUS: Final = "unavailable"
+"""What a re-simulated run's committed status reads when the evidence holds nothing to compare it with."""
 EVIDENCE_ERRORS: Final = (OSError, ValueError, StorageError, ArtifactMismatchError)
 """What a reader of evidence can fail with. Each becomes a recorded failure, never an escaped exception."""
 
@@ -342,7 +363,7 @@ def _guarded(name: str, run: Callable[[], AuditStep]) -> AuditStep:
     started = time.perf_counter()
     try:
         return run()
-    except (*EVIDENCE_ERRORS, StopIteration) as error:  # a lookup that found nothing is evidence that disagrees too
+    except (*EVIDENCE_ERRORS, LookupError, StopIteration) as error:  # a lookup that found nothing disagrees too
         failure = f"the step could not run: {type(error).__name__}: {str(error)[:300]}"
         return AuditStep(
             name=name,
@@ -588,13 +609,87 @@ def _field_differences(key: tuple[str, str, str], row: ManualRunRow, rebuilt: Ma
     ]
 
 
+@dataclass(frozen=True)
+class _RunProtocol:
+    """What the frozen study prescribes for every run of one model or one replay bank."""
+
+    origin: RunOrigin
+    warmup_s: float
+    """The activation boundary its runs were simulated under, from the study's own conditions."""
+
+
+def _outcome_differences(
+    key: tuple[str, str, str], recorded: ManualRunOutcome, recomputed: ManualRunOutcome
+) -> list[str]:
+    """Every part of a recorded outcome that the run's own trajectories do not give."""
+    return [
+        f"{key}.outcome.{handle.name}: the manifest records "
+        f"{getattr(recorded, handle.name)!r}, the arrays give {getattr(recomputed, handle.name)!r}"[:400]
+        for handle in dc.fields(ManualRunOutcome)
+        if getattr(recorded, handle.name) != getattr(recomputed, handle.name)
+    ]
+
+
+def _recomputed_outcome(
+    inputs: _Inputs,
+    protocol: _RunProtocol,
+    case: RobustnessScenario,
+    loaded: tuple[RunSummary, dict[str, NDArray[Any]]],
+) -> tuple[ManualRunOutcome, ForcePulse | None]:
+    """Judge one stored run again from its verified arrays, with the evaluation's own judgement.
+
+    Every measurement a row carries is produced here rather than copied: the
+    protocol comes from the frozen study and the bound configuration, the
+    disturbance from the run's own record of what actually fired, and
+    everything else from the trajectories. Copying them from the manifest would
+    only check that the evidence agrees with itself.
+    """
+    summary, arrays = loaded
+    fired = [item for item in summary.disturbances if item.kind == FORCE_PULSE_KIND]
+    if len(fired) > 1:
+        msg = f"the run records {len(fired)} force pulses, but a case fires at most one"
+        raise ValueError(msg)
+    pulse = ForcePulse.from_disturbance(fired[0]) if fired else None
+    outcome = manual_run_outcome(
+        RunArrays(dict(arrays)),
+        summary.termination,
+        scenario=inputs.runner.scenario,
+        activation_s=protocol.warmup_s,
+        horizon_s=inputs.runner.config.horizon_s,
+        pulse=pulse,
+        force_case=case.pulse is not None,
+    )
+    return outcome, pulse
+
+
+def _recomputed_pair(
+    store: StorageRoot,
+    inputs: _Inputs,
+    protocol: _RunProtocol,
+    case: RobustnessScenario,
+    pair: ManualPairRecord,
+    key: tuple[str, str, str],
+) -> tuple[ManualPairRecord, tuple[RunSummary, dict[str, NDArray[Any]]], list[str]]:
+    """One simulated pair as its own arrays judge it, and every measurement its manifest got wrong."""
+    loaded = load_verified_run(store, pair)
+    outcome, pulse = _recomputed_outcome(inputs, protocol, case, loaded)
+    failures = [] if pair.outcome is None else _outcome_differences(key, pair.outcome, outcome)
+    started = None if pulse is None else pulse.start_s
+    if pair.pulse_start_s != started:
+        failures.append(f"{key}: the pair records a pulse at {pair.pulse_start_s}, the run's own record {started}")
+    # The row is rebuilt from the recomputed judgement, so every measurement it carries answers to
+    # the trajectories rather than to the manifest that reported them.
+    return dc.replace(pair, outcome=outcome), loaded, failures
+
+
 def _rebuild_row(
     store: StorageRoot,
-    origins: dict[str, RunOrigin],
+    protocols: dict[str, _RunProtocol],
     pairs: dict[tuple[str, str, str], ManualPairRecord],
-    grid: dict[str, tuple[int, str]],
+    grid: dict[str, tuple[int, RobustnessScenario]],
     radius_m: float,
     row: ManualRunRow,
+    inputs: _Inputs,
 ) -> list[str]:
     """Rebuild one committed row from the study's trusted inputs and its own payload, and compare it whole.
 
@@ -605,41 +700,46 @@ def _rebuild_row(
     trusted source, which is what the first audit failed to do.
     """
     key = (row.model_label, row.scenario_id, row.tracker)
-    origin = origins.get(row.model_label)
-    if origin is None:
+    protocol = protocols.get(row.model_label)
+    if protocol is None:
         return [f"{key}: the study names no model or replay bank with this label"]
+    origin = protocol.origin
     placed = grid.get(row.scenario_id)
     if placed is None:
         return [f"{key}: the frozen scenario order does not name this scenario"]
+    index, case = placed
     if origin.evidence_identity is None:
         # The study holds no evidence for this model, so the protocol's row is an unavailable one,
         # rebuilt from the frozen scenario order exactly as the derivation builds it.
-        return _field_differences(key, row, unavailable_row(origin, placed[0], row.scenario_id, placed[1], row.tracker))
+        rebuilt = unavailable_row(origin, index, row.scenario_id, str(case.kind), row.tracker)
+        return _field_differences(key, row, rebuilt)
     pair = pairs.get(key)
     if pair is None:
         return [f"{key}: the evidence holds no pair for this row"]
-    loaded = None
+    failures: list[str] = []
+    judged: ManualPairRecord = pair
+    loaded: tuple[RunSummary, dict[str, NDArray[Any]]] | None = None
     if pair.status in _SIMULATED:
         try:
-            loaded = load_verified_run(store, pair)
+            judged, loaded, failures = _recomputed_pair(store, inputs, protocol, case, pair, key)
         except EVIDENCE_ERRORS as error:
             return [f"{key}: {type(error).__name__}: {str(error)[:200]}"]
     try:
-        rebuilt = run_row(origin, pair, loaded, radius_m=radius_m)
+        rebuilt = run_row(origin, judged, loaded, radius_m=radius_m)
     except EVIDENCE_ERRORS as error:
-        return [f"{key}: the row cannot be rebuilt: {type(error).__name__}: {str(error)[:200]}"]
-    failures = _field_differences(key, row, rebuilt)
-    if (rebuilt.scenario_index, rebuilt.scenario_class) != placed:
+        return [*failures, f"{key}: the row cannot be rebuilt: {type(error).__name__}: {str(error)[:200]}"]
+    failures += _field_differences(key, row, rebuilt)
+    if (rebuilt.scenario_index, rebuilt.scenario_class) != (index, str(case.kind)):
         failures.append(
             f"{key}: the pair record places the scenario at {rebuilt.scenario_index} in class "
-            f"{rebuilt.scenario_class!r}, the frozen order at {placed[0]} in {placed[1]!r}"
+            f"{rebuilt.scenario_class!r}, the frozen order at {index} in {str(case.kind)!r}"
         )
     return failures
 
 
-def _origins(inputs: _Inputs) -> tuple[dict[str, RunOrigin], list[str]]:
-    """What every run of each model and bank has in common, taken from the frozen study, not from the table."""
-    origins: dict[str, RunOrigin] = {}
+def _protocols(inputs: _Inputs) -> tuple[dict[str, _RunProtocol], list[str]]:
+    """What every run of each model and bank was produced under, taken from the frozen study, not the table."""
+    protocols: dict[str, _RunProtocol] = {}
     failures: list[str] = []
     runner = inputs.runner
     for entry in inputs.manifest.entries:
@@ -650,7 +750,7 @@ def _origins(inputs: _Inputs) -> tuple[dict[str, RunOrigin], list[str]]:
         except EVIDENCE_ERRORS as error:
             failures.append(f"{entry.label}: {type(error).__name__}: {str(error)[:200]}")
             continue
-        origins[entry.label] = RunOrigin(
+        origin = RunOrigin(
             source="rc",
             configuration=entry.configuration,
             arm=entry.arm.label,
@@ -660,6 +760,7 @@ def _origins(inputs: _Inputs) -> tuple[dict[str, RunOrigin], list[str]]:
             evidence_identity=identity,
             fit_identity=entry.fit_identity if present else None,
         )
+        protocols[entry.label] = _RunProtocol(origin=origin, warmup_s=warmup_s)
     for key in inputs.ordering.replay_banks:
         label = f"{key.configuration}/replay/{key.assignment}"
         try:
@@ -667,7 +768,7 @@ def _origins(inputs: _Inputs) -> tuple[dict[str, RunOrigin], list[str]]:
         except EVIDENCE_ERRORS as error:
             failures.append(f"{label}: {type(error).__name__}: {str(error)[:200]}")
             continue
-        origins[label] = RunOrigin(
+        origin = RunOrigin(
             source="replay",
             configuration=key.configuration,
             arm=f"replay/{key.assignment}",
@@ -677,13 +778,14 @@ def _origins(inputs: _Inputs) -> tuple[dict[str, RunOrigin], list[str]]:
             evidence_identity=bank_identity(conditions, key.assignment),
             fit_identity=None,
         )
-    return origins, failures
+        protocols[label] = _RunProtocol(origin=origin, warmup_s=key.warmup_s)
+    return protocols, failures
 
 
 def check_payloads_and_metrics(inputs: _Inputs) -> AuditStep:
-    """Every run's payload, and every column of its row rebuilt from the study's own inputs."""
+    """Every run's payload, its outcome judged again from its arrays, and every column of its row."""
     started = time.perf_counter()
-    origins, failures = _origins(inputs)
+    protocols, failures = _protocols(inputs)
     pairs, pair_failures = _pairs_by_run(inputs)
     failures += pair_failures
     radius = inputs.runner.conditions(0.0, (1.0, 1.0)).dwell_tolerance_m
@@ -692,8 +794,8 @@ def check_payloads_and_metrics(inputs: _Inputs) -> AuditStep:
             f"the results index records a departure radius of {inputs.results.departure_radius_m}, not the "
             f"evaluation configuration's dwell radius {radius}"
         )
-    grid = {case.scenario_id: (index, str(case.kind)) for index, case in enumerate(inputs.runner.scenarios)}
-    work = partial(_rebuild_row, inputs.store, origins, pairs, grid, radius)
+    grid = {case.scenario_id: (index, case) for index, case in enumerate(inputs.runner.scenarios)}
+    work = partial(_rebuild_row, inputs.store, protocols, pairs, grid, radius, inputs=inputs)
     if inputs.workers == 1:
         rebuilt = [work(row) for row in inputs.rows]
     else:
@@ -702,7 +804,7 @@ def check_payloads_and_metrics(inputs: _Inputs) -> AuditStep:
     failures += [failure for group in rebuilt for failure in group]
     return _step(
         "payloads_and_metrics",
-        "every stored run verified by digest and every row rebuilt from the study's inputs and its own arrays",
+        "every stored run verified, judged again from its own arrays, and its row rebuilt from that judgement",
         len(inputs.rows),
         failures[:200],
         started,
@@ -871,9 +973,18 @@ def check_completeness(inputs: _Inputs, bundle_missing: Sequence[str]) -> AuditS
 # --- re-simulation --------------------------------------------------------------------------------
 
 
+def _retained_reference(location: str, uri: str) -> str:
+    """Where a re-simulated run's own payload lies inside a retained re-simulation.
+
+    The runs are written into a scratch store one directory below the retained
+    root, so a citation that forgets that directory names nothing.
+    """
+    return f"{location}/{_SCRATCH_STORE}/{uri.removeprefix('armrc://')}"
+
+
 def _seed_store(inputs: _Inputs, scratch: Path) -> Path:
     """A scratch store holding the ten demonstrations, so a re-simulation never writes into the study's own."""
-    store_root = scratch / "store"
+    store_root = scratch / _SCRATCH_STORE
     for demonstration in inputs.manifest.demonstrations:
         source = inputs.store.path(f"armrc://processed/{demonstration.dataset.artifact_id}/samples.npz", mode="read")
         target = store_root / "processed" / demonstration.dataset.artifact_id / "samples.npz"
@@ -971,16 +1082,22 @@ def check_resimulation(
         for tracker in subset.trackers
     )
     failures += [
+        f"{o.label} {o.scenario_id} [{o.tracker}]: the evidence holds no stored run to compare this "
+        f"re-simulated one with, so it could not be checked"
+        for o in outcomes
+        if o.committed_status == _UNAVAILABLE_STATUS
+    ]
+    failures += [
         f"{o.label} {o.scenario_id} [{o.tracker}]: re-simulation did not reproduce the stored arrays"
         f" (deviation {o.max_abs_deviation})"
         for o in outcomes
-        if not o.bitwise
+        if not o.bitwise and o.committed_status != _UNAVAILABLE_STATUS
     ]
     failures += [
         f"{o.label} {o.scenario_id} [{o.tracker}]: re-simulation reached {o.rebuilt_status}, "
         f"the study stored {o.committed_status}"
         for o in outcomes
-        if o.committed_status != o.rebuilt_status
+        if o.committed_status not in (o.rebuilt_status, _UNAVAILABLE_STATUS)
     ]
     return _step(
         "resimulation",
@@ -1016,11 +1133,31 @@ def _compare_run(
 
     ``location`` is where the re-simulation's own runs live; a run that did not
     reproduce cites the payload it produced, so the disagreement can be opened
-    rather than only read about.
+    rather than only read about. A run the evidence holds nothing to compare
+    with is recorded as unavailable: the re-simulation happened, and what it
+    produced is kept, so saying so is more use than an exception.
     """
-    pair = committed[label, scenario_id, tracker]
-    stored_run = cast("Any", pair.run)
+    pair = committed.get((label, scenario_id, tracker))
     rebuilt = rebuilt_pairs.get((label, scenario_id, tracker))
+    if pair is None or pair.run is None:
+        return ResimulatedRun(
+            label=label,
+            scenario_id=scenario_id,
+            tracker=tracker,
+            arm=arm,
+            committed_arrays_sha256="",
+            rebuilt_arrays_sha256="" if rebuilt is None or rebuilt.run is None else rebuilt.run.arrays_sha256,
+            bitwise=False,
+            max_abs_deviation=None,
+            committed_status=_UNAVAILABLE_STATUS,
+            rebuilt_status="missing" if rebuilt is None else rebuilt.status,
+            retained=(
+                location or None
+                if rebuilt is None or rebuilt.run is None or not location
+                else _retained_reference(location, rebuilt.run.uri)
+            ),
+        )
+    stored_run = cast("Any", pair.run)
     if rebuilt is None or rebuilt.run is None:
         return ResimulatedRun(
             label=label,
@@ -1048,7 +1185,7 @@ def _compare_run(
         max_abs_deviation=deviation,
         committed_status=pair.status,
         rebuilt_status=rebuilt.status,
-        retained=None if bitwise or not location else f"{location}/{rebuilt.run.uri.removeprefix('armrc://')}",
+        retained=None if bitwise or not location else _retained_reference(location, rebuilt.run.uri),
     )
 
 
@@ -1352,7 +1489,21 @@ def _resimulation_step(
         # The sample is frozen over the study's own locked cases; an audit of anything else cannot form it.
         return _step("resimulation", "the frozen subset", 0, [f"{type(error).__name__}: {error}"], started), (), None
     scratch, location = _resimulation_root(inputs.store)
-    step, outcomes = check_resimulation(inputs, subset, scratch, exploratory=exploratory, location=location)
+    try:
+        step, outcomes = check_resimulation(inputs, subset, scratch, exploratory=exploratory, location=location)
+    except (*EVIDENCE_ERRORS, LookupError, StopIteration) as error:
+        # The runs were simulated, so they are kept even though the comparison could not be made.
+        failure = f"the comparison could not be made: {type(error).__name__}: {str(error)[:300]}"
+        unavailable = AuditStep(
+            name="resimulation",
+            ok=False,
+            checked=0,
+            detail=_UNAVAILABLE,
+            failures=(failure,),
+            seconds=time.perf_counter() - started,
+            unavailable=True,
+        )
+        return unavailable, (), location
     if step.ok and all(run.bitwise for run in outcomes):
         shutil.rmtree(scratch, ignore_errors=True)
         return step, outcomes, None

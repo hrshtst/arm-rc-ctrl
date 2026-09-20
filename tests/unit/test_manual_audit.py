@@ -12,14 +12,15 @@ study's own evidence, including one re-simulation of a narrowed frozen subset.
 
 from __future__ import annotations
 
+import json
 import shutil
 from dataclasses import replace
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
 from arm_rc_ctrl.data.manual import ManualDatasetRecord
-from arm_rc_ctrl.data.records import load_record
+from arm_rc_ctrl.data.records import load_record, write_record
 from arm_rc_ctrl.experiments import manual_audit
 from arm_rc_ctrl.experiments.manual_audit import AUDIT_STEPS, AUDIT_VERSION, ManualAudit, load_audit
 from arm_rc_ctrl.experiments.manual_evaluation import load_manual_pointer, manual_pointer_name
@@ -35,6 +36,7 @@ from arm_rc_ctrl.experiments.manual_results import (
     table_from_csv,
     table_to_csv,
 )
+from arm_rc_ctrl.metrics.recovery import SATURATION_BOUND
 from arm_rc_ctrl.provenance import ArtifactReference, sha256_bytes, verify_artifact
 
 if TYPE_CHECKING:
@@ -55,7 +57,13 @@ def _stub_bundle(docs: Path) -> None:
 
 
 def _argv(
-    study: ManualStudyEvidence, derived: Path, docs: Path, output: Path, *, resimulate: bool = False
+    study: ManualStudyEvidence,
+    derived: Path,
+    docs: Path,
+    output: Path,
+    *,
+    resimulate: bool = False,
+    evidence: Path | None = None,
 ) -> list[str]:
     argv = [
         "audit",
@@ -64,7 +72,7 @@ def _argv(
         "--evaluation",
         str(study.evaluation),
         "--evidence-dir",
-        str(study.evidence),
+        str(study.evidence if evidence is None else evidence),
         "--results",
         str(derived),
         "--docs",
@@ -97,12 +105,12 @@ def _audit(
     docs: Path,
     tmp_path: Path,
     patch_manual: Callable[..., None],
-    **kwargs: bool,
+    **kwargs: bool | Path | None,
 ) -> tuple[int, ManualAudit]:
     """Run the audit and return its status beside the record it wrote."""
     patch_manual(study, manual_audit)
     output = tmp_path / "audit"
-    status = manual_audit.main(_argv(study, derived, docs, output, **kwargs))
+    status = manual_audit.main(_argv(study, derived, docs, output, **cast("Any", kwargs)))
     return status, load_audit(output / AUDIT)
 
 
@@ -377,6 +385,92 @@ def test_an_index_missing_a_stored_table_is_recorded_rather_than_crashing_the_au
     assert next(s for s in record.steps if s.name == "payloads_and_metrics").ok, "one step's gap is not another's"
 
 
+def _measurement_tampered(
+    study: ManualStudyEvidence, tmp_path: Path, label: str, mutate: Callable[[dict[str, Any]], None]
+) -> tuple[Path, tuple[str, str]]:
+    """A copy of the evidence whose one manifest records a different measurement, under its own correct digest.
+
+    The manifest stays self-consistent: its verdict, criteria and counts are
+    untouched, so every check that compares a record with itself still passes
+    and only a recomputation from the run's arrays can refuse it.
+    """
+    evidence = tmp_path / "measurement_evidence"
+    shutil.copytree(study.evidence, evidence)
+    path = evidence / manual_pointer_name("model", label)
+    pointer = load_manual_pointer(path)
+    mapping = cast("dict[str, Any]", json.loads(verify_artifact(study.f.store, pointer.payload).read_text("utf-8")))
+    pair = next(p for p in mapping["pairs"] if p.get("outcome"))
+    mutate(cast("dict[str, Any]", pair["outcome"]))
+    body = (json.dumps(mapping, sort_keys=True) + "\n").encode("utf-8")
+    digest = sha256_bytes(body)
+    uri = f"armrc://reports/task_1a_manual_v1/tampered/manifest-{digest[:12]}.json"
+    study.f.store.path(uri, mode="write").write_bytes(body)
+    path.unlink()  # a copy in a scratch directory; the study's own pointers are untouched
+    write_record(path, replace(pointer, payload=ArtifactReference(uri=uri, sha256=digest, size=len(body))))
+    return evidence, (cast("str", pair["scenario_id"]), cast("str", pair["tracker"]))
+
+
+def _same_side_saturation(outcome: dict[str, Any]) -> float:
+    """Another saturation fraction on the same side of the eligibility bound, so no verdict changes.
+
+    A fraction that crossed the bound would flip the recorded criterion and be
+    caught by the verdict checks instead, which would not exercise the
+    measurement at all.
+    """
+    original = float(cast("float", outcome["saturation_fraction"]))
+    if original > SATURATION_BOUND:
+        return 1.0 if original != 1.0 else 0.9
+    return 0.0 if original != 0.0 else SATURATION_BOUND
+
+
+MEASUREMENTS: dict[str, tuple[tuple[str, ...], str, Callable[[dict[str, Any]], object]]] = {
+    "dwell duration": (("dwell", "final_duration_s"), "dwell_final_s", lambda _outcome: 0.25),
+    "saturation fraction": (("saturation_fraction",), "saturation_fraction", _same_side_saturation),
+    "torque rms": (("torque_rms",), "torque_rms_nm", lambda _outcome: 999.0),
+}
+"""Outcome measurements the manifest records and the row carries, which no verdict or count constrains."""
+
+
+@pytest.mark.parametrize("measurement", sorted(MEASUREMENTS))
+def test_a_measurement_altered_in_manifest_and_table_alike_is_still_refused(
+    study: ManualStudyEvidence,
+    derived: Path,
+    docs: Path,
+    tmp_path: Path,
+    patch_manual: Callable[..., None],
+    measurement: str,
+) -> None:
+    """Agreement between a manifest and a table proves nothing: these measurements come from the arrays."""
+    path, column, chosen = MEASUREMENTS[measurement]
+    label = f"{CONFIGURATION}/M10"
+    altered_to: list[object] = []
+
+    def alter_outcome(outcome: dict[str, Any]) -> None:
+        holder = outcome
+        for name in path[:-1]:
+            holder = cast("dict[str, Any]", holder[name])
+        value = chosen(outcome)
+        assert value != holder[path[-1]], "the alteration must change the recorded measurement"
+        holder[path[-1]] = value
+        altered_to.append(value)
+
+    evidence, (scenario_id, tracker) = _measurement_tampered(study, tmp_path, label, alter_outcome)
+
+    def alter_table(rows: list[ManualRunRow]) -> None:
+        index = next(
+            i
+            for i, row in enumerate(rows)
+            if (row.model_label, row.scenario_id, row.tracker) == (label, scenario_id, tracker)
+        )
+        rows[index] = replace(rows[index], **{column: altered_to[0]})
+
+    altered = _altered_table(study, derived, tmp_path, alter_table)
+    status, record = _audit(study, altered, docs, tmp_path, patch_manual, evidence=evidence)
+    assert status == 1
+    failures = _failures(record, "payloads_and_metrics")
+    assert any(path[0] in failure for failure in failures), failures
+
+
 # --- re-simulation -----------------------------------------------------------------------------------
 
 
@@ -430,3 +524,68 @@ def test_a_failed_re_simulation_keeps_its_payloads_and_the_record_says_where(
     assert record.retained_resimulation, "the record cites where the re-simulated runs were kept"
     retained = study.f.store.path(record.retained_resimulation, mode="read")
     assert any(retained.rglob("run.json")), "the retained payloads are the runs themselves, not just a note"
+
+
+def test_a_run_that_did_not_reproduce_cites_a_retained_payload_that_exists(
+    study: ManualStudyEvidence,
+    derived: Path,
+    docs: Path,
+    tmp_path: Path,
+    patch_manual: Callable[..., None],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A citation that does not resolve is no better than a deleted payload, so each one is opened here."""
+
+    def narrowed(manifest: StudyManifest, **_kwargs: object) -> ResimulationSubset:
+        model = next(e for e in manifest.entries if e.label == f"{CONFIGURATION}/S/D01")
+        return ResimulationSubset(models=(model,), scenarios=(MANUAL_SCENARIOS[0],), trackers=("pd_v2",), n_banks=1)
+
+    monkeypatch.setattr(manual_audit, "resimulation_subset", narrowed)
+    indexed = manual_audit._index_rebuilt  # noqa: SLF001 - the audit's own indexing, with one digest disturbed
+
+    def mismatched(inputs: object, rebuilt_store: object) -> dict[tuple[str, str, str], ManualPairRecord]:
+        rebuilt = cast("Any", indexed)(inputs, rebuilt_store)
+        return {
+            key: replace(pair, run=replace(pair.run, arrays_sha256="0" * 64))
+            for key, pair in cast("dict[tuple[str, str, str], ManualPairRecord]", rebuilt).items()
+            if pair.run is not None
+        }
+
+    monkeypatch.setattr(manual_audit, "_index_rebuilt", mismatched)
+    monkeypatch.setattr(manual_audit, "_max_deviation", lambda *_a, **_k: 1.5)
+    _, record = _audit(study, derived, docs, tmp_path, patch_manual, resimulate=True)
+    assert record.retained_resimulation
+    assert [run.bitwise for run in record.resimulated] == [False, False]
+    for run in record.resimulated:
+        assert run.retained, "a run that did not reproduce cites the payload it produced"
+        assert run.retained != record.retained_resimulation, "the citation names the run, not just the directory"
+        assert study.f.store.path(run.retained, mode="read").is_file(), run.retained
+
+
+def test_a_re_simulation_whose_committed_pair_is_missing_is_recorded_and_keeps_its_runs(
+    study: ManualStudyEvidence,
+    derived: Path,
+    docs: Path,
+    tmp_path: Path,
+    patch_manual: Callable[..., None],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With nothing to compare against, the comparison is unavailable and the re-simulated runs are kept."""
+    evidence = tmp_path / "unpointed_evidence"
+    shutil.copytree(study.evidence, evidence)
+    (evidence / manual_pointer_name("model", f"{CONFIGURATION}/S/D01")).unlink()
+
+    def narrowed(manifest: StudyManifest, **_kwargs: object) -> ResimulationSubset:
+        model = next(e for e in manifest.entries if e.label == f"{CONFIGURATION}/S/D01")
+        return ResimulationSubset(models=(model,), scenarios=(MANUAL_SCENARIOS[0],), trackers=("pd_v2",), n_banks=1)
+
+    monkeypatch.setattr(manual_audit, "resimulation_subset", narrowed)
+    status, record = _audit(study, derived, docs, tmp_path, patch_manual, resimulate=True, evidence=evidence)
+    assert (tmp_path / "audit" / AUDIT).is_file(), "the record is written even when a comparison cannot be made"
+    assert status == 1
+    step = next(s for s in record.steps if s.name == "resimulation")
+    assert step.failures
+    assert any(run.committed_status == "unavailable" for run in record.resimulated), [
+        (run.label, run.committed_status) for run in record.resimulated
+    ]
+    assert record.retained_resimulation, "the runs it could not compare are kept, not discarded"

@@ -84,3 +84,34 @@ class ForcePulse:
             self.end_s,
             {"fx": float(self.force[0]), "fy": float(self.force[1]), "magnitude_n": self.magnitude_n},
         )
+
+    @classmethod
+    def from_disturbance(cls, disturbance: Disturbance) -> ForcePulse:
+        """The pulse a stored run says actually fired, read back from its own record.
+
+        A run records the pulse that fired rather than the one its scenario
+        prescribed, so this is how a later reader recovers it: to judge such a
+        run again, the pulse must come from the run itself.
+        """
+        if disturbance.kind != FORCE_PULSE_KIND:
+            msg = f"expected a {FORCE_PULSE_KIND} disturbance, got {disturbance.kind!r}"
+            raise ValueError(msg)
+        missing = sorted({"fx", "fy"} - set(disturbance.parameters))
+        if missing:
+            msg = f"a {FORCE_PULSE_KIND} record needs {missing} to name its force"
+            raise ValueError(msg)
+        pulse = cls(
+            start_s=disturbance.start_s,
+            duration_s=disturbance.end_s - disturbance.start_s,
+            force=(disturbance.parameters["fx"], disturbance.parameters["fy"]),
+        )
+        if pulse.end_s != disturbance.end_s:
+            # The verdict on a triggered run depends on when the pulse ended, so a window that does
+            # not come back exactly is refused rather than judged against a shifted one.
+            msg = f"the window [{disturbance.start_s}, {disturbance.end_s}) does not reproduce as a duration"
+            raise ValueError(msg)
+        recorded = disturbance.parameters.get("magnitude_n")
+        if recorded is not None and recorded != pulse.magnitude_n:
+            msg = f"the recorded magnitude {recorded} is not the components' magnitude {pulse.magnitude_n}"
+            raise ValueError(msg)
+        return pulse

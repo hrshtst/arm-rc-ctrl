@@ -11,6 +11,7 @@ import numpy as np
 import pytest
 
 from arm_rc_ctrl.experiments.disturbances import FORCE_PULSE_KIND, ForcePulse
+from arm_rc_ctrl.experiments.run_record import Disturbance
 
 
 def test_pulse_acts_only_inside_its_half_open_window() -> None:
@@ -66,3 +67,31 @@ def test_negative_magnitude_is_rejected() -> None:
     """A negative magnitude would silently flip the direction."""
     with pytest.raises(ValueError, match="magnitude_n must be >= 0"):
         ForcePulse.from_polar(0.0, 0.1, -1.0, 0.0)
+
+
+def test_a_pulse_reads_back_from_a_run_record_with_its_window_intact() -> None:
+    """A recorded run says which pulse actually fired; judging that run again needs the same window.
+
+    The window is what the verdict depends on, and ``duration_s`` is stored as
+    the difference of two recorded instants, so the reader is held to the
+    instants rather than to a duration it would have to round back.
+    """
+    pulse = ForcePulse(start_s=1.25, duration_s=0.2, force=(3.0, -4.0))
+    recovered = ForcePulse.from_disturbance(pulse.to_disturbance())
+    assert (recovered.start_s, recovered.end_s, recovered.force) == (pulse.start_s, pulse.end_s, pulse.force)
+
+
+def test_a_description_of_something_else_is_refused() -> None:
+    """Reading a pulse out of a record must not invent one from an unrelated disturbance."""
+    with pytest.raises(ValueError, match="endpoint_force_pulse"):
+        ForcePulse.from_disturbance(Disturbance("joint_offset", 1.0, 1.2, {"fx": 1.0, "fy": 0.0}))
+    with pytest.raises(ValueError, match="fx"):
+        ForcePulse.from_disturbance(Disturbance(FORCE_PULSE_KIND, 1.0, 1.2, {"magnitude_n": 2.0}))
+
+
+def test_a_description_whose_magnitude_disagrees_with_its_components_is_refused() -> None:
+    """The recorded magnitude is checked against the components, not trusted beside them."""
+    described = ForcePulse(start_s=1.0, duration_s=0.2, force=(3.0, 4.0)).to_disturbance()
+    described.parameters["magnitude_n"] = 99.0
+    with pytest.raises(ValueError, match="magnitude"):
+        ForcePulse.from_disturbance(described)

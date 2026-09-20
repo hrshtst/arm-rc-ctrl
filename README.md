@@ -277,8 +277,11 @@ the study's trusted inputs as a resume does, recomputes every run's metrics
 from its own trajectories and every comparison, summary and selection from the
 per-run table, renders a case from the committed figure inputs, and
 re-simulates the subset frozen before execution in a scratch store, comparing
-each run's arrays digest with the stored one. Every row of the per-run table is
-rebuilt whole from the frozen study and the run's own arrays, and every raw
+each run's arrays digest with the stored one. Every stored run is judged again
+from its own trajectories with the evaluation's own judgement, so the dwell,
+effort and saturation measurements a row carries are recomputed rather than
+copied from the manifest that reported them; every row of the per-run table is
+then rebuilt whole from the frozen study and that judgement, and every raw
 record behind a demonstration is loaded, bound to its source and checked
 against its payload digest. Failures are retained rather than raised: each step
 records what it checked and every disagreement, a step whose evidence cannot be
