@@ -139,8 +139,12 @@ __all__ = [
     "render_audit_markdown",
 ]
 
-AUDIT_VERSION: Final = 3
+AUDIT_VERSION: Final = 4
 """Version of this audit's outputs; a re-audit is a new version beside it, never an edit.
+
+Version 3 was run and not issued: every check of the evidence passed, but its
+own gates step failed on this file's tests, so the number was retired with it
+rather than reused.
 
 Version 1 audited the same evidence with a weaker guarantee: it compared only
 the row fields its metric recomputation produced, checked a raw record's
@@ -1254,8 +1258,15 @@ def check_gates(root: Path, *, run: bool) -> AuditStep:
     for name, command in commands:
         completed = subprocess.run(command, cwd=root, capture_output=True, check=False)
         if completed.returncode != 0:
-            tail = completed.stdout.decode("utf-8", "replace").strip().splitlines()[-5:]
-            failures.append(f"{name} exited {completed.returncode}: {' | '.join(tail)}")
+            # nox reports which session failed on stderr, so a record that read stdout alone said
+            # only that something had failed. Both streams are quoted, newest lines last.
+            streams = (("stderr", completed.stderr), ("stdout", completed.stdout))
+            quoted = [
+                f"{stream} {' | '.join(text.decode('utf-8', 'replace').strip().splitlines()[-8:])}"
+                for stream, text in streams
+                if text.strip()
+            ]
+            failures.append(f"{name} exited {completed.returncode}: {' /// '.join(quoted)}"[:2000])
     return _step("gates", "uv run --locked nox, then its pre_commit session", len(commands), failures, started)
 
 

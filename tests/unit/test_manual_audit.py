@@ -14,7 +14,9 @@ from __future__ import annotations
 
 import json
 import shutil
+import subprocess
 from dataclasses import replace
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
 import pytest
@@ -41,7 +43,6 @@ from arm_rc_ctrl.provenance import ArtifactReference, sha256_bytes, verify_artif
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-    from pathlib import Path
 
     from arm_rc_ctrl.experiments.manual_evaluation import ManualPairRecord
     from arm_rc_ctrl.experiments.manual_fixture import ManualStudyEvidence
@@ -471,6 +472,23 @@ def test_a_measurement_altered_in_manifest_and_table_alike_is_still_refused(
     assert any(path[0] in failure for failure in failures), failures
 
 
+def test_a_failing_gate_is_recorded_with_the_line_that_names_it(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Nox names the failing session on stderr, so a record that quoted stdout alone said nothing useful."""
+
+    def failed(*_args: object, **_kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        return subprocess.CompletedProcess(
+            args=["uv", "run", "--locked", "nox"],
+            returncode=1,
+            stdout=b"3239 passed, 1 skipped\n100% tests passed\n",
+            stderr=b"nox > Session lint was successful.\nnox > Session type_check failed.\n",
+        )
+
+    monkeypatch.setattr(manual_audit.subprocess, "run", failed)
+    step = manual_audit.check_gates(Path("/nonexistent"), run=True)
+    assert not step.ok
+    assert any("type_check failed" in failure for failure in step.failures), step.failures
+
+
 # --- re-simulation -----------------------------------------------------------------------------------
 
 
@@ -541,7 +559,8 @@ def test_a_run_that_did_not_reproduce_cites_a_retained_payload_that_exists(
         return ResimulationSubset(models=(model,), scenarios=(MANUAL_SCENARIOS[0],), trackers=("pd_v2",), n_banks=1)
 
     monkeypatch.setattr(manual_audit, "resimulation_subset", narrowed)
-    indexed = manual_audit._index_rebuilt  # noqa: SLF001 - the audit's own indexing, with one digest disturbed
+    # The audit's own indexing, reused with one digest disturbed, so the comparison reaches its retained branch.
+    indexed = manual_audit._index_rebuilt  # noqa: SLF001  # pyright: ignore[reportPrivateUsage]
 
     def mismatched(inputs: object, rebuilt_store: object) -> dict[tuple[str, str, str], ManualPairRecord]:
         rebuilt = cast("Any", indexed)(inputs, rebuilt_store)
@@ -551,8 +570,11 @@ def test_a_run_that_did_not_reproduce_cites_a_retained_payload_that_exists(
             if pair.run is not None
         }
 
+    def deviation(*_args: object, **_kwargs: object) -> float:
+        return 1.5
+
     monkeypatch.setattr(manual_audit, "_index_rebuilt", mismatched)
-    monkeypatch.setattr(manual_audit, "_max_deviation", lambda *_a, **_k: 1.5)
+    monkeypatch.setattr(manual_audit, "_max_deviation", deviation)
     _, record = _audit(study, derived, docs, tmp_path, patch_manual, resimulate=True)
     assert record.retained_resimulation
     assert [run.bitwise for run in record.resimulated] == [False, False]
