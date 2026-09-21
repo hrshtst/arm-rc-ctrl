@@ -142,9 +142,10 @@ __all__ = [
 AUDIT_VERSION: Final = 4
 """Version of this audit's outputs; a re-audit is a new version beside it, never an edit.
 
-Version 3 was run and not issued: every check of the evidence passed, but its
-own gates step failed on this file's tests, so the number was retired with it
-rather than reused.
+Version 3 was run and superseded rather than issued: every check of the
+evidence passed, but its own gates step failed on this file's tests. It is kept
+unedited under ``audit/superseded/`` with that failure, and its number is
+retired with its run rather than reused.
 
 Version 1 audited the same evidence with a weaker guarantee: it compared only
 the row fields its metric recomputation produced, checked a raw record's

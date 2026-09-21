@@ -15,7 +15,8 @@ version 1 under audit schema 1, as it was before the owner's review of
 2026-09-20; version 2 under schema 2, which added unavailable steps and the
 retained re-simulation and strengthened the row and raw-record checks; and
 version 4, which judges every stored run again from its own arrays. Version 3
-was run and not issued, so no record of it is committed and its number stays
+was run and superseded rather than issued; its record is kept under
+``audit/superseded/`` with the one failure it retained, and its number stays
 retired.
 """
 
@@ -39,7 +40,9 @@ pytestmark = pytest.mark.regression
 REPO_ROOT = repository_root()
 DOCS = REPO_ROOT / "docs" / "experiments" / "task_1a_manual_demonstration"
 ISSUED = (1, 2, 4)
-"""Every audit version committed so far; each stays locked to what it claimed when it was issued."""
+"""Every audit version issued as evidence; each stays locked to what it claimed when it was issued."""
+SUPERSEDED = (3,)
+"""Audits that were run and superseded: kept as the run left them, failure and all, never re-issued."""
 EXPECTED_STEPS = (
     "checkout",
     "sources",
@@ -53,6 +56,31 @@ EXPECTED_STEPS = (
     "resimulation",
     "gates",
 )
+
+
+@pytest.mark.parametrize("version", SUPERSEDED)
+def test_a_superseded_audit_is_kept_exactly_as_its_run_left_it(version: int) -> None:
+    """An audit that was run is retained whether or not it passed, and it is never quietly re-issued."""
+    path = DOCS / "audit" / "superseded" / f"reproduction_audit_v{version}.json"
+    audit = load_audit(path)
+    assert version not in ISSUED, "a superseded audit is not evidence of record"
+    assert not (DOCS / "audit" / f"reproduction_audit_v{version}.json").exists(), "it stays out of the issued set"
+    assert audit.version == version
+    assert audit.ok is False, "it is kept because of what it recorded, not in spite of it"
+    assert [step.name for step in audit.steps] == list(EXPECTED_STEPS)
+    assert [step.name for step in audit.steps if not step.ok] == ["gates"], "only its own gate failed"
+    assert audit.n_failures == 1
+    assert audit.checkout_dirty is False
+    markdown = (DOCS / "audit" / "superseded" / f"reproduction_audit_v{version}.md").read_text(encoding="utf-8")
+    assert render_audit_markdown(audit) == markdown, "a retained record is not edited, and still renders itself"
+
+
+def test_the_superseded_records_say_why_they_were_superseded() -> None:
+    """A retained failure is only useful beside the account of what replaced it."""
+    readme = (DOCS / "audit" / "superseded" / "README.md").read_text(encoding="utf-8")
+    for version in SUPERSEDED:
+        assert f"reproduction_audit_v{version}" in readme, version
+    assert f"reproduction_audit_v{max(ISSUED)}" in readme, "it names the audit of record"
 
 
 def test_the_newest_issued_audit_carries_the_current_record_schema() -> None:

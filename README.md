@@ -290,7 +290,9 @@ that did not reproduce keeps its payloads and the record cites where, the
 record lists the declared tolerances and the handoff bundle, and the command
 exits non-zero when any step failed. It writes
 `reproduction_audit_v<version>.{json,md}` and never overwrites an existing
-audit.
+audit. An audit that was run is kept whether or not it passed: one superseded
+by a later version moves to `audit/superseded/`, unedited and with the account
+of what replaced it.
 
 ## Requirements
 
