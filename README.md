@@ -294,6 +294,15 @@ audit. An audit that was run is kept whether or not it passed: one superseded
 by a later version moves to `audit/superseded/`, unedited and with the account
 of what replaced it.
 
+### Manual-demonstration interpretation (M3MAN-012)
+
+The [assistant-authored report](docs/experiments/task_1a_manual_demonstration/report/report.md)
+interprets the audited one-versus-ten comparison, copy controls and synthetic
+variation by configuration and tracker. The owner review remains M3MAN-GATE.
+The [reproduction guide](docs/experiments/task_1a_manual_demonstration/report/reproduce.md)
+and `scripts/render_manual_report.py` recreate its plots and animation from
+the existing evidence without new training or simulation.
+
 ## Requirements
 
 - Linux (x86_64 tested), Git.

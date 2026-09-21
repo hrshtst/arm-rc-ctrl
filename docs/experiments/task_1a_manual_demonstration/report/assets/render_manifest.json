@@ -1,0 +1,47 @@
+{
+  "case_ids": [
+    "feasible-best__pd_v2__nominal",
+    "feasible-middle__pd_v2__posture-small-20261201-01"
+  ],
+  "inputs": {
+    "docs/experiments/task_1a_manual_demonstration/audit/reproduction_audit_v4.json": "1fce19b49479eafb5977d7dc9546f539897c89e608da9c7831aa7dd2019347d5",
+    "docs/experiments/task_1a_manual_demonstration/results/accounting_v1.json": "2ee91bfbc2275e219d92116c6e399bd5409479fcab896a32fd94065d28c694c4",
+    "docs/experiments/task_1a_manual_demonstration/results/arm_summary_v1.csv": "7643bb8ddce8273b2383aeab9463ffecb4da15af54767e88f3ed7304b0872e57",
+    "docs/experiments/task_1a_manual_demonstration/results/contrast_summary_v1.csv": "4e9b15978d7adebb1a4a45ed28c9ce3c9dc69a56b7a1d510a92dbdde1cc45ce7",
+    "docs/experiments/task_1a_manual_demonstration/results/figure_inputs_v1.json": "a2661b24c5d0293b7263fc5e8040adef91d369b00bbc9f34c629a10b9ab4b34a",
+    "docs/experiments/task_1a_manual_demonstration/results/results_v1.json": "b7ba610b35c06c99b4a83d98d497c5b4ce470df7b0734c2e54558b0a60d8ce8e",
+    "docs/experiments/task_1a_manual_demonstration/results/selections_v1.json": "37514513d31c243285a6f7460b0f896ef610d4a4307028504167261bfcdcd419",
+    "docs/experiments/task_1a_manual_demonstration/study_manifest_v1.json": "b07b824c362a3513c03c9c34fa0437b390f47d148ac5a288231fba218aaa36b7"
+  },
+  "outputs": {
+    "class_comparisons.png": {
+      "sha256": "a6396bf9c88fa214a67d8138f5ee244e15b877acf00b3dfdccd963d72fafce0c",
+      "size": 152632
+    },
+    "demonstrations.png": {
+      "sha256": "58f9ee967d17ddc506c3895ad4be5ddac1e11ff61653d24160d9050a77687d89",
+      "size": 188773
+    },
+    "success_counts.png": {
+      "sha256": "42e09968ddf382570e3fdc8decbc0b337a6731fe36cd682da1e2496cd3473b00",
+      "size": 79188
+    },
+    "ten_helps.png": {
+      "sha256": "b1a17bba35927919763df1af6082769094d0be0584e6f961768e2e8567594813",
+      "size": 174510
+    },
+    "ten_hurts.gif": {
+      "sha256": "7f238704031af39b9ec753b451d73b7fce51d1f0fee3ccab855a6c0b39fd28ea",
+      "size": 134122
+    },
+    "ten_hurts.png": {
+      "sha256": "2b66700673f7ea62abe11e99fab5f87cbe2b960c75e3e877a6e45cabdc191e33",
+      "size": 135000
+    }
+  },
+  "project_commit": "1968652c58fba75a74f52c1927aab5132c83f63f",
+  "project_dirty": true,
+  "renderer_sha256": "96bfb8ced56208f9095b77bd4276e5dd0d8ea959a192acfd461df37955bf6cf2",
+  "task": "M3MAN-012",
+  "trajectories": true
+}

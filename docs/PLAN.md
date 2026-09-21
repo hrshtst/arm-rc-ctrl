@@ -1,8 +1,8 @@
 # Reservoir-Computing Robot-Arm Controller: Implementation Plan
 
-**Status:** Implemented through M3REP; task 1-a manual-demonstration experiment approved
+**Status:** Implemented through M3REP and M3MAN; manual-demonstration report awaiting owner review
 
-**Last updated:** 2026-09-15
+**Last updated:** 2026-09-21
 
 **Companion task ledger:** [TASKS.md](TASKS.md)
 
@@ -287,6 +287,11 @@ review. No 500-trial search, model freeze, confirmatory suite, or hardware
 operation is authorized by this pilot approval.
 
 #### Approved manual-demonstration follow-up
+
+The implementation and reproduction audit are complete. The reporting
+assistant has authored the [human-readable interpretation](experiments/task_1a_manual_demonstration/report/report.md)
+under M3MAN-012 for owner review; M3MAN-GATE remains open. The historical
+protocol below records the approved design rather than current task status.
 
 The owner approved
 [`task_1a_manual_v1`](experiments/task_1a_manual_demonstration/plan.md), including
