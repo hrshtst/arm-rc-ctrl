@@ -40,6 +40,7 @@ if TYPE_CHECKING:
 
     from arm_rc_ctrl.storage import StorageRoot
 
+DOCUMENT_LOCATION = Path("docs/experiments/task_1a_manual_demonstration")
 TRACKERS = ("pd_v2", "computed_torque")
 TRACKER_NAMES = ("PD tracker", "Computed-torque tracker")
 ARMS = ("S", "M10", "C10", "replay")
@@ -47,13 +48,7 @@ DARK_CELL_THRESHOLD = 55
 COLORS = ("#0072B2", "#D55E00", "#009E73", "#6B6B6B")
 ARM_NAMES = ("One take (S)", "All ten (M10)", "One + synthetic (C10)", "Replay")
 CLASSES = ("nominal", "posture_small", "posture_large", "force", "combined")
-CLASS_NAMES = (
-    "Nominal\n1 case",
-    "Small offset\n20 cases",
-    "Large offset\n20 cases",
-    "Force\n4 cases",
-    "Combined\n20 cases",
-)
+CLASS_NAMES = ("Nominal", "Small offset", "Large offset", "Force", "Combined")
 CASES = ("feasible-best__pd_v2__nominal", "feasible-middle__pd_v2__posture-small-20261201-01")
 
 
@@ -75,7 +70,12 @@ def load_report_data(docs: Path) -> ReportData:
     paths = (docs / "study_manifest_v1.json", docs / "results/results_v1.json")
     paths += tuple(docs / "results" / name for name in ("arm_summary_v1.csv", "contrast_summary_v1.csv"))
     for path in (*paths, docs / "results/figure_inputs_v1.json"):
-        bound = next(item for item in audit.bundle if Path(item.location).name == path.name)
+        location = str(DOCUMENT_LOCATION / path.relative_to(docs))
+        bindings = [item for item in audit.bundle if item.location == location]
+        if len(bindings) != 1:
+            msg = f"{location}: expected one exact audit binding, found {len(bindings)}"
+            raise ValueError(msg)
+        bound = bindings[0]
         if (sha256_file(path), path.stat().st_size) != (bound.sha256, bound.size):
             msg = f"{path.name}: fingerprint differs from audit v4"
             raise ValueError(msg)
@@ -94,8 +94,24 @@ def _median(record: ManualContrastSummary) -> float:
     return record.median
 
 
+def _case_counts(data: ReportData) -> dict[str, int]:
+    """Read shared panel denominators, refusing inconsistent summaries."""
+    counts: dict[str, int] = {}
+    for record in (*data.arms, *data.contrasts):
+        previous = counts.setdefault(record.scenario_class, record.n_scenarios)
+        if previous != record.n_scenarios or previous <= 0:
+            msg = f"{record.scenario_class}: inconsistent or nonpositive scenario count"
+            raise ValueError(msg)
+    if set(counts) != {*CLASSES, "all"} or counts["all"] != sum(counts[c] for c in CLASSES):
+        msg = "scenario classes do not sum to the reported panel size"
+        raise ValueError(msg)
+    return counts
+
+
 def render_summaries(data: ReportData, out: Path) -> None:
     """Plot every parent, the single M10 model, and class-specific paired medians."""
+    counts = _case_counts(data)
+    total = counts["all"]
     names = [c.label for c in data.study.configurations]
     labels = [f"{chr(65 + i)}  {name}" for i, name in enumerate(names)]
     lookup = {(r.configuration, r.tracker, r.scenario_class, r.arm_kind): r for r in data.arms}
@@ -118,9 +134,8 @@ def render_summaries(data: ReportData, out: Path) -> None:
                 )
         axis.set(
             title=TRACKER_NAMES[ti],
-            xlabel="Successful scenarios per model (out of 65)",
-            xlim=(-2, 68),
-            xticks=(0, 20, 40, 65),
+            xlabel=f"Successful scenarios per model (out of {total})",
+            xlim=(-0.03 * total, 1.05 * total),
         )
         axis.set_yticks(range(len(names)), labels)
         axis.grid(axis="x", alpha=0.2)
@@ -132,14 +147,13 @@ def render_summaries(data: ReportData, out: Path) -> None:
 
     contrasts = {(r.configuration, r.tracker, r.scenario_class, r.contrast): r for r in data.contrasts}
     fig, axes = cast("tuple[Any, Any]", plt.subplots(1, 2, figsize=(11, 7.5), layout="constrained"))
-    row_labels = [f"{chr(65 + ci)} · {name}" for ci in range(6) for name in ("PD", "Computed torque")]
+    row_labels = [f"{chr(65 + ci)} · {name}" for ci in range(len(names)) for name in ("PD", "Computed torque")]
     for axis, contrast, title in zip(
         axes, ("M10-S", "C10-R10"), ("All ten minus one", "Synthetic minus copies"), strict=True
     ):
         records = [[contrasts[c, tr, cl, contrast] for cl in CLASSES] for c in names for tr in TRACKERS]
         # A cell is a median of ten paired count differences; divide by its own class denominator only.
-        denominators = (1, 20, 20, 4, 20)
-        values = np.array([[_median(r) / n * 100 for r, n in zip(row, denominators, strict=True)] for row in records])
+        values = np.array([[_median(r) / r.n_scenarios * 100 for r in row] for row in records])
         axis.imshow(values, cmap="RdBu", vmin=-100, vmax=100, aspect="auto")
         for y, row in enumerate(records):
             for x, record in enumerate(row):
@@ -152,8 +166,12 @@ def render_summaries(data: ReportData, out: Path) -> None:
                     color="white" if abs(values[y, x]) > DARK_CELL_THRESHOLD else "#111111",
                     fontsize=10,
                 )
-        axis.set_xticks(range(5), CLASS_NAMES, fontsize=9)
-        axis.set_yticks(range(12), row_labels, fontsize=9)
+        class_labels = [
+            f"{name}\n{counts[kind]} {'case' if counts[kind] == 1 else 'cases'}"
+            for kind, name in zip(CLASSES, CLASS_NAMES, strict=True)
+        ]
+        axis.set_xticks(range(len(CLASSES)), class_labels, fontsize=9)
+        axis.set_yticks(range(len(row_labels)), row_labels, fontsize=9)
         axis.set_title(title)
     fig.suptitle("Paired differences within each scenario class", fontsize=15)
     fig.supxlabel(

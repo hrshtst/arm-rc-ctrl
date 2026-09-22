@@ -23,8 +23,8 @@
       "size": 188773
     },
     "success_counts.png": {
-      "sha256": "42e09968ddf382570e3fdc8decbc0b337a6731fe36cd682da1e2496cd3473b00",
-      "size": 79188
+      "sha256": "b8f7476a0f8798b6802751d66ecbefbb1cfec58b10ef2d60c5e1d2ce85e6d95e",
+      "size": 81670
     },
     "ten_helps.png": {
       "sha256": "b1a17bba35927919763df1af6082769094d0be0584e6f961768e2e8567594813",
@@ -39,9 +39,9 @@
       "size": 135000
     }
   },
-  "project_commit": "1968652c58fba75a74f52c1927aab5132c83f63f",
+  "project_commit": "f656ba6537073670b5790c447b041071123f34a1",
   "project_dirty": true,
-  "renderer_sha256": "96bfb8ced56208f9095b77bd4276e5dd0d8ea959a192acfd461df37955bf6cf2",
+  "renderer_sha256": "1dabba98a02b655b6b5f7c49ee563d16b620245c44fb64b71c0228f2b6202b97",
   "task": "M3MAN-012",
   "trajectories": true
 }

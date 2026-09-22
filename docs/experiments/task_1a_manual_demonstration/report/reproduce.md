@@ -100,11 +100,20 @@ tracker combinations, not twelve independent experiments.
 
 ## Validation
 
-`tests/regression/test_manual_report.py` checks that the M10 point represents
-one model, that all ten singleton points remain, that changed summary bytes
-and figure inputs are refused, that both summary figures render, and that the command retains
-input/output bindings and refuses to overwrite an export. The figures and
-animation were also visually inspected. The earlier independent review and
+`tests/regression/test_manual_report.py` runs without the external store. It
+checks the complete manifest input/output inventories and every fingerprint,
+the renderer's source fingerprint, and byte-identical fresh renders of the two
+summary figures. It parses all 12 main-table rows and the headline counts from
+`report.md` and compares them with the audited CSVs. Mutation cases cover a
+single-byte PNG edit, a table number, the median-effect headline and a total.
+These locks cover the named numerical claims, not every interpretive sentence.
+
+The same suite checks that M10 remains one model, all ten singleton points
+remain, changed summaries and figure inputs are refused, and the command
+preserves earlier exports. It also rejects an audit binding at an unrelated
+path with the same basename and checks plot labels and color normalization
+against a changed scenario denominator. The figures and animation were
+visually inspected. The earlier independent review and
 [audit v4](../audit/reproduction_audit_v4.md) verify the underlying experimental
 evidence. Regenerating presentation assets does not require repeating the
 31,980-run study or its 300-run re-simulation audit.
