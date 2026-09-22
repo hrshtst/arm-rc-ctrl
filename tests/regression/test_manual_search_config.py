@@ -98,8 +98,12 @@ def test_the_optimizer_cannot_reach_a_perturbed_case() -> None:
 
 
 def test_the_protocol_identity_is_recorded_for_the_tasks_that_run_it() -> None:
-    """M3MS-003 resumes a study by this identity, so it is pinned here."""
+    """M3MS-003 resumes a study by this identity, so it is pinned here.
+
+    The identity binds the study's content as well as its portable location, so
+    a resume cannot land on a different study that merely shares a file name.
+    """
     assert (
         protocol_digest(load_manual_search(PROTOCOL))
-        == "40be38e5a5831fcf633c4b684d974b941d1a4057c465d72a40503751692eda02"
+        == "cf1869098a6324a8a082f8df61238d4cca41692743e1d1d7e1a0606ff837c584"
     )

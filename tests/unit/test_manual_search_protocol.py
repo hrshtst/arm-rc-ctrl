@@ -34,16 +34,21 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
 PROTOCOL = repository_root() / "configs/studies/manual_esn_search_v1.toml"
+STUDY = repository_root() / "docs/experiments/task_1a_manual_demonstration/study_manifest_v1.json"
 
 
 def _edited(tmp_path: Path, replace: tuple[str, str]) -> Path:
     """A copy of the committed protocol with one edit, so a refusal is about that edit alone.
 
     The whole configuration tree is copied, because the protocol resolves the
-    policy it inherits relative to its own directory.
+    policy it inherits relative to its own directory, and the study manifest it
+    binds is copied to the location the protocol names.
     """
     target = tmp_path / "configs"
     shutil.copytree(PROTOCOL.parent.parent, target)
+    study = tmp_path / "docs/experiments/task_1a_manual_demonstration"
+    study.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(STUDY, study / STUDY.name)
     copy = target / "studies" / PROTOCOL.name
     text = copy.read_text(encoding="utf-8")
     assert replace[0] in text, replace[0]
@@ -79,10 +84,15 @@ def test_the_fixed_filter_policy_is_compared_with_the_configuration_it_names() -
 
 
 def test_a_filter_value_that_no_longer_matches_its_source_is_reported(tmp_path: Path) -> None:
-    """A drifted cutoff is named rather than silently searched under."""
+    """A drifted cutoff names the value, the source and the difference, rather than being searched under."""
     copy = _edited(tmp_path, ("velocity_cutoff_hz = 29.980411525699598", "velocity_cutoff_hz = 29.98"))
-    mismatches = filter_mismatches(load_manual_search(copy))
-    assert any("velocity_cutoff_hz" in text for text in mismatches), mismatches
+    with pytest.raises(ConfigError) as refusal:
+        load_manual_search(copy)
+    message = str(refusal.value)
+    assert "velocity_cutoff_hz" in message
+    assert "29.98" in message
+    assert "29.980411525699598" in message
+    assert "task_1a_nominal_v4.toml" in message
 
 
 # --- the optimizer never sees a perturbed case -------------------------------------------------
@@ -131,7 +141,7 @@ def test_the_objective_is_the_nominal_success_fraction(successes: int, expected:
 
 @pytest.mark.parametrize(
     ("successes", "runs", "complaint"),
-    [(3, 2, "successes"), (-1, 2, "successes"), (0, 0, "at least one run")],
+    [(3, 2, "successes"), (-1, 2, "successes"), (0, 0, "two fixed trackers"), (0, 3, "two fixed trackers")],
 )
 def test_an_impossible_success_count_is_refused(successes: int, runs: int, complaint: str) -> None:
     """A score outside its own denominator would silently rank a candidate that was never evaluated."""
@@ -287,3 +297,80 @@ def _callables() -> tuple[Callable[..., object], ...]:
 def test_the_module_exposes_the_pieces_the_later_tasks_need() -> None:
     """M3MS-002 and M3MS-003 build on these; they are public on purpose."""
     assert all(callable(item) for item in _callables())
+
+
+# --- what the owner's review of 2026-09-22 found --------------------------------------------
+
+
+def test_two_studies_that_merely_share_a_file_name_are_not_one_identity(tmp_path: Path) -> None:
+    """A resume identity that ignores the study's content could resume onto a different study."""
+    copy = _edited(tmp_path, ("[sampler]", "[sampler]"))
+    replaced = tmp_path / "docs/experiments/task_1a_manual_demonstration" / STUDY.name
+    replaced.write_text(STUDY.read_text(encoding="utf-8").replace("feasible-best", "feasible-other", 1), "utf-8")
+    assert protocol_digest(load_manual_search(copy)) != protocol_digest(load_manual_search(PROTOCOL))
+
+
+def test_the_identity_keeps_the_whole_portable_location(tmp_path: Path) -> None:
+    """The same file name in another directory is another source, not the same protocol."""
+    elsewhere = tmp_path / "configs/studies/elsewhere"
+    copy = _edited(tmp_path, ("[sampler]", "[sampler]"))
+    elsewhere.mkdir(parents=True)
+    moved = elsewhere / STUDY.name
+    shutil.copyfile(STUDY, moved)
+    text = copy.read_text(encoding="utf-8").replace(
+        'study = "../../docs/experiments/task_1a_manual_demonstration/study_manifest_v1.json"',
+        f'study = "{moved}"',
+    )
+    copy.write_text(text, encoding="utf-8")
+    assert protocol_digest(load_manual_search(copy)) != protocol_digest(load_manual_search(PROTOCOL))
+
+
+@pytest.mark.parametrize(
+    "edit",
+    [
+        ("shared_with_comparison = true", "shared_with_comparison = false"),
+        ("parallel_trials = 1", "parallel_trials = 4"),
+        ("n_configurations = 3", "n_configurations = 2"),
+        ("scenarios = 65", "scenarios = 2"),
+        ("replay_banks_per_configuration = 10", "replay_banks_per_configuration = 1"),
+        ("reservoir_seed = 896", "reservoir_seed = 897"),
+        ("models_per_configuration = 31", "models_per_configuration = 30"),
+        ('trackers = ["pd_v2", "computed_torque"]', 'trackers = ["pd_v2"]'),
+    ],
+)
+def test_a_protocol_outside_the_approved_scope_is_refused(tmp_path: Path, edit: tuple[str, str]) -> None:
+    """The approved invariants are enforced, not merely asserted of the committed file."""
+    with pytest.raises(ConfigError):
+        load_manual_search(_edited(tmp_path, edit))
+
+
+@pytest.mark.parametrize(("edit", "kept"), [(("trials = 100", "trials = 40"), 40)])
+def test_a_tightened_cap_is_still_allowed(tmp_path: Path, edit: tuple[str, str], kept: int) -> None:
+    """Spending less than the owner approved is always permitted."""
+    assert load_manual_search(_edited(tmp_path, edit)).budget.trials == kept
+
+
+def test_loading_verifies_the_inherited_filter_policy(tmp_path: Path) -> None:
+    """A drifted cutoff must fail where the protocol is loaded, not only where someone asks."""
+    with pytest.raises(ConfigError, match="velocity_cutoff_hz"):
+        load_manual_search(_edited(tmp_path, ("velocity_cutoff_hz = 29.980411525699598", "velocity_cutoff_hz = 1.0")))
+
+
+@pytest.mark.parametrize("score", [float("nan"), 1.5, -0.5, 0.25])
+def test_a_score_the_objective_cannot_produce_is_refused(score: float) -> None:
+    """A NaN sorted ahead of a real success would freeze a configuration that never succeeded."""
+    with pytest.raises(ValueError, match="score"):
+        select_configurations([ScoredTrial(number=0, score=score, point={"n_neurons": 100.0})], n_configurations=3)
+
+
+def test_repeated_trial_numbers_are_refused() -> None:
+    """Trial numbers identify trials; three points sharing number 0 are not three configurations."""
+    trials = [_trial(0, 1.0, n_neurons=100), _trial(0, 1.0, n_neurons=150), _trial(0, 1.0, n_neurons=200)]
+    with pytest.raises(ValueError, match="trial number"):
+        select_configurations(trials, n_configurations=3)
+
+
+def test_the_objective_requires_both_tracker_runs() -> None:
+    """One successful run is not a nominal success: the protocol scores the two fixed trackers."""
+    with pytest.raises(ValueError, match="two"):
+        nominal_success_fraction(1, runs=1)

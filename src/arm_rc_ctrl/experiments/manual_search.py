@@ -24,15 +24,15 @@ Nothing here fits a model, simulates a run, or reads the external store.
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal
 
-from arm_rc_ctrl.config import ConfigError, load_config
+from arm_rc_ctrl.config import ConfigError, load_config, to_mapping
 from arm_rc_ctrl.experiments.closed_loop import NominalConfig
 from arm_rc_ctrl.experiments.esn_search import FloatRange, IntRange
 from arm_rc_ctrl.experiments.studies import SamplerSpec
-from arm_rc_ctrl.provenance import config_digest
+from arm_rc_ctrl.provenance import config_digest, sha256_file
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -70,6 +70,20 @@ APPROVED_GIB: Final = 20.0
 """Owner-approved artifact cap, applied as a shared ceiling with the comparison."""
 SELECTION_LABEL: Final = "highest nominal scores"
 """How the frozen configurations are named: a coarse two-run score does not rank quality."""
+REQUIRED_TRACKERS: Final = ("pd_v2", "computed_torque")
+"""Both trackers are fixed and scored; the objective's denominator is their count."""
+REQUIRED_RUNS: Final = len(REQUIRED_TRACKERS)
+"""A candidate is scored on exactly these runs: one successful run is not a nominal success."""
+REQUIRED_SEED: Final = 896
+"""The reservoir seed the owner fixed; it is never an Optuna parameter and never another value."""
+REQUIRED_CONFIGURATIONS: Final = 3
+"""Three configurations are frozen before any perturbed case is evaluated."""
+REQUIRED_SCENARIOS: Final = 65
+"""The closed experiment's case set, which only the final comparison may see."""
+REQUIRED_REPLAY_BANKS: Final = 10
+"""One parent-matched replay bank per accepted demonstration."""
+REQUIRED_PARALLEL_TRIALS: Final = 1
+"""Serial trials: parallel scheduling must first demonstrate the same identities (plan section 7)."""
 _ARMS: Final = ("S", "M10", "R10", "C10", "replay")
 _LEARNED_MODELS: Final = 31
 """Ten singletons, one all-ten model, ten copies and ten synthetic arms per configuration."""
@@ -191,7 +205,12 @@ class ManualSearchBudget:
     parallel_trials: int = 1
 
     def __post_init__(self) -> None:
-        """Refuse a protocol that grants itself more than the owner approved."""
+        """Refuse a protocol that grants itself more than the owner approved.
+
+        Spending less is always allowed; the caps may be tightened, never
+        enlarged. Whether the ceiling is shared and whether trials run serially
+        are scope decisions, checked with the rest of the scope.
+        """
         for name, value, approved in (
             ("trials", self.trials, APPROVED_TRIALS),
             ("hours", self.hours, APPROVED_HOURS),
@@ -253,15 +272,13 @@ class ManualSearchProtocol:
     budget: ManualSearchBudget = field(default_factory=ManualSearchBudget)
 
     def __post_init__(self) -> None:
-        """Cross-field agreement that neither part can check alone."""
-        if self.objective.runs_per_candidate != len(self.fixed.trackers):
-            msg = (
-                f"the objective scores {self.objective.runs_per_candidate} runs per candidate, but the protocol "
-                f"fixes {len(self.fixed.trackers)} trackers"
-            )
-            raise ValueError(msg)
+        """Refuse a protocol outside the approved scope, naming every departure."""
         if not self.name.strip():
             msg = "the protocol needs a name"
+            raise ValueError(msg)
+        failures = scope_mismatches(self)
+        if failures:
+            msg = "; ".join(failures)
             raise ValueError(msg)
 
 
@@ -271,8 +288,15 @@ def load_manual_search(path: Path) -> ManualSearchProtocol:
 
 
 def protocol_digest(protocol: ManualSearchProtocol) -> str:
-    """SHA-256 of the canonical, machine-independent protocol: this search's identity."""
-    return config_digest(replace(protocol, study=Path(protocol.study.name)))[1]
+    """SHA-256 of the portable protocol together with the content of the study it binds.
+
+    ``config_digest`` already makes an in-repository path repository-relative,
+    so the location is kept whole rather than reduced to a file name, and the
+    study's own digest is bound beside it: two studies that merely share a name
+    are two identities, and a resume cannot land on a changed study.
+    """
+    identity = {"protocol": to_mapping(protocol), "study_sha256": sha256_file(protocol.study)}
+    return config_digest(identity)[1]
 
 
 def filter_mismatches(protocol: ManualSearchProtocol) -> list[str]:
@@ -300,25 +324,53 @@ def filter_mismatches(protocol: ManualSearchProtocol) -> list[str]:
 
 
 def scope_mismatches(protocol: ManualSearchProtocol) -> list[str]:
-    """Every way the protocol's parts disagree about what may be evaluated or scored."""
+    """Every way a protocol departs from the approved scope, in the owner's terms.
+
+    This is the single enforcement point: ``ManualSearchProtocol`` refuses to
+    exist while this returns anything, so loading a protocol validates the
+    scope rather than leaving it to whoever remembers to ask. Only the resource
+    caps may be tightened; every other value here is the owner's.
+    """
+    fixed, comparison = protocol.fixed, protocol.comparison
     failures: list[str] = []
     if protocol.objective.scenarios != NOMINAL_SCENARIOS:
         failures.append(f"the objective may only see {NOMINAL_SCENARIOS}, not {protocol.objective.scenarios}")
-    if protocol.comparison.scenarios <= len(NOMINAL_SCENARIOS):
-        failures.append("the final comparison must cover more than the optimizer's nominal case")
-    if protocol.budget.trials * protocol.objective.runs_per_candidate > protocol.budget.trials * 2:
-        failures.append("a candidate is scored on the two fixed trackers alone")
+    if protocol.objective.runs_per_candidate != len(fixed.trackers):
+        failures.append(
+            f"the objective scores {protocol.objective.runs_per_candidate} runs per candidate, but the protocol "
+            f"fixes {len(fixed.trackers)} trackers"
+        )
+    for name, value, required in (
+        ("fixed.reservoir_seed", fixed.reservoir_seed, REQUIRED_SEED),
+        ("fixed.trackers", fixed.trackers, REQUIRED_TRACKERS),
+        ("objective.runs_per_candidate", protocol.objective.runs_per_candidate, REQUIRED_RUNS),
+        ("selection.n_configurations", protocol.selection.n_configurations, REQUIRED_CONFIGURATIONS),
+        ("budget.shared_with_comparison", protocol.budget.shared_with_comparison, True),
+        ("budget.parallel_trials", protocol.budget.parallel_trials, REQUIRED_PARALLEL_TRIALS),
+        ("comparison.scenarios", comparison.scenarios, REQUIRED_SCENARIOS),
+        ("comparison.replay_banks_per_configuration", comparison.replay_banks_per_configuration, REQUIRED_REPLAY_BANKS),
+        ("comparison.models_per_configuration", comparison.models_per_configuration, _LEARNED_MODELS),
+        ("comparison.arms", comparison.arms, _ARMS),
+        ("comparison.sequential", comparison.sequential, True),
+    ):
+        if value != required:
+            failures.append(f"{name} is {value!r}, but the approved protocol fixes {required!r}")
+    failures += filter_mismatches(protocol)
+    if not protocol.study.is_file():
+        failures.append(f"study: {protocol.study} is not a file, so its content cannot bind this protocol")
     return failures
 
 
-def nominal_success_fraction(successes: int, *, runs: int) -> float:
-    """The objective: successful nominal tracker runs over the runs that were judged.
+def nominal_success_fraction(successes: int, *, runs: int = REQUIRED_RUNS) -> float:
+    """The objective: successful nominal tracker runs over the two fixed trackers.
 
-    With two trackers this is 0, 0.5 or 1. It is deliberately coarse, and no
+    The denominator is the protocol's, not the caller's: scoring one run would
+    report a full nominal success for a candidate that was never evaluated
+    under both trackers. The result is 0, 0.5 or 1, deliberately coarse, and no
     settling time, tracking error or perturbed result may refine it.
     """
-    if runs < 1:
-        msg = f"a candidate is scored over at least one run, got runs={runs}"
+    if runs != REQUIRED_RUNS:
+        msg = f"a candidate is scored over the two fixed trackers, got runs={runs}"
         raise ValueError(msg)
     if not 0 <= successes <= runs:
         msg = f"successes must lie in [0, {runs}], got {successes}"
@@ -336,6 +388,18 @@ class ScoredTrial:
     point: Mapping[str, float]
     """The parameter point, which decides whether two trials are the same configuration."""
 
+    def __post_init__(self) -> None:
+        """A trial carries a real number, a score the objective can produce, and a real point."""
+        if self.number < 0:
+            msg = f"a trial number is non-negative, got {self.number}"
+            raise ValueError(msg)
+        if self.score is not None and not (math.isfinite(self.score) and 0.0 <= self.score <= 1.0):
+            msg = f"a score is None or a finite fraction in [0, 1], got score={self.score!r}"
+            raise ValueError(msg)
+        if not self.point or not all(math.isfinite(value) for value in self.point.values()):
+            msg = f"a trial point must be non-empty and finite, got {dict(self.point)!r}"
+            raise ValueError(msg)
+
     @property
     def identity(self) -> tuple[tuple[str, float], ...]:
         """The parameter point as a comparable, order-independent key."""
@@ -351,17 +415,32 @@ class ManualSelection:
     label: str = SELECTION_LABEL
 
 
-def select_configurations(trials: Sequence[ScoredTrial], *, n_configurations: int = 3) -> ManualSelection:
+def select_configurations(
+    trials: Sequence[ScoredTrial], *, n_configurations: int = REQUIRED_CONFIGURATIONS, runs: int = REQUIRED_RUNS
+) -> ManualSelection:
     """Freeze configurations by descending nominal score, then earliest trial number.
 
     A repeated parameter point is one configuration represented by its earliest
     trial, and a candidate without a score is never selected. Fewer than the
     asked-for count is reported as a shortfall rather than raised or filled from
     somewhere else: the cap does not grow because the search was unlucky.
+
+    The evidence is validated before it is ranked. Trial numbers identify
+    trials, so they must be distinct, and a score the objective cannot produce
+    is refused rather than ordered: a NaN would sort ahead of a real success.
     """
     if n_configurations < 1:
         msg = f"n_configurations must be >= 1, got {n_configurations}"
         raise ValueError(msg)
+    numbers = [trial.number for trial in trials]
+    if len(set(numbers)) != len(numbers):
+        repeated = sorted({number for number in numbers if numbers.count(number) > 1})
+        msg = f"every trial number must be distinct, got {repeated} more than once"
+        raise ValueError(msg)
+    for trial in trials:
+        if trial.score is not None and round(trial.score * runs) != trial.score * runs:
+            msg = f"trial {trial.number}: score {trial.score!r} is not a count of {runs} judged runs"
+            raise ValueError(msg)
     best: dict[tuple[tuple[str, float], ...], ScoredTrial] = {}
     for trial in sorted((t for t in trials if t.score is not None), key=lambda t: t.number):
         best.setdefault(trial.identity, trial)
