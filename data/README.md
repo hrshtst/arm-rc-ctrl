@@ -3,7 +3,7 @@
 Git never stores experimental payloads. Raw demonstrations, processed datasets,
 run logs, trained models, full study reports, MLflow state, and Optuna databases live below a
 machine-local storage root that is resolved at run time (see
-[`docs/PLAN.md`](../docs/PLAN.md), section 7.1):
+[storage contract](../docs/design/data.md#71-storage-location-and-portability)):
 
 1. `ARM_RC_CTRL_STORAGE_ROOT` environment variable;
 2. `[storage].root` in `${XDG_CONFIG_HOME:-$HOME/.config}/arm-rc-ctrl/storage.toml`

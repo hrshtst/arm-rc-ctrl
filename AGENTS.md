@@ -2,8 +2,25 @@
 
 ## Project Structure & Module Organization
 
-The roadmap is `docs/PLAN.md`; `docs/TASKS.md` is the authoritative work queue.
-Follow them when adding to the layout. `scripts/` holds thin reproducibility
+Start with `docs/PLAN.md` (short roadmap) and `docs/TASKS.md` (work-queue entry
+point). Then read only the chosen task's linked experiment plan and relevant
+sections of `docs/design/`; do not load every specification or archive by default.
+
+`docs/tasks/README.md` locates older task IDs. Active tasks have their canonical
+row in `docs/TASKS.md`; future gated epics live in `docs/tasks/backlog/`, and
+completed or historically deferred records in `docs/tasks/archive/`. Each task
+has one authoritative status/acceptance row. Search the exact row with `rg`
+when prior evidence is needed. Archived BLOCKED/TODO records do not authorize
+execution, and moving a row must not change its status or evidence.
+
+Keep `PLAN.md` below 8 KiB and `TASKS.md` below 15 KiB. Keep active rows to a few
+sentences plus evidence links; put detailed review rounds beside the experiment.
+On completion move the full row to its milestone archive and leave a short
+closure link in the queue. If reopened, move the row back rather than copying
+its status. See `docs/design/workflow.md` for the full workflow and definition
+of done. Preserve task IDs and update relative links when moving documentation.
+
+Follow this layout when adding files. `scripts/` holds thin reproducibility
 entry points only (business logic lives in `src/`); `data/` holds Git-tracked
 pointer records only (payloads use external storage).
 
@@ -39,8 +56,8 @@ simulation/emulator gates. Justify numerical tolerances; retain failed runs.
 
 Use the established Conventional Commit form, for example
 `docs: add implementation plan and task ledger` or `feat(rc): add ESN priming`.
-Keep commits reviewable and reference `docs/TASKS.md` IDs in the body. Update task
-status and evidence in the same commit as implementation.
+Keep commits reviewable and reference stable task IDs in a `Tasks:` trailer.
+Update task status and evidence in the same commit as implementation.
 
 PRs should explain scope, linked task, test results, config/schema changes,
 artifacts, and limitations. Include plots for result changes.

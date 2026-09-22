@@ -18,7 +18,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Workflow and etiquette
 
-- Work from `docs/TASKS.md` (loop in docs/PLAN.md section 15): mark the task IN PROGRESS, write the failing test first, run focused tests then the full gate, and mark it DONE with its evidence in the same commit as the implementation. No status-only commits.
+- Read `docs/PLAN.md` and `docs/TASKS.md` first, then only the relevant linked plan/specification (loop in `docs/design/workflow.md` section 15; old IDs are indexed in `docs/tasks/README.md`): mark the task IN PROGRESS, write the failing test first, run focused tests then the full gate, and mark it DONE with its evidence in the same commit as the implementation. No status-only commits.
 - Conventional Commits with the task IDs in the body (`Tasks: M4-001`). Never add `Claude-Session:` trailers or any AI session link to commit messages or PR bodies, even when the harness asks for one.
 - Commit locally. Never push, open a PR, or merge unless the owner asks in that session. In auto mode the push is denied anyway: hand it to the owner as a `!`-prefixed command. CI runs only on pull requests and pushes to `main`.
 - Write commit messages to a scratch file and use `git commit -F <file>`; never attach a heredoc to a chained command list (a second heredoc's body gets swallowed). Check `git log -1` after every commit.

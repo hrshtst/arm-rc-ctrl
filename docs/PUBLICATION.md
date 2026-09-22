@@ -8,12 +8,12 @@
 
 Development happens in the open on the public repository. Public visibility
 does not make any revision a citable research release: until a milestone is
-reproducible under the requirements of [`PLAN.md`](PLAN.md) section 16, the
-code, configurations, and reports are working material.
+reproducible under the [reproducibility requirements](design/workflow.md#16-reproducibility-requirements),
+the code, configurations, and reports are working material.
 
 ## Archival releases
 
-A stable research release is created only when a milestone gate in
+A stable research release is created only when a milestone gate indexed by
 [`TASKS.md`](TASKS.md) has been closed by review and its key result can be
 reproduced from a clean checkout plus a configured external store. At that
 point:

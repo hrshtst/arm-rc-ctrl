@@ -2,7 +2,10 @@
 
 Reservoir-computing (echo state network) target generators for robot-arm
 control. The research roadmap is [`docs/PLAN.md`](docs/PLAN.md); the
-authoritative work queue is [`docs/TASKS.md`](docs/TASKS.md).
+authoritative work-queue entry point is [`docs/TASKS.md`](docs/TASKS.md).
+Read those first, then only the relevant [shared specification](docs/design/README.md)
+or experiment plan. [Task history and gated backlogs](docs/tasks/README.md)
+retain older IDs and evidence; they are not required reading for every task.
 
 This repository owns the learning policy, research protocol, experiment
 configuration, metrics, tuning, and reproducibility tooling. The domain
@@ -34,7 +37,7 @@ the recorded audit commit, which carries the evidence's pins. The recorded audit
 the report. Any curated run can be exported as a
 disposable `skelarm` log and inspected with the pinned player
 (`uv run arm-rc-play-run --run <run-id> --scenario configs/tasks/task_1a.toml`,
-or `scripts/export_run_sklog.py` for the file; `docs/PLAN.md` section 7.5).
+or `scripts/export_run_sklog.py` for the file; `docs/design/data.md` section 7.5).
 Recorded results live under
 `docs/experiments/task_1a/` with Git-tracked records under `data/records/`;
 see `docs/TASKS.md` for the ledger.
@@ -466,7 +469,7 @@ rclib.
 configs/       versioned TOML (robots, tasks, controllers, studies, evaluations)
 cpp/           C++17 library/app/tests (rtctrl integration arrives in M5)
 data/          Git-tracked artifact records only; payloads are external
-docs/          PLAN.md, TASKS.md, PUBLICATION.md, experiment and theory notes
+docs/          short PLAN/TASKS, design references, task archives/backlogs, experiments
 src/arm_rc_ctrl/  Python package (config, storage, provenance, experiments, ...)
 tests/         unit, integration, regression tests and tiny fixtures
 third_party/   pinned submodules

@@ -1,1094 +1,170 @@
-# Reservoir-Computing Robot-Arm Controller: Implementation Plan
+<!-- Copyright (c) 2026 Hiroshi Atsuta -->
+<!-- SPDX-License-Identifier: GPL-3.0-only -->
 
-**Status:** Implemented through M3REP and M3MAN; the manual-demonstration experiment closed at its gate on 2026-09-22 with a negative finding. Task 1-b awaits its protocol lock
+# Reservoir-computing robot-arm roadmap
 
-**Last updated:** 2026-09-22
+**Updated:** 2026-09-22. **Queue:** [TASKS.md](TASKS.md).
 
-**Companion task ledger:** [TASKS.md](TASKS.md)
+Read this roadmap and the queue first. Then read only the relevant experiment
+plan and specification sections. Details: [design/](design/README.md);
+completed evidence and future epics are indexed in [tasks/](tasks/README.md).
+Legacy section numbers/anchors below remain navigation points for code and
+frozen-config references; those files were not rewritten during this move.
+
+**Current approved follow-up:** [manual-data ESN search](experiments/task_1a_manual_esn_search/plan.md).
+Optimize M10 on nominal scenarios only for 100 Optuna trials, searching ESN
+parameters and warm-up with fixed tracker/filter settings and seed. Freeze the
+three highest-scoring configurations before the five-arm perturbation comparison.
+No implementation/search has started. M3MAN remains closed. The separate task 1-b draft still awaits its own decisions D1–D8.
 
 ## 1. Objective
 
-This project investigates reservoir-computing (RC) controllers for robot arms,
-with the final goal of adaptive online learning inside a real-time control loop
-on a physical CRANE-X7.
+Study RC target generators from planar simulation through separately qualified CRANE-X7 hardware and online adaptation. Negative findings can close a study.
 
-Development proceeds through increasingly demanding systems:
-
-1. 2-DOF planar arm in dynamics simulation.
-2. 4-DOF planar arm in dynamics simulation.
-3. 7-DOF CRANE-X7 in rigid-body dynamics simulation with gravity.
-4. Physical 7-DOF CRANE-X7.
-5. Online adaptation in simulation and, after explicit safety qualification,
-   on hardware.
-
-The first completed research milestone was deliberately narrower: offline
-learning from one demonstration of a 2-DOF, single-target reaching motion
-(task 1-a). The completed `task_1a_recovery_v1` experiment tested whether
-state-conditioned augmentation reduces the initial command gap while preserving
-target convergence; its accepted negative result selected no recovery model.
-The completed `task_1a_repetition_v1` pilot isolated episode-count and
-ridge-scaling effects using exact repeated demonstrations and paired absolute
-and residual readouts; M3REP-GATE records its closure on 2026-09-10. The next
-approved experiment, `task_1a_manual_v1`, compares one versus ten manually
-recorded reaches from the same fixed posture to the same target, with exact
-copies and contractive synthetic episodes as controls. The owner approved its
-plan and roadmap/task registration on 2026-09-15. Later stages are gated by
-evidence from these milestones.
-
-Scientific completion does not require the RC method to outperform every
-baseline. A negative or inconclusive result is valid when the experiment is
-fair, reproducible, and explains the observed limitation.
+[Section 1](design/architecture.md#1-objective).
 
 ## 2. Research questions and hypotheses
 
-### 2.1 Primary questions
+Separate data coverage, augmentation, regularization and robustness effects. Freeze hypotheses and selection rules before execution.
 
-1. Can an echo state network (ESN) learn a closed-loop joint target generator
-   from demonstrated motion?
-2. Does feedback through the measured robot state make the learned generator
-   robust to initial-condition error or external disturbance?
-3. Can one framework learn both equilibrium behavior (reaching) and limit-cycle
-   behavior (periodic drawing)?
-4. Can offline training be extended to bounded online adaptation within the
-   timing and safety constraints of a physical robot?
-
-### 2.2 Stage hypotheses
-
-- **H1 — one demonstration:** From the demonstrated initial posture, an ESN can
-  generate a reference whose tracked motion has bounded joint-space error and
-  whose endpoint remains near the demonstrated target.
-- **H2 — local robustness:** Training with smooth state-conditioned augmentation
-  can reduce the initial command gap after a posture perturbation and enlarge the
-  basin of attraction around the demonstrated initial posture while preserving
-  convergence to the common target. The approved protocol is
-  [`experiments/task_1a_state_conditioned_recovery/plan.md`](experiments/task_1a_state_conditioned_recovery/plan.md).
-- **H3 — multiple demonstrations:** Demonstrations from multiple postures can
-  produce a target-reaching policy that succeeds from unseen nearby postures.
-- **H4 — task conditioning:** A task-conditioned ESN can switch among targets
-  without training a separate reservoir for every target.
-- **H5 — dynamical primitives:** The same state-conditioned architecture can
-  represent both a stable equilibrium and stable periodic orbits.
-- **H6 — sim-to-real:** The C++ implementation can reproduce the Python policy
-  closely enough to run within `rtctrl`'s control deadline.
-- **H7 — online adaptation:** A bounded online readout update can improve
-  performance under controlled plant changes without violating safety limits.
-
-These are hypotheses to test, not acceptance criteria for the software.
+<a id="21-primary-questions"></a>
+<a id="22-stage-hypotheses"></a>
+[Section 2](design/architecture.md#2-research-questions-and-hypotheses).
 
 ## 3. Project boundaries and dependencies
 
-The repository owns the learning policy, research protocol, experiment
-configuration, metrics, tuning, reproducibility, and adapters between the three
-domain libraries. It must not duplicate their core responsibilities.
+The project owns protocols and adapters; `rclib` reservoirs/readouts, `skelarm` planar dynamics, and `rtctrl` the CRANE-X7 bridge/safety. Preserve GPL-3.0-only and dependency/artifact terms.
 
-| Dependency | Responsibility used here | Integration |
-| --- | --- | --- |
-| [rclib](https://github.com/hrshtst/rclib) | ESN reservoirs; offline ridge and later online RLS/LMS readouts; Python and C++ APIs | `third_party/rclib` submodule |
-| [skelarm](https://github.com/hrshtst/skelarm) | Configurable planar kinematics/dynamics, teaching logs, task/controller registries, disturbances, baselines, and deterministic replay | `third_party/skelarm` submodule |
-| [rtctrl](https://github.com/hrshtst/rtctrl) | CRANE-X7 simulation/hardware bridge, computed-torque baseline, telemetry, motor limits, watchdogs, and hardware safety | `third_party/rtctrl` submodule |
-
-All submodules are pinned to reviewed commits and initialized recursively.
-Project code may adapt public APIs but must not copy library internals.
-
-### 3.1 Licensing
-
-Original source code and documentation in this repository are licensed under
-`GPL-3.0-only`; see the root `LICENSE`. New source files carry
-`SPDX-License-Identifier: GPL-3.0-only` headers. This choice matches `skelarm`,
-which is GPL-3.0-only. Apache-2.0 code from `rclib` and `rtctrl` can be combined
-into a GPLv3 work, but their copyrights, license texts, and notices remain in
-force and are not relicensed by this project. See `THIRD_PARTY_NOTICES.md` and
-the [Apache compatibility guidance](https://www.apache.org/licenses/GPL-compatibility).
-
-Before redistributing a recursive checkout, release, binary, model, or asset
-bundle, audit every direct and transitive dependency at its pinned revision.
-In particular, CRANE-X7 descriptions and mesh assets used transitively by
-`rtctrl` carry noncommercial and other asset-specific terms; GPLv3 does not
-override them. Keep restricted assets out of distributable bundles unless their
-terms have been reviewed and satisfied.
-
-Software licensing does not automatically cover demonstrations, datasets,
-trained models, plots, or media. Each data/artifact record declares its own
-license and access classification; absence of that metadata means the artifact
-is private and not redistributable.
-
-If a generally useful capability is missing, implement a minimal local adapter
-first when possible. If the capability belongs to a library, create a focused
-branch and pull request in that library with tests, then advance this project's
-submodule pin after the change is available at a stable commit.
-
-Likely upstream work includes versioned `rclib` model serialization for Python
-to C++ transfer. `skelarm` and `rtctrl` changes are justified only after their
-existing extension interfaces have been shown insufficient.
+<a id="31-licensing"></a>
+[Section 3](design/architecture.md#3-project-boundaries-and-dependencies).
 
 ## 4. System architecture
 
-```mermaid
-flowchart LR
-    T[Teacher demonstration] --> P[Validate, smooth, and resample]
-    P --> D[Versioned canonical dataset]
-    D --> F[Teacher-forced ESN training]
-    F --> M[RC target generator]
-    S[Measured robot state] --> M
-    C[Task code] --> M
-    M --> R[Desired q, dq, ddq]
-    R --> L[PD or computed-torque tracker]
-    L --> A[skelarm or rtctrl Arm]
-    A --> S
-    A --> E[Metrics and telemetry]
-    E --> X[MLflow run]
-    D --> V[DVC provenance]
-    O[Optuna] --> F
-```
+A target generator produces desired joint motion; a separate tracker commands the backend. Learning never bypasses backend safety boundaries.
 
-The ESN is a **target generator**, not the torque controller. It produces a
-desired joint trajectory online from measured state. A separately qualified
-low-level controller converts that desired trajectory to torque or physical
-motor commands. This separation supports fair baselines and lets the same RC
-policy concept move from `skelarm` to `rtctrl`.
+[Section 4](design/architecture.md#4-system-architecture).
 
 ## 5. Initial ESN control formulation
 
-### 5.1 Signals
+See shared ESN signal, training, priming and derivative contracts. Each study uses its own frozen recipes; historical settings are not universal defaults.
 
-At sample `k`, define the robot feedback and optional task condition as
-
-\[
-  s_k = [q_k^\mathsf{T},\; \dot q_k^\mathsf{T}]^\mathsf{T},
-  \qquad
-  u_k = [\bar s_k^\mathsf{T},\; c_k^\mathsf{T}]^\mathsf{T},
-\]
-
-where `q` is joint position, `dq` is joint velocity, the bar denotes the model
-recipe's input transform, and `c` is a task code. The transform centers every
-channel on its training-set mean; its scales follow the policy the recipe
-declares: the training-set standard deviations (`training_std`) or one shared
-physical scale per channel (`fixed_scale`, e.g. 0.3 rad for `q` and 4 rad/s
-for `dq`), which keeps a barely moving joint from amplifying tracking jitter
-into the reservoir. The transform is derived from the dataset's stored
-statistics (Section 7.3) and recorded in the recipe; the canonical dataset
-itself is unchanged by the policy. Task 1-a has no task-code dimensions
-because it contains one fixed target. Multi-target experiments append a
-one-hot target identifier.
-
-The initial readout target is the next desired joint position:
-
-\[
-  y_k = q^{\mathrm{demo}}_{k+1}.
-\]
-
-Absolute next-position prediction is the only supported output representation
-in task 1-a. Predicting increments or torque is reserved for later ablations.
-
-### 5.2 Reservoir and readout
-
-For a leaky random sparse reservoir,
-
-\[
-  x_{k+1} = (1-a)x_k
-  + a\tanh(W_{\mathrm{res}}x_k + W_{\mathrm{in}}[1;u_k]),
-\]
-
-\[
-  \hat q^d_{k+1} = W_{\mathrm{out}}[1;x_{k+1}].
-\]
-
-`rclib` constructs the fixed reservoir, and its readout consumes the reservoir
-state only, with its own bias term. An input pass-through readout
-\(W_{\mathrm{out}}[1;x_{k+1};u_k]\) is a separately named future ablation
-(`readout-input-passthrough`), not the primary formulation. Offline learning
-fits only the readout using ridge regression:
-
-\[
-  W_{\mathrm{out}}
-  = \arg\min_W \|Y-XW\|_F^2 + \lambda\|W\|_F^2.
-\]
-
-The implementation must follow `rclib`'s bias convention exactly rather than
-manually adding a second readout bias.
-
-### 5.3 Completed M3 teacher forcing, priming, and dwell
-
-The completed M3 task 1-a protocol used three contiguous intervals:
-
-1. **Initial hold:** the teacher holds the initial posture. This supplies a
-   deterministic reservoir washout/priming interval.
-2. **Movement:** the demonstrated reaching motion.
-3. **Final dwell:** the teacher holds the endpoint inside the target region so
-   the ESN observes the desired equilibrium behavior.
-
-During training, `u_k` is constructed from demonstrated state. Each episode
-starts with a reset reservoir; the washout samples update the reservoir but do
-not contribute to the ridge loss.
-
-During evaluation, the low-level controller first holds the configured initial
-posture while the reset ESN receives the measured state for the same priming
-duration. The ESN then runs closed loop: its next input always contains actual
-robot feedback, never its previously predicted state.
-
-Episode boundaries may not be concatenated without an explicit reservoir reset.
-
-### 5.4 Approved task 1-a recovery extension
-
-`task_1a_recovery_v1` keeps one independent scripted demonstration but separates
-acquisition pre-roll, reservoir warm-up, and task time. Preprocessing uses the
-stationary pre-roll as filter and onset-detection context, then crops the derived
-episode at the confirmed demonstration motion onset. The first cropped sample
-$q_0^{\mathrm{ref}}$ is the task initial posture and the basis of every evaluation
-offset; the pre-roll baseline never replaces it.
-
-Each training episode and evaluation run independently resets the reservoir to
-zero. A configurable common pre-task hold supplies warm-up only when $T_w>0$;
-the approved development set is $T_w\in\{0,0.25,0.5,1.0,2.0\}$ s. At task time
-zero, replay starts the cropped reference and RC first evaluates its readout.
-Metrics and disturbances use this shared task clock.
-
-Synthetic episodes add seeded, bounded AR(1) Gaussian position perturbations to
-the one demonstration. Contractive augmentation decays those perturbations with
-endpoint distance and forces them to zero during final dwell; a matched
-non-decaying arm isolates that mechanism. Velocity is recomputed from augmented
-position. Absolute next-position prediction remains primary, while a residual
-readout is a gated exploratory ablation.
-
-Run records distinguish the position-valued `generator_output_q`, the residual
-arm's raw `generator_increment_q`, measured motion, and separate warm-up
-telemetry. Selection requires common safety and dwell gates plus paired reduction
-of the activation jump and early command gap; time-aligned trajectory RMSE is a
-diagnostic rather than a success criterion. The experiment-specific document
-defines the approved ranges, arms, splits, formulas, and confirmatory gate.
-
-#### Approved repeated-demonstration follow-up
-
-The owner approved D1–D8 of
-[`task_1a_repetition_v1`](experiments/task_1a_repeated_demonstration/plan.md)
-on 2026-09-09. This separate development pilot retains the recovery dataset,
-six fixed source configurations (trials 17, 136, 53, 1, 0, 28), common timing,
-65 development scenarios, and both frozen trackers. It compares one original
-episode with 17/33/65 exact copies and ridge-scaling controls; absolute-output
-arms also include count-matched contractive and non-decaying augmentation.
-Residual arms use only the original and exact copies. Reset the reservoir
-per episode and fit once on stacked loss rows; validate the two ridge
-equivalences separately within each output formulation before simulation.
-
-The approved panel has 120 behavioral configurations and 36 numerical
-reference fits, at most 15,600 RC evaluations plus 390 matched replay runs.
-The simulation-only hard speed limit is 12 rad/s per joint, with historical
-6 rad/s crossings recorded by phase. All other gates, including 0.05 rad/s
-dwell speed, and the original training/augmentation validation limits remain
-unchanged. New config identities must not alter legacy records or hardware
-limits. New feasibility rates are not directly comparable with recovery v1.
-
-Report paired outcomes, numerical errors, censored failures, resource use,
-and provenance in reproducible HTML. All time-series plots and animation
-clocks use task time, with warm-up at negative time and activation at zero;
-inactive readouts remain missing. M3REP tasks in `TASKS.md` govern test-first
-implementation, timing smoke check, full execution, reproduction, and owner
-review. No 500-trial search, model freeze, confirmatory suite, or hardware
-operation is authorized by this pilot approval.
-
-#### Approved manual-demonstration follow-up
-
-The experiment is closed. The owner accepted the assistant-authored
-[human-readable interpretation](experiments/task_1a_manual_demonstration/report/report.md)
-and its reproduction evidence at M3MAN-GATE on 2026-09-22 and recorded a
-negative finding for the one-versus-ten question, with copies neutral,
-synthetic contractive variation unreliable, and the recordings themselves
-trackable; the decision and its follow-up deferrals are in
-[plan section 12](experiments/task_1a_manual_demonstration/plan.md#12-gate-decision-2026-09-22)
-and the ledger row. No model is selected, and further recordings, tuning or any
-confirmatory study need a separately approved plan. The historical protocol
-below records the approved design rather than current task status.
-
-The owner approved
-[`task_1a_manual_v1`](experiments/task_1a_manual_demonstration/plan.md), including
-D1–D7 and the final recorder controls, on 2026-09-15. This remains task 1-a:
-ten human-guided IK recordings of the simulated 2-DOF arm share the exact
-reset posture and target. Full recordings retain the pre-roll from the first logged sample, including natural fluctuations, and natural transient paths/durations. Saving does not require an online
-experiment-specific quality check. Validate batches offline and repeat
-collection until ten takes pass, with no total attempt cap. The 30 s
-per-recording timeout is separate. Discard practice files/history before
-study collection; retain all saved study takes, including rejected ones.
-
-Extend the existing `skelarm` recorder upstream where appropriate: Space
-starts, S saves, Shift+S saves and prepares the next take, Q closes with an
-unsaved-take warning, and F is removed. R discards only unsaved data/trails,
-resets posture/velocity, and leaves recording paused; saved files/trails
-survive. S then R must produce the same state as Shift+S, including next-take
-numbering. Add CLI base filenames, numbered outputs without save dialogs or
-plots, and optional current/faint saved tip trails. Integrate reviewed
-upstream changes through a separate pin update and dependency rebuild.
-
-At each of six inherited ESN configurations, train all ten singleton models,
-one all-ten model, ten singleton-copy controls, and ten models with nine
-contractive additions to a singleton: 186 models total. Use absolute next
-position, separate episode resets/warm-up, and equal total loss weight per
-episode despite unequal lengths. The weighted ridge objective fixes effective
-regularization; verify copy equivalence before interpreting results. Synthetic episodes keep each parent's exact first sample and final dwell with versioned envelopes that ramp in from the first sample. Whole-bank copies, fixed-alpha diagnostics, additional held-out
-human recordings, new tuning, and a confirmatory study are deferred.
-
-Use both frozen trackers and 65 development scenarios, with a common 30 s
-evaluation horizon: at most 24,180 RC runs and 7,800 replay runs, 31,980 in
-total. Success requires bounded motion and at least 1 s continuous final
-target dwell within 1 cm at joint speeds no greater than 0.05 rad/s. The starting velocity bound
-is 6 rad/s per joint; any stricter acquisition-pilot bound is frozen before
-study collection and used consistently. Force cases apply a 12 N, 0.2 s pulse
-after 0.5 s qualifying target dwell and require recovery afterward. Abort
-individual unsafe runs and attempt subsequent scenarios from fresh resets.
-Version the new timing, weighting, and evaluation contracts rather than
-reusing historical config identities or assuming cropped-dataset semantics.
-
-The developer delivers validated machine-readable evidence, reproducible
-plotting/animation assets or tools, and a reproduction audit. The reporting
-assistant working with the owner interprets that evidence and authors the
-human-facing report; a developer-written narrative does not satisfy this
-deliverable. DOC-007, UP-008–009, and M3MAN tasks in `TASKS.md` govern the work.
-Existing task 1-a evidence and the separate, unapproved task 1-b proposal remain
-unchanged. The present update registers the approved work; implementation and
-recording have not begun.
-
-Implementation clarifications I1–I9, recorded in the experiment plan's
-Section 9 on 2026-09-15 after the implementability review, qualify that
-registration. The 30 s horizon projects to roughly 13 hours of serial
-simulation and 26–27 GB of run data at the previous pilot's rates, so bounded
-process-based parallel execution with a serial-versus-parallel equivalence
-check is explicit scope. The recorder's acquisition clock is defined upstream
-and verified in the acquisition pilot before 100 Hz is claimed. The weighted
-ridge fit uses an explicit ones column with the library's implicit bias
-disabled; a new recipe schema version preserves historical semantics;
-completion is judged against the configured horizon; the experiment receives
-its own task and evaluation configuration identities; M3MAN-003 delivers a
-thin recorder launcher with a tested adapter; the input transform copies the
-historical scripted-data centers and scales; and augmentation seeds carry a
-stable parent identifier. The inherited zero-phase filter measurably shifts a
-held start, so the boundary-preserving preprocessing requirement stays with a reproducing test.
-
-Pilot-1 revisions I10–I14, approved on 2026-09-15 and recorded in the experiment plan's Section 10, follow the first excluded practice
-pilot, in which movement began immediately after the first sample and sample
-gaps grew with the number of saved trails drawn. The first logged sample stays
-exactly at the reset posture while natural pre-roll fluctuations are kept and
-smoothed without depending on a stationary hold or introducing a derivative spike at the first sample; the recorder shows only the
-current trail and the most recently saved trail; takes are recorded at 50 Hz with
-actual timestamps and reconstructed onto the 100 Hz training grid shared by every comparison arm, with
-gap and frame checks from the acquisition period and a final dwell of one actual
-second; and the contractive envelope ramps in from the first sample. A second
-short practice session verifies timing and preprocessing before the settings are
-frozen.
-
-### 5.5 Desired derivatives and low-level tracking
-
-The target generator returns desired position at every control sample. A causal,
-stateful derivative estimator computes desired velocity and acceleration using
-backward differences followed by configurable low-pass filtering. It must:
-
-- reset at episode start;
-- emit zero desired velocity and acceleration on its first sample;
-- use measured sample intervals and reject non-positive or excessive intervals;
-- expose its raw and filtered values in telemetry;
-- have one implementation contract shared by training evaluation and C++ parity
-  tests.
-
-Two low-level controller combinations are evaluated:
-
-- RC target generator + joint-space PD;
-- RC target generator + computed-torque control.
-
-The initial vertical slice uses PD first. Computed torque is added only after the
-PD data path and evaluation protocol pass their integration tests.
+<a id="51-signals"></a>
+<a id="52-reservoir-and-readout"></a>
+<a id="53-completed-m3-teacher-forcing-priming-and-dwell"></a>
+<a id="54-approved-task-1-a-recovery-extension"></a>
+<a id="approved-repeated-demonstration-follow-up"></a>
+<a id="approved-manual-demonstration-follow-up"></a>
+<a id="55-desired-derivatives-and-low-level-tracking"></a>
+[Section 5](design/controller.md#5-initial-esn-control-formulation).
 
 ## 6. Fair baseline protocol
 
-The baselines receive the demonstrated trajectory directly as their reference:
+Compare methods under matched task, tracker and disturbance conditions; report tuning effort and data dependence. Replay and model-based baselines remain explicit.
 
-1. joint-space PD trajectory replay;
-2. computed-torque trajectory replay.
-
-Comparison is paired by low-level controller:
-
-- RC+PD versus replay+PD;
-- RC+computed torque versus replay+computed torque.
-
-Controller gains are tuned on direct replay before ESN tuning, then frozen.
-ESN tuning may not change the baseline gains. All paired methods use identical:
-
-- robot model and integration step;
-- initial condition and disturbance realization;
-- joint, velocity, torque, and endpoint limits;
-- demonstration preprocessing;
-- run duration and metric definitions;
-- development and confirmatory seed sets.
-
-Tuning effort is recorded. Conclusions must distinguish differences caused by
-the target generator from differences caused by the tracker.
+[Section 6](design/controller.md#6-fair-baseline-protocol).
 
 ## 7. Data contracts
 
-### 7.1 Storage location and portability
+Git holds portable pointers and approved fixtures/figures. Payloads and study state use external storage; verify hashes and never silently fall back to the checkout.
 
-Experimental payloads do not live in Git and are not stored in the repository
-working tree. This includes raw demonstrations, processed datasets, full run
-logs, trained models, full per-trial study reports (Git keeps a
-content-addressed pointer and the curated Markdown), MLflow state, and
-Optuna databases. The only exception is
-small synthetic or sanitized data under `tests/fixtures/` required for automated
-tests.
-
-All tools resolve a machine-local storage root in this order:
-
-1. `ARM_RC_CTRL_STORAGE_ROOT` environment variable;
-2. `[storage].root` in
-   `${XDG_CONFIG_HOME:-$HOME/.config}/arm-rc-ctrl/storage.toml`;
-3. `/external/arm-rc-ctrl`.
-
-The committed `configs/storage.example.toml` documents the machine-local format.
-If the resolved root is absent, inaccessible, or not writable for an operation
-that produces data, the command fails before running. It never falls back to the
-repository. Versioned metadata contains logical `armrc://` URIs, never absolute
-machine paths.
-
-The external root uses this layout:
-
-```text
-<storage-root>/
-├── raw/
-├── processed/
-├── runs/
-├── models/
-├── reports/
-├── mlflow/
-├── optuna/
-├── dvc-cache/
-└── dvc-store/
-```
-
-### 7.2 Artifact records and raw demonstrations
-
-Git stores only `data/catalog.toml`, one small TOML record per artifact under
-`data/records/{raw,processed,runs,models}/`, and DVC metafiles when applicable.
-Every artifact record contains at least:
-
-- schema version, immutable artifact ID, kind, and logical `armrc://` URI;
-- SHA-256 digest, byte size, media format, and payload schema version;
-- creation timestamp, license, access classification, and optional expiry;
-- producing run/command, resolved-config digest, project/dependency revisions,
-  and source artifact IDs;
-- DVC target/hash when DVC manages the payload.
-
-The native `*.sklog.npz` produced by `skelarm` is retained unchanged at
-`armrc://raw/<artifact-id>/demo.sklog.npz`. Its record additionally contains the
-robot/scenario configuration, sampling clock and units, pseudonymous teacher or
-recording-session ID, task/target/initial posture, notes, and prime/move/dwell
-interval boundaries.
-
-Recovery-protocol records additionally preserve the complete acquisition
-pre-roll, proposed and confirmed motion-onset samples, detector configuration,
-any human adjustment, and the raw-payload digest. Scripted records identify the
-programmed onset. These annotations do not define reservoir warm-up.
-
-Payload creation is transactional: write to an external temporary path,
-validate it, compute its digest, atomically move it to the immutable final URI,
-then write the repository record. Raw recordings are never overwritten. A
-correction creates a new artifact ID and records the superseded ID. Readers
-verify size and digest and fail on missing or mismatched data.
-
-### 7.3 Canonical processed dataset
-
-Each processed dataset payload is an external `samples.npz` referenced by a
-Git-tracked artifact record. Arrays use `float64` and have a common leading
-sample dimension:
-
-| Array | Shape | Meaning |
-| --- | --- | --- |
-| `t` | `(N,)` | Monotonic time in seconds, beginning at zero |
-| `q`, `dq`, `ddq` | `(N, dof)` | Demonstrated joint state |
-| `tip`, `dtip`, `ddtip` | `(N, task_dim)` | Demonstrated endpoint state |
-| `task_code` | `(N, task_code_dim)` | Empty for task 1-a; one-hot later |
-| `phase` | `(N,)` | Versioned task phases; M3 uses `prime`/`move`/`dwell`, while recovery datasets crop pre-roll and contain `move`/`dwell` |
-
-The artifact record also contains source IDs, filters, resampling period,
-derivative method, normalization statistics, array shapes/dtypes, and checksums.
-Validation rejects NaN/Inf, non-monotonic time, unexpected shapes, joint-limit
-violations, missing phase intervals, or inconsistent units.
-
-Normalization statistics are fitted on training data only and persisted in the
-model recipe. Near-zero scales are replaced by `1.0` and reported.
-
-### 7.4 Run record
-
-Full run records are written under `armrc://runs/<run-id>/`; Git retains only
-their artifact records and deliberately curated small reports/plots. Every
-simulation/evaluation run records at least:
-
-- measured `t`, `q`, `dq`, and endpoint position;
-- desired `q`, raw/filtered desired derivatives, and low-level tracking error;
-- active-task `generator_output_q`, optional residual
-  `generator_increment_q`, and separately delimited warm-up telemetry;
-- requested/applied torque when exposed by the backend;
-- task code, target, disturbances, saturation, and termination reason;
-- full resolved config, seeds, Git commit, dirty-tree flag, dependency commits,
-  DVC hashes, Python lock hash, platform, and library versions.
-
-A confirmatory run from a dirty worktree is rejected unless explicitly marked as
-exploratory.
-
-### 7.5 Result inspection and visualization
-
-A verified run can be converted into a disposable `skelarm.StateLog`
-(`*.sklog.npz`) and played with the `skelarm` player. The converter resolves the
-Git-tracked run pointer, verifies the external payload, and preserves the robot
-geometry, target and tolerance, run identity, provenance digests, disturbances,
-and available telemetry. `time` and measured joint position form the playback
-trajectory. Applied torque is the canonical playback torque; requested torque is
-used only when applied torque is unavailable, and both original channels remain
-available when present.
-
-The exported log may contain visualization-only floating-point copies of integer
-channels, but it is not an archival representation of the run. Repeated exports
-must be semantically equivalent, contain no absolute machine paths, and be
-written atomically without overwriting an existing file. Exported logs and ad
-hoc videos are local, disposable products: they receive no artifact record or
-catalog entry and are ignored by Git. A small animation may be committed only
-when explicitly curated for a human report; it must name its verified source run
-and generation command and remains an illustration rather than primary
-experimental evidence.
-
-A thin convenience command (`uv run --locked arm-rc-play-run --run <run-id>`;
-the original `scripts/play_run.py` remains supported) exports one run to a temporary location and invokes
-the pinned `third_party/skelarm/tools/player.py`; it forwards playback speed,
-panel, center-of-mass, and GIF/MP4 export options and propagates failures. This
-is kinematic inspection of recorded state, not controller re-execution or
-simulation replay. The first version supports one run at a time; synchronized
-comparisons, editing, and re-simulation are out of scope.
-
-Runs without individual Git pointers (including M3REP runs) can be resolved
-from the configured external store. `--task-clock` shifts the display to the
-recorded activation time without changing the stored timestamps. CLI packaging,
-usage examples, and regression coverage are tracked as TOOL-003.
-
-Playback-only task metadata requires a generic `skelarm` enhancement. The player
-must accept target/tolerance metadata without treating a partial scenario as a
-rerunnable source configuration. This change is developed and tested upstream,
-then adopted here with a separate submodule-pin update.
+<a id="71-storage-location-and-portability"></a>
+<a id="72-artifact-records-and-raw-demonstrations"></a>
+<a id="73-canonical-processed-dataset"></a>
+<a id="74-run-record"></a>
+<a id="75-result-inspection-and-visualization"></a>
+[Section 7](design/data.md#7-data-contracts).
 
 ## 8. Public software interfaces
 
-The exact module layout may evolve, but these behavior contracts remain stable.
+Typed generator, robot-state and desired-state contracts separate policy from tracking and the backend. Preserve validation, reset and abort behavior.
 
-```python
-@dataclass(frozen=True)
-class RobotState:
-    t: float
-    q: NDArray[np.float64]
-    dq: NDArray[np.float64]
-
-
-@dataclass(frozen=True)
-class DesiredJointState:
-    q: NDArray[np.float64]
-    dq: NDArray[np.float64]
-    ddq: NDArray[np.float64]
-
-
-class TargetGenerator(Protocol):
-    def reset(self, initial_state: RobotState) -> None: ...
-    def step(
-        self,
-        state: RobotState,
-        task_code: NDArray[np.float64] | None = None,
-    ) -> DesiredJointState: ...
-```
-
-Additional required interfaces are:
-
-- a typed dataset loader/validator that never silently repairs invalid input;
-- an `RcTargetGenerator` adapter around `rclib.ESN`;
-- a `skelarm.Controller` adapter that combines a target generator and low-level
-  tracker while exposing internal log channels;
-- pure metric functions returning typed values without writing files;
-- experiment runners that accept a resolved config and return a run record;
-- CLI commands that are thin wrappers around tested library functions.
-
-Configuration uses TOML and is validated before creating a simulator or study.
-Unknown keys are errors. Paths are resolved relative to the config file, and the
-fully resolved config is stored with every run.
-
-The initial model artifact is a deterministic **model recipe**, not a Python
-pickle. It contains the ESN hyperparameters and seeds, preprocessing and
-normalization settings, dataset identity/hash, `rclib` revision, and readout
-configuration. Loading the recipe reconstructs and refits the model. Before C++
-deployment, replace this with versioned fitted-model serialization implemented
-in `rclib`; cross-language load and prediction parity are a phase gate.
+[Section 8](design/architecture.md#8-public-software-interfaces).
 
 ## 9. Metrics and evaluation
 
-### 9.1 Task 1-a metrics
+Use the experiment's frozen success, robustness and effort definitions. Retain failures, missing results and denominators; endpoint error alone is not success.
 
-For `N` aligned movement samples and `d` joints, the primary metric is joint
-trajectory RMSE:
-
-\[
-  \mathrm{RMSE}_q =
-  \sqrt{\frac{1}{Nd}\sum_{k=1}^{N}\|\operatorname{wrap}(q_k-q_k^{demo})\|_2^2}.
-\]
-
-Report per-joint RMSE as well as the aggregate. Angular differences use the
-project's joint-angle convention; wrapping is applied only to continuous joints.
-
-During the final dwell window report:
-
-- endpoint error mean, RMS, maximum, and 95th percentile;
-- fraction of samples inside the target tolerance;
-- longest continuous in-tolerance duration;
-- joint velocity RMS and maximum;
-- torque RMS, peak, saturation fraction, and control effort
-  `integral(sum(tau**2), t)`;
-- success/failure and a structured termination reason.
-
-Trajectory metrics compare the fixed-duration demonstrated motion. No dynamic
-time warping is used for the primary result because it can hide timing error. It
-may be reported as a labeled diagnostic only.
-
-### 9.2 Task 1-a recovery metrics
-
-The recovery experiment retains task success, safety, dwell, effort, and
-saturation metrics, but evaluates its new mechanism from simultaneous task
-activation. Primary paired diagnostics are the initial desired-command jump and
-the integral of desired-to-actual command gap over the first 0.5 s. Also report
-generator deviation from the original reference, restoring alignment, endpoint
-settling and dwell, smoothness, torque, and every failure. A qualifying model
-must reduce both early metrics consistently relative to replay while its
-generated reference and actual motion converge to the common target. The exact
-eligibility and lexicographic freeze rules are locked in the experiment plan.
-
-### 9.3 Robustness protocol
-
-Evaluate in this order:
-
-1. exact demonstrated initial posture with no disturbance;
-2. small joint-space initial-posture perturbations;
-3. larger held-out perturbations;
-4. repeatable finite-duration endpoint force pulses during motion;
-5. combined posture and force perturbations.
-
-Perturbation grids, force timing, directions, magnitudes, and random seeds are
-versioned configuration. A pilot using the frozen direct-replay baseline selects
-nontrivial but safe levels. After the confirmatory suite is declared, those
-values and seeds are locked and may not be used for tuning. The scenarios are
-a pure function of a protocol's levels and seeds (stable IDs; random posture
-directions from an independent seeded stream per class), so every method runs
-identical scenarios; the suite persists every run, keeps failures in the
-per-class aggregation, and takes paired RC-minus-replay effects over the
-scenarios where both runs of a pair succeeded, reporting the failed pairs next
-to them. Development levels and seeds (`configs/evaluations/*_robustness_dev_*.toml`)
-exercise the suite on a frozen recipe before the one-shot confirmatory run.
-
-### 9.4 Later-task metrics
-
-- **Task 1-b:** endpoint target-region dwell success, final error, settling time,
-  path length/efficiency, effort, and success from unseen initial postures.
-- **Multiple targets:** the same measures per target plus switch settling time,
-  peak/RMS acceleration, integrated squared jerk, and discontinuity at switching.
-- **Periodic curves:** phase-aligned endpoint RMSE, nearest-curve geometric RMS
-  and Hausdorff-like 95th-percentile error, lap-period drift, closure error, and
-  recovery time after perturbation.
+<a id="91-task-1-a-metrics"></a>
+<a id="92-task-1-a-recovery-metrics"></a>
+<a id="93-robustness-protocol"></a>
+<a id="94-later-task-metrics"></a>
+[Section 9](design/evaluation.md#9-metrics-and-evaluation).
 
 ## 10. Hyperparameter tuning
 
-[Optuna](https://optuna.org/) manages algorithmic ESN tuning. The versioned
-search protocol (`configs/studies/esn_search_*.toml`) bounds reservoir size,
-spectral radius, sparsity, leak rate, input scaling, reservoir seed, ridge
-regularization, and the derivative-filter cutoffs of the causal estimator. In
-the completed M3 study, washout was the demonstration's prime phase and the
-input transform stayed at its pilot-selected recipe value. The recovery study
-instead tunes the approved common pre-task duration including $T_w=0$, while
-keeping reset and activation semantics identical across arms and episodes.
-Labelled comparison points (the development anchor at the M2
-ridge value 1e-2 and at 3e-2, 1e-1, 3e-1) are evaluated before sampling.
-Low-level tracker gains are excluded from ESN studies after baseline
-qualification.
+Freeze search space, objective, data access and budget before tuning. Keep evaluation information out of parameter selection. Record sampler/reservoir seeds separately.
 
-Task 1-a uses a seeded sampler and pruner. The objective is median movement
-joint RMSE across development scenarios. A trial is infeasible and receives a
-documented penalty if it diverges, violates configured state/torque limits,
-terminates early, fails the configured final-dwell constraint, exceeds the
-protocol's saturation bound, or cannot be trained. Scenarios are evaluated in
-protocol order and stop at the first infeasible one (the objective is already
-decided); the running objective is reported to the pruner after every
-feasible scenario. All objective components — per-scenario termination,
-movement RMSE, dwell criteria, saturation, boundary jump, and the reason —
-are logged separately; the scalar objective is never the only saved result.
-Only trials feasible in every development scenario are eligible for selection
-and freezing — a study without one selects nothing — and, because Optuna counts
-queued comparison points towards the sampler's start-up trials, a protocol
-states its start-up count inclusive of them. Before a selection is frozen, a
-reservoir-seed sensitivity panel re-evaluates the leading feasible trials with
-a predefined list of seeds (everything else unchanged) and records how many
-seeds stay feasible and the spread of their objectives; a frozen recipe must
-also pass the held-out development robustness suite, otherwise the previous
-recipe is retained and the failure documented.
-
-Development/tuning scenarios and seeds are separate from confirmatory scenarios
-and seeds. The selected recipe is frozen before confirmatory evaluation. Reusing
-confirmatory outcomes to alter hyperparameters creates a new study/version and
-invalidates the earlier confirmatory label.
-
-Alternative candidates considered:
-
-- Ray Tune is useful for distributed workloads but unnecessary initially.
-- Hydra can compose large configuration trees, but typed TOML keeps the initial
-  stack aligned with `skelarm` and `rtctrl`.
-- Weights & Biases provides hosted tracking, but local MLflow avoids requiring a
-  third-party account and keeps research data local by default.
+[Section 10](design/evaluation.md#10-hyperparameter-tuning).
 
 ## 11. Experiment and data management
 
-- **MLflow:** use a local store under `armrc://mlflow/` (a SQLite tracking
-  database plus an artifact directory; MLflow's plain file store is in
-  maintenance mode). Every curated run command logs there by default (the
-  `--no-mlflow` opt-out is for scratch only): resolved parameters, dependency
-  revisions and build identities, payload digests, seeds, scalar metrics,
-  plots, reports, model recipes, provenance, and Optuna study summaries. A
-  study is mirrored as one parent run (protocol, digest, dataset and tracker
-  identities, provenance, summary, selection) with one child run per trial
-  (point, objective, every component as its own metric, the running objective
-  as a series, the reason, the full evaluation as an artifact), idempotent per
-  trial across resumes. The Git pointer record and run directory stay
-  authoritative; a tracking server remains optional.
-- **DVC:** Git stores only `.dvc` metafiles plus the domain artifact records.
-  Configure the cache and default local remote per machine in ignored
-  `.dvc/config.local`, resolving them to `<storage-root>/dvc-cache` and
-  `<storage-root>/dvc-store`. Use `dvc add --to-remote` for large inputs when it
-  avoids a repository-local copy. Never commit a machine-specific absolute path.
-- **Optuna:** place local SQLite studies under `armrc://optuna/` (one database
-  per study). A study records its identity (protocol digest, seeded sampler,
-  pruner, direction) as user attributes and resumes only when that identity
-  matches; a failing trial aborts the study instead of being recorded as a
-  failure. Export selected trials and study summaries to MLflow so the
-  database is not the sole record.
-- **Git/uv:** Git pins project/submodule revisions; `uv.lock` pins Python
-  dependencies. CMake/submodules pin the C++ build inputs.
+Record revisions, environment, resolved configuration, sources, seeds and raw metrics; regenerate tables and figures from verified evidence.
 
-Generated payloads, temporary captures, materialized DVC data, and local storage
-configuration are ignored by Git. Only artifact records, the catalog, DVC
-metafiles, curated small reports/plots/tables, recipes, and documentation are
-committed. Removing a Git pointer never deletes an external payload; garbage
-collection is a separate, explicit, audited operation.
+[Section 11](design/data.md#11-experiment-and-data-management).
 
 ## 12. Proposed repository layout
 
-```text
-arm-rc-ctrl/
-├── cpp/
-│   ├── CMakeLists.txt
-│   ├── apps/
-│   ├── include/arm_rc_ctrl/
-│   ├── src/
-│   └── tests/
-├── configs/
-│   ├── controllers/
-│   ├── evaluations/
-│   ├── robots/
-│   ├── storage.example.toml
-│   ├── studies/
-│   └── tasks/
-├── data/
-│   ├── catalog.toml
-│   └── records/
-│       ├── models/
-│       ├── processed/
-│       ├── raw/
-│       └── runs/
-├── docs/
-│   ├── PLAN.md
-│   ├── TASKS.md
-│   ├── experiments/
-│   └── theory/
-├── scripts/
-│   ├── evaluate.py
-│   ├── export_run_sklog.py
-│   ├── play_run.py
-│   ├── plot_task_1a_trajectories.py
-│   ├── preprocess_demo.py
-│   ├── record_demo.py
-│   ├── reproduce_1a.py
-│   ├── train.py
-│   └── tune.py
-├── src/arm_rc_ctrl/
-│   ├── adapters/
-│   ├── config/
-│   ├── controllers/
-│   ├── data/
-│   ├── experiments/
-│   │   └── playback.py
-│   ├── metrics/
-│   └── rc/
-├── tests/
-│   ├── integration/
-│   ├── regression/
-│   └── unit/
-├── third_party/
-│   ├── rclib/
-│   ├── rtctrl/
-│   └── skelarm/
-├── dvc.yaml
-├── pyproject.toml
-└── uv.lock
-```
+Use `src/` for logic, `scripts/` for entry points, `configs/` for protocols, `data/` for pointers, and `docs/experiments/` for plans/evidence. Design and task indexes are linked above.
 
-`scripts/` contains thin entry points, not business logic. Experiment code lives
-under `src/arm_rc_ctrl`. C++ is introduced only when the Python 2-DOF milestone
-passes its reproducibility gate. The external payload tree described in Section
-7.1 is intentionally outside this repository.
+[Section 12](design/architecture.md#12-proposed-repository-layout).
 
 ## 13. Phased implementation and gates
 
-### Phase 0 — foundation
+| Stage | Status / next gate | Details |
+| --- | --- | --- |
+| M0–M3 | Completed foundation, data, ESN and robustness | [Ledger index](tasks/README.md) |
+| M3R | Closed with a negative recovery result; historical confirmatory task remains blocked | [Archive](tasks/archive/M3R.md) |
+| M3REP | Closed repetition/regularization study | [Plan](experiments/task_1a_repeated_demonstration/plan.md) |
+| M3MAN | Closed and report accepted on 2026-09-22 | [Report](experiments/task_1a_manual_demonstration/report/report.md) |
+| M3MS | Approved manual-data ESN search; next implementation queue | [Plan](experiments/task_1a_manual_esn_search/plan.md) |
+| M4 | Task 1-b protocol planning; owner lock required before implementation | [Backlog](tasks/backlog/M4.md) |
+| M5 | C++ / 7-DOF simulation, gated | [Backlog](tasks/backlog/M5.md) |
+| M6 | Supervised physical trials, separately safety-qualified | [Backlog](tasks/backlog/M6.md) |
+| M7 | Online adaptation definition only, separately reviewed | [Backlog](tasks/backlog/M7.md) |
 
-Create project metadata, recursive submodules, development tooling, CI, typed
-configuration, machine-local storage resolution, and a headless deterministic
-smoke test.
-
-**Gate:** A clean recursive checkout can install, lint, type-check, and test both
-the Python vertical slice and a minimal CMake target using documented commands.
-
-### Phase 1 — data and direct-replay baselines
-
-Implement demonstration validation/preprocessing and qualify PD and
-computed-torque replay in `skelarm`. Freeze their configs and lock metric
-definitions before training an ESN.
-
-**Gate:** An externally stored raw demonstration can be resolved from its
-Git-tracked record, converted reproducibly into a canonical external dataset,
-replayed by both baselines, and regenerated with identical shapes, checksums,
-and metrics within declared numerical tolerances.
-
-### Phase 2 — task 1-a RC vertical slice
-
-Implement teacher-forced training, reset/priming, closed-loop target generation,
-desired derivative estimation, PD tracking, telemetry, and nominal evaluation.
-Then add computed-torque tracking.
-
-**Gate:** Unit and integration tests cover the entire data flow, the nominal run
-completes without invalid state or limit violations, and every result contains
-complete provenance. RC performance need not beat the baseline.
-
-### Phase 3 — tuning and robustness
-
-Add Optuna studies, frozen model selection, perturbation/force suites, MLflow
-reporting, and the one-command task 1-a reproduction workflow.
-
-**Gate:** A fresh checkout plus a configured external store can resolve all DVC
-and artifact records and reproduce the selected model and confirmatory report
-without consulting an untracked notebook or manual step.
-
-### Phase 3R — task 1-a state-conditioned recovery
-
-Implement the approved `task_1a_recovery_v1` protocol: crop acquisition pre-roll
-from task data, make common warm-up and simultaneous activation explicit,
-generate deterministic non-decaying and contractive training episodes, compare
-absolute and gated residual readouts, and evaluate paired early command-gap and
-target-convergence behavior. The detailed protocol remains authoritative for
-the experiment; `TASKS.md` divides it into review-sized implementation and
-evidence steps.
-
-**Gate:** A frozen model satisfies the predeclared development criteria, a
-separately authorized confirmatory suite is run once, and a clean checkout
-reproduces every dataset, recipe, run, metric, report, and visualization. A
-negative result is acceptable and retained.
-
-### Phase 3REP — task 1-a repeated-demonstration control
-
-Implement the approved `task_1a_repetition_v1` protocol through M3REP-001–008:
-freeze the panel, add versioned repetition recipes, validate numerical
-equivalences for both output formulations, implement paired evaluation and
-velocity diagnostics, then run the trial 17 timing smoke check before the
-full fixed panel. Start with M3REP-001. Preserve the completed recovery
-negative result and keep the separate task 1-b draft pending its own approval.
-
-**Gate:** All 120 behavioral configurations and 36 numerical reference fits
-are accounted for, including failures and unexecuted scenarios; quality
-checks, reproducible HTML/assets, and clean-checkout evidence pass, and the
-owner reviews the positive, negative, or inconclusive findings. A favorable
-model is not required. If the timing smoke check invalidates the provisional
-budget, obtain a revised budget decision before full execution. Broader
-search and confirmatory work require separate approval.
-
-### Phase 3MAN — task 1-a manual demonstrations
-
-Implement the approved manual-demonstration plan through UP-008–009 and
-M3MAN-001–012. Begin with the upstream recorder work, integrate its pin
-separately, and establish the full-recording dataset and batch-validation
-path. Complete acquisition readiness and freeze resolved settings before the owner records study takes. A second practice session verifies the pilot-1 revisions (I10–I14) before that freeze. Collect until ten qualify; train the fixed paired
-panel only after its data, weighting, augmentation, and numerical controls
-are validated. A timing smoke check that benchmarks serial against bounded parallel
-execution precedes the full 186-model evaluation; the projected serial cost is
-about 13 hours and 26–27 GB of run data (I1).
-
-**Gate:** Every prescribed model/run is accounted for with verified provenance,
-failures, and raw metrics; quality gates and clean-checkout reproduction pass;
-the developer's machine-readable handoff supports the reporting assistant's
-human-readable interpretation, which the owner reviews. Practice payloads
-need not be retained, but saved study data and failed experiment runs must be.
-No favorable scientific result or deployed model is required. New tuning,
-extra held-out human recordings, and confirmatory studies remain deferred.
-
-### Phase 4 — broader planar tasks
-
-Proceed through task 1-b, multiple targets, periodic curves, and 4-DOF scaling.
-Each new task first defines its hypothesis, metric, data split, baseline, and
-failure criteria, then receives implementation tasks in `TASKS.md`.
-
-**Gate:** Each experiment has a frozen confirmatory protocol and a report that
-compares paired baselines across seeds and perturbations.
-
-### Phase 5 — C++ and 7-DOF simulation
-
-Add fitted-model serialization to `rclib`, C++ inference, Python/C++ parity
-fixtures, an `rtctrl::arm::Controller` adapter, real-time timing tests, and
-CRANE-X7 simulation experiments under gravity.
-
-**Gate:** C++ predictions match Python within declared tolerances; inference and
-the complete control update meet the `rtctrl` deadline with measured margin; all
-commands remain within configured limits; `rtctrl` simulation acceptance passes.
-
-### Phase 6 — physical CRANE-X7 offline learning
-
-Record supervised demonstrations, validate sim-to-real configuration, rehearse
-with emulator/simulation, and execute short staged hardware trials.
-
-**Gate:** An independent safety review signs off the exact executable, config,
-model hash, limits, abort behavior, and bring-up checklist before motion.
-
-### Phase 7 — online learning
-
-Define the adaptation task and safety envelope from offline evidence. Compare
-RLS and LMS readouts first in deterministic simulation, then in 7-DOF simulation,
-and only then consider hardware. Online updates require bounded weights/outputs,
-change monitoring, rollback/freeze behavior, and a non-learning safety layer.
-
-**Gate:** The update law remains stable in stress tests, fits the cycle deadline,
-can be frozen or rolled back immediately, and passes a new hardware safety review.
+<a id="phase-0--foundation"></a>
+<a id="phase-1--data-and-direct-replay-baselines"></a>
+<a id="phase-2--task-1-a-rc-vertical-slice"></a>
+<a id="phase-3--tuning-and-robustness"></a>
+<a id="phase-3r--task-1-a-state-conditioned-recovery"></a>
+<a id="phase-3rep--task-1-a-repeated-demonstration-control"></a>
+<a id="phase-3man--task-1-a-manual-demonstrations"></a>
+<a id="phase-4--broader-planar-tasks"></a>
+<a id="phase-5--c-and-7-dof-simulation"></a>
+<a id="phase-6--physical-crane-x7-offline-learning"></a>
+<a id="phase-7--online-learning"></a>
+[Section 13](tasks/archive/roadmap-2026-09-22.md#13-phased-implementation-and-gates).
 
 ## 14. Testing strategy
 
-Development follows TDD. Tests are added before or with the behavior they cover.
+Develop test-first, use deterministic fixtures and run checks appropriate to the change. Controller/safety changes require simulation and failure-path tests before hardware.
 
-### Unit tests
-
-- dataset schemas, units, shapes, interval detection, and invalid inputs;
-- smoothing/resampling and derivative estimation on analytic signals;
-- normalization and inverse transformation;
-- ESN input/target alignment, reset, washout, and episode isolation;
-- metric definitions, angle handling, and failure penalties;
-- config defaults, rejection of unknown keys, and path resolution;
-- provenance collection and clean/dirty-worktree policy.
-
-### Property and regression tests
-
-- resampling preserves constant/linear signals within tolerance;
-- metrics are zero for identical signals and nonnegative otherwise;
-- fixed seeds reproduce the same reservoir recipe and predictions within the
-  declared platform tolerance;
-- a tiny committed fixture protects sample alignment and Python/C++ parity;
-- no test relies on a GUI, network service, or robot by default.
-
-### Integration tests
-
-- raw `skelarm` fixture to processed dataset;
-- processed demonstration to direct-replay baseline run;
-- teacher-forced ESN fit to closed-loop `skelarm` run;
-- MLflow run contains mandatory provenance and artifacts;
-- a small Optuna study resumes and selects a valid trial;
-- DVC reproduction rebuilds expected outputs;
-- later, C++ controller through `rtctrl::arm::SimArm` and the emulator.
-
-### Manual and hardware tests
-
-Manual reproduction scripts generate key tables and plots. Hardware tests are
-never CI jobs. They require a human operator, staged duration/limits, an
-independent power cutoff, and explicit recording of deviations from the approved
-procedure.
+<a id="unit-tests"></a>
+<a id="property-and-regression-tests"></a>
+<a id="integration-tests"></a>
+<a id="manual-and-hardware-tests"></a>
+[Section 14](design/workflow.md#14-testing-strategy).
 
 ## 15. Development and review workflow
 
-1. Select the next unblocked task from [TASKS.md](TASKS.md) and mark it
-   `IN PROGRESS` before implementation.
-2. Add or update a failing test/specification.
-3. Implement the smallest coherent behavior that passes it.
-4. Run focused tests, then the repository quality gate.
-5. Update human documentation after behavior stabilizes. If documentation and
-   tested implementation disagree, immediately align documentation to the tested
-   behavior or fix the implementation and tests when the behavior is wrong.
-6. Update task status and evidence in the same commit.
-7. Commit one task or a small cohesive group. Include task IDs in the commit
-   message/body. Do not combine formatting, refactoring, and behavior changes
-   unless inseparable.
-8. At each phase gate, request review with the exact commands, configs, artifacts,
-   known limitations, and unresolved research questions.
+Choose an authorized unblocked task, update its canonical row, implement/test, and record evidence in the same commit. Generic dependency fixes belong upstream on dedicated branches; pin changes are separate.
 
-For upstream work:
-
-Create a dedicated branch in the owning upstream repository before making
-implementation changes, so those changes can be submitted as a PR later.
-Record the branch name and base revision with the task evidence; document
-dependencies when stacking branches for separate PRs.
-
-1. Reproduce the missing generic capability in the owning library.
-2. Create a dedicated branch in that library.
-3. Add library-level tests and documentation.
-4. Open a focused PR that discloses AI assistance when required by that project.
-5. Keep this project compatible with the pinned revision until the PR is ready.
-6. Advance the submodule in a separate integration commit and rerun this
-   project's full relevant test suite.
+[Section 15](design/workflow.md#15-development-and-review-workflow).
 
 ## 16. Reproducibility requirements
 
-A key result is reproducible only when another human can obtain it from:
+Reproduction binds exact code, submodules, config, data hashes, seeds and execution environment. Fail clearly on missing or mismatched inputs rather than choosing the latest artifact.
 
-- the project Git commit and clean/dirty state;
-- exact `rclib`, `skelarm`, and `rtctrl` commits;
-- `uv.lock`, compiler/CMake information, and platform metadata;
-- resolved experiment config;
-- logical artifact URIs, artifact-record revisions, payload SHA-256 digests, and
-  DVC hashes where applicable;
-- all random seeds and study/trial identifiers;
-- one documented command or reproduction script;
-- raw metrics in machine-readable form, not only a plot.
-
-The reproduction script must fail clearly when storage configuration, required
-payloads, data records, submodules, or versions are missing or mismatched. It
-must not fall back to the repository, silently download mutable data, accept a
-checksum mismatch, or select the latest model.
+[Section 16](design/workflow.md#16-reproducibility-requirements).
 
 ## 17. Safety principles
 
-- Learning code never bypasses backend position, velocity, effort, current, or
-  watchdog limits.
-- Validate output shape, finiteness, timestamp freshness, and bounds before every
-  command.
-- On invalid ESN output, stale state, missed deadline, or internal exception,
-  invoke the backend's documented safe abort/deactivation path; do not continue
-  with newly generated commands.
-- Simulation and wire/emulator tests precede hardware for every controller or
-  safety-relevant change.
-- `rtctrl` remains the authority for physical activation, watchdogs, command
-  windows, and motor communication.
-- Hardware operation is supervised and retains an independent actuator-power
-  cutoff. Software deactivation is not treated as an emergency stop.
-- Online learning never controls the safety envelope and can be frozen or
-  bypassed without disabling the low-level safety controller.
+Never bypass limits, watchdogs, command validation or aborts. Hardware needs its own approved procedure, operator and independent power cutoff; online learning cannot alter the safety envelope.
+
+[Section 17](design/workflow.md#17-safety-principles).
 
 ## 18. Assumptions and deferred decisions
 
-- Python 3.12+, `uv`, NumPy `float64`, TOML, pytest, Ruff, and a strict type
-  checker form the initial Python stack.
-- C++17, CMake, and Catch2 align with the current C++ dependencies.
-- Large data and experiment state live below a per-machine external storage root,
-  defaulting to `/external/arm-rc-ctrl`; Git stores portable records and DVC
-  metafiles only. No cloud account is required.
-- The initial task uses a horizontal, gravity-free `skelarm` model and controls
-  arm joints only; the CRANE-X7 gripper is excluded until a task requires it.
-- Original project code and documentation are GPL-3.0-only. Third-party and
-  data/artifact terms remain separately applicable and must be inventoried.
-- Exact online-learning tasks, weight bounds, rollback policy, and hardware
-  admission criteria remain deferred until offline results exist. Before Phase 7
-  starts, replace that epic with a separately reviewed, decision-complete plan.
+Later planar, C++, 7-DOF, physical and online-learning work remains gated. An approved simulation study does not authorize hardware or an unspecified follow-up.
+
+[Section 18](design/workflow.md#18-assumptions-and-deferred-decisions).
