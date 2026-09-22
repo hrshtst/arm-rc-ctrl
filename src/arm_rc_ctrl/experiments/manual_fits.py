@@ -246,10 +246,21 @@ class ManualFitInputs:
     root: Path
     execution_identity: str
     rclib: RclibIdentity
+    sampled: tuple[StudyConfiguration, ...] = ()
+    """Configurations a search sampled, resolved beside the frozen ones; the manifest is never written to."""
 
     def __post_init__(self) -> None:
         """The environment and the library are the ones every recorded fit identity was hashed with."""
         _require_digest("execution_identity", self.execution_identity)
+        frozen = {configuration.label for configuration in self.manifest.configurations}
+        shadowed = sorted(c.label for c in self.sampled if c.label in frozen)
+        if shadowed:
+            msg = f"the sampled configurations {shadowed} would shadow the frozen study's own; labels are distinct"
+            raise ValueError(msg)
+        repeated = sorted({c.label for c in self.sampled if [x.label for x in self.sampled].count(c.label) > 1})
+        if repeated:
+            msg = f"the sampled configurations repeat the labels {repeated}"
+            raise ValueError(msg)
         if self.execution_identity != self.manifest.execution.identity:
             msg = (
                 f"the fit inputs run in environment {self.execution_identity[:12]}, while the study manifest binds "
@@ -277,7 +288,10 @@ class ManualFitInputs:
         return self.manifest.sources
 
     def configuration(self, entry: StudyModel) -> StudyConfiguration:
-        """The inherited configuration ``entry`` belongs to."""
+        """The configuration ``entry`` belongs to: a sampled one when the search supplied it, else the study's."""
+        for configuration in self.sampled:
+            if configuration.label == entry.configuration:
+                return configuration
         return self.manifest.configuration(entry.configuration)
 
     def identity(self, entry: StudyModel) -> str:
@@ -285,12 +299,21 @@ class ManualFitInputs:
         return entry.fit_identity
 
     def accounting(self, entry: StudyModel) -> ArmAccounting:
-        """What ``entry``'s fit is made of, rebuilt from the demonstrations' loss rows."""
-        return self.manifest.accounting(entry)
+        """What ``entry``'s fit is made of, rebuilt from the demonstrations' loss rows.
+
+        A sampled entry is accounted the same way as a frozen one, under the
+        configuration this resolves for it: the weighting and the ridge scale
+        are the study's, only ``alpha_0`` is the trial's.
+        """
+        return entry.accounting(self.configuration(entry), self.manifest.loss_rows, anchor=self.manifest.anchor)
 
     def base_esn(self, entry: StudyModel) -> EsnConfig:
         """The inherited reservoir with the bound readout, before the arm's ridge scale is applied."""
         return EsnConfig(reservoir=self.configuration(entry).reservoir, readout=self.manifest.readout)
+
+    def esn(self, entry: StudyModel) -> EsnConfig:
+        """The complete ESN ``entry`` fits, under the configuration this resolves for it."""
+        return entry.esn(self.configuration(entry), self.manifest.readout, anchor=self.manifest.anchor)
 
 
 def _datasets_label(datasets: Sequence[DatasetSource]) -> str:
@@ -320,7 +343,7 @@ def recipe_mismatches(entry: StudyModel, recipe: ModelRecipe, inputs: ManualFitI
         contractive=None if entry.contractive is None else entry.contractive.spec,
     )
     compared: tuple[tuple[str, object, object], ...] = (
-        ("esn", recipe.esn, manifest.esn(entry)),
+        ("esn", recipe.esn, entry.esn(configuration, manifest.readout, anchor=manifest.anchor)),
         ("training", recipe.training, training),
         ("transform", recipe.transform, manifest.transform.transform),
         ("transform_source", recipe.transform_source, manifest.anchor.transform_source),

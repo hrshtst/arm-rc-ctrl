@@ -28,7 +28,7 @@ import sys
 import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from functools import partial
 from pathlib import Path  # a run-time import: the configuration loader resolves field types at run time
@@ -2419,12 +2419,18 @@ def prepare_runner(
     root: Path,
     module: str = _MODULE,
     scenario_ids: Sequence[str] | None = None,
+    sampled: Sequence[StudyConfiguration] = (),
 ) -> _Prepared:
     """Verify the environment, bind the study and the configuration, and build the runner.
 
     ``module`` names the caller, because the command a run records must be the
     command that was actually invoked: the timing smoke check is its own entry
     point, and provenance claiming otherwise would misdescribe the evidence.
+
+    ``sampled`` carries the configurations a search drew (M3MS-003). They are
+    resolved beside the frozen ones, so the search evaluates through this same
+    runner instead of a second path, and the frozen manifest is never written
+    to.
     """
     require_canonical()
     ensure_single_thread()
@@ -2466,7 +2472,7 @@ def prepare_runner(
     require_clean_for_confirmatory(provenance)
     runner = ManualEvaluationRunner(
         store=store,
-        inputs=context.inputs,
+        inputs=replace(context.inputs, sampled=tuple(sampled)),
         config=config,
         evaluation_file=evaluation_file,
         scenarios=cases,

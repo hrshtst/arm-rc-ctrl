@@ -26,8 +26,8 @@ import math
 from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Final
 
-from arm_rc_ctrl.experiments.manual_recipes import MANUAL_ANCHOR, esn_for_arm, manual_arms
-from arm_rc_ctrl.experiments.manual_study import ContractiveBank, StudyConfiguration
+from arm_rc_ctrl.experiments.manual_recipes import CONTRACTIVE_ARM, MANUAL_ANCHOR, esn_for_arm, manual_arms
+from arm_rc_ctrl.experiments.manual_study import ContractiveBank, StudyConfiguration, study_model
 from arm_rc_ctrl.rc.esn import EsnConfig
 from arm_rc_ctrl.rc.train import load_model_config
 
@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from arm_rc_ctrl.experiments.esn_search import FloatRange, IntRange
     from arm_rc_ctrl.experiments.manual_recipes import ManualAnchor, ManualArmSpec
     from arm_rc_ctrl.experiments.manual_search import ManualSearchProtocol, ManualSearchSpace
-    from arm_rc_ctrl.experiments.manual_study import StudyManifest
+    from arm_rc_ctrl.experiments.manual_study import StudyManifest, StudyModel
     from arm_rc_ctrl.rc.esn import ReadoutConfig
 
 __all__ = [
@@ -50,6 +50,7 @@ __all__ = [
     "fixed_policy_mismatches",
     "point_mismatches",
     "sampled_configuration",
+    "sampled_entry",
     "sampled_esn",
     "sampled_point",
 ]
@@ -270,6 +271,38 @@ def sampled_esn(
         arm,
         base_alpha=configuration.base_alpha,
         anchor=anchor,
+    )
+
+
+def sampled_entry(study: StudyManifest, configuration: StudyConfiguration, arm: ManualArmSpec) -> StudyModel:
+    """One arm of a sampled configuration, bound exactly as the frozen study binds its own.
+
+    The fit identity comes from the study's own derivation
+    (:func:`~arm_rc_ctrl.experiments.manual_study.study_model`), so a sampled
+    entry is keyed by the same rule as a frozen one and the two can never
+    collide: the configuration label differs, and the label is part of the key.
+    Everything the search does not sample -- the readout, the ten sources, the
+    frozen transform, the validation, the anchor, the library and the
+    environment -- is the closed study's.
+    """
+    banks: dict[str, ContractiveBank] = {}
+    if arm.arm == CONTRACTIVE_ARM:
+        assignment = arm.assignment
+        if assignment is None:
+            msg = f"{arm.label}: a contractive arm names the parent it grows from"
+            raise ValueError(msg)
+        banks[assignment] = contractive_bank(study, assignment)
+    return study_model(
+        configuration,
+        arm,
+        readout=study.readout,
+        sources=study.sources,
+        banks=banks,
+        transform=study.transform.transform,
+        validation=study.validation,
+        anchor=study.anchor,
+        rclib_commit=study.rclib.commit,
+        execution_identity=study.execution.identity,
     )
 
 

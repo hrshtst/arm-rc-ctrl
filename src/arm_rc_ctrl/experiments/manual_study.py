@@ -169,6 +169,7 @@ __all__ = [
     "parent_samples",
     "render_study_markdown",
     "study_configurations",
+    "study_model",
     "study_to_json",
 ]
 
@@ -933,13 +934,13 @@ def _check_model_file(panel: PanelManifest, model_file: Path, root: Path) -> Non
         raise StudyMismatchError(msg)
 
 
-def _study_model(
+def study_model(
     configuration: StudyConfiguration,
     arm: ManualArmSpec,
     *,
     readout: ReadoutConfig,
     sources: Mapping[str, DatasetSource],
-    banks: Mapping[str, ParentBankRecord],
+    banks: Mapping[str, ContractiveBank],
     transform: InputTransform,
     validation: TrainingValidation,
     anchor: ManualAnchor,
@@ -951,6 +952,10 @@ def _study_model(
     The ESN and the datasets are rebuilt here exactly as the loader rebuilds
     them, hashed into the fit identity, and then dropped: the manifest records
     the identity, and the header records the inputs it was hashed from.
+
+    Public because a searched configuration is bound the same way (M3MS-002):
+    one derivation serves the frozen study and a sampled one, so a sampled
+    entry cannot be keyed by a rule the frozen entries were not.
     """
     esn = esn_for_arm(
         EsnConfig(reservoir=configuration.reservoir, readout=readout),
@@ -959,9 +964,7 @@ def _study_model(
         anchor=anchor,
     )
     datasets = arm_sources(arm, sources)
-    construction = (
-        ContractiveBank.from_record(banks[cast("str", arm.assignment)]) if arm.arm == CONTRACTIVE_ARM else None
-    )
+    construction = banks[cast("str", arm.assignment)] if arm.arm == CONTRACTIVE_ARM else None
     return StudyModel(
         configuration=configuration.label,
         source_trial=configuration.source_trial,
@@ -1032,12 +1035,12 @@ def build_study_manifest(
     identity = RclibIdentity.current() if rclib is None else rclib
     configurations = study_configurations(panel, model)
     entries = tuple(
-        _study_model(
+        study_model(
             configuration,
             arm,
             readout=model.esn.readout,
             sources=sources,
-            banks=resolved_banks,
+            banks={name: ContractiveBank.from_record(record) for name, record in resolved_banks.items()},
             transform=transform,
             validation=validation,
             anchor=anchor,

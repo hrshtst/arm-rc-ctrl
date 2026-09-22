@@ -32,6 +32,7 @@ from arm_rc_ctrl.experiments.manual_sampled import (
     contractive_bank,
     fixed_policy_mismatches,
     sampled_configuration,
+    sampled_entry,
     sampled_esn,
     sampled_point,
 )
@@ -360,3 +361,50 @@ def test_a_point_built_directly_is_still_checked_against_the_approved_space(
 def test_an_approved_point_built_directly_still_builds_a_configuration(protocol: ManualSearchProtocol) -> None:
     """The check refuses what the owner did not approve, and nothing else."""
     assert sampled_configuration(protocol, POINT, trial=13).reservoir.n_neurons == POINT.n_neurons
+
+
+# --- a sampled entry, bound as the frozen study binds its own -----------------------------------
+
+
+def test_the_public_entry_builder_reproduces_a_frozen_entry_s_identity(study: StudyManifest) -> None:
+    """Publishing the study's own derivation must not have changed it."""
+    entry = next(item for item in study.entries if item.arm.arm == "C10")
+    configuration = study.configuration(entry.configuration)
+    rebuilt = sampled_entry(study, configuration, entry.arm)
+    assert rebuilt.fit_identity == entry.fit_identity
+    assert rebuilt.contractive == entry.contractive
+
+
+@pytest.mark.parametrize("kind", ["S", "M10", "R10", "C10"])
+def test_a_sampled_entry_is_keyed_apart_from_every_frozen_one(
+    protocol: ManualSearchProtocol, study: StudyManifest, kind: str
+) -> None:
+    """The configuration label is part of the fit key, so sampled work never serves frozen work."""
+    configuration = sampled_configuration(protocol, POINT, trial=14)
+    arm = next(item.arm for item in study.entries if item.arm.arm == kind)
+    entry = sampled_entry(study, configuration, arm)
+    assert entry.configuration == configuration.label
+    assert entry.warmup_s == configuration.warmup_s
+    assert entry.fit_identity not in {frozen.fit_identity for frozen in study.entries}
+    assert entry.execution_identity == study.execution.identity
+
+
+def test_a_sampled_configuration_resolves_through_the_fit_inputs(
+    protocol: ManualSearchProtocol, manual_fixture: ManualFixture
+) -> None:
+    """The existing fit and evaluation path reads a sampled configuration without a manifest change."""
+    configuration = sampled_configuration(protocol, POINT, trial=15)
+    inputs = replace(manual_fixture.inputs, sampled=(configuration,))
+    arm = next(item.arm for item in manual_fixture.manifest.entries if item.arm.arm == "M10")
+    entry = sampled_entry(manual_fixture.manifest, configuration, arm)
+    assert inputs.configuration(entry) == configuration
+    assert inputs.base_esn(entry).reservoir == configuration.reservoir
+    frozen = next(item for item in manual_fixture.manifest.entries if item.arm.arm == "M10")
+    assert inputs.configuration(frozen) == manual_fixture.manifest.configuration(frozen.configuration)
+
+
+def test_a_sampled_configuration_may_not_shadow_a_frozen_one(manual_fixture: ManualFixture) -> None:
+    """A label collision would let sampled work answer for a frozen model."""
+    frozen = manual_fixture.manifest.configurations[0]
+    with pytest.raises(ValueError, match="shadow"):
+        replace(manual_fixture.inputs, sampled=(frozen,))
