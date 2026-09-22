@@ -1,0 +1,101 @@
+# Manual-demonstration ESN search protocol v1 (M3MS-001; experiment plan
+# docs/experiments/task_1a_manual_esn_search/plan.md, owner decisions of 2026-09-22).
+#
+# The search tunes the ESN and the warm-up on the all-ten (M10) arm and scores a candidate on
+# the NOMINAL case alone, under both frozen trackers. No perturbed scenario reaches the
+# objective, a tie-break, pruning or selection: the 64 perturbed cases are withheld from this
+# optimizer and are evaluated only after three configurations are frozen.
+#
+# Fixed here on purpose, and therefore absent from [space]: the reservoir seed (896), both
+# trackers and their gains, and the historical v4 filter policy also used by configuration E.
+# The three filter values below are repeated for the reader and compared with their source by
+# manual_search.filter_mismatches; they are not a second definition.
+#
+# Sampler seed 20270301 opens a new namespace for this experiment, disjoint from every seed
+# committed under configs/ (M3 20260830-20260922, recovery 20270101-20270104, the augmentation
+# namespace, the reservoir seeds 31/774/896 and the recovery seed banks).
+# n_startup_trials 20 leaves a fifth of the 100-trial cap as genuinely random draws before TPE
+# begins modelling a score that takes only three values.
+#
+# Budgets are the owner's approved caps, applied as a ceiling shared with the final comparison;
+# manual_search refuses a protocol that raises them. Trials run serially to begin with
+# (plan section 7): the four-worker benchmark established only a 1.03x end-to-end speedup, and
+# concurrent reservoir construction can interleave the C generator's reseeding.
+#
+# tests/unit/test_manual_search_protocol.py and tests/regression/test_manual_search_config.py
+# hold this file to the approved domain, the fixed conditions and the selection rule.
+name = "manual-esn-search-v1"
+study = "../../docs/experiments/task_1a_manual_demonstration/study_manifest_v1.json"
+model = "../models/esn_task_1a_v4.toml"
+scenario = "../tasks/task_1a_manual_v2.toml"
+
+[sampler]
+kind = "tpe"
+seed = 20270301
+n_startup_trials = 20
+
+[fixed]
+reservoir_seed = 896
+trackers = ["pd_v2", "computed_torque"]
+filters = "../evaluations/task_1a_nominal_v4.toml"
+velocity_cutoff_hz = 29.980411525699598
+acceleration_cutoff_hz = 10.938122239871603
+max_dt_ratio = 3.0
+
+[space]
+warmup_s = [0.0, 0.25, 0.5, 1.0, 2.0]
+
+[space.n_neurons]
+low = 100
+high = 400
+step = 50
+
+[space.spectral_radius]
+low = 0.8
+high = 1.3
+
+[space.sparsity]
+low = 0.5
+high = 0.98
+
+[space.leak_rate]
+low = 0.01
+high = 0.3
+log = true
+
+[space.input_scaling]
+low = 0.02
+high = 1.5
+log = true
+
+[space.alpha_0]
+low = 0.001
+high = 1.0
+log = true
+
+[objective]
+kind = "nominal_success_fraction"
+direction = "maximize"
+scenarios = ["nominal"]
+runs_per_candidate = 2
+
+[selection]
+n_configurations = 3
+order = "descending_score_then_ascending_trial"
+representative = "earliest_trial"
+label = "highest nominal scores"
+
+[budget]
+trials = 100
+hours = 10.0
+gib = 20.0
+shared_with_comparison = true
+parallel_trials = 1
+
+[comparison]
+evaluation = "../evaluations/task_1a_manual_dev_v1.toml"
+scenarios = 65
+arms = ["S", "M10", "R10", "C10", "replay"]
+models_per_configuration = 31
+replay_banks_per_configuration = 10
+sequential = true
