@@ -90,6 +90,8 @@ def _assert_asset_bindings(docs: Path) -> None:
     assert {p.name for p in assets.iterdir()} == expected_outputs | {"render_manifest.json"}
     assert manifest["case_ids"] == list(CASES)
     assert manifest["trajectories"] is True
+    assert manifest["project_dirty"] is False
+    assert re.fullmatch(r"[0-9a-f]{40}", manifest["project_commit"])
     for name, bound in manifest["outputs"].items():
         assert sha256_file(assets / name) == bound["sha256"], name
         assert (assets / name).stat().st_size == bound["size"], name

@@ -34,9 +34,10 @@ The loader checks the study, result index and plotted summary tables against
 the fingerprints in audit v4. Teacher payloads and illustrated runs use the
 existing verified readers. The renderer's `render_manifest.json` records the
 input hashes, its source hash, Git revision/dirty state, case choices and every
-output's SHA-256/size. Presentation was generated in an uncommitted reporting
-worktree; this is explicitly recorded and does not change the clean producing
-revisions bound into the simulation and audit evidence. Plotting introduces no
+output's SHA-256/size. The current presentation was regenerated from clean
+commit `e50ef79`, with `project_dirty: false`. This replaces the initial dirty
+presentation provenance without changing the producing revisions bound into
+the simulation and audit evidence. Plotting introduces no
 random seed, refit, resampling of evaluation cases or new experiment identity.
 
 | File | Source and interpretation |

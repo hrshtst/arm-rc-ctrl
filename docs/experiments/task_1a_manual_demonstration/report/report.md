@@ -387,9 +387,10 @@ The report's figures are regenerated from the audited evidence by the retained
 [rendering script](../../../../scripts/render_manual_report.py).
 [Reproduction instructions](reproduce.md) include the original case identifiers,
 commands, input/output fingerprints and a path to every underlying result.
-Presentation assets were produced in the reporting worktree; their manifest
-records that dirty state separately from the clean simulation and audit
-provenance. No experimental evidence was rewritten.
+Presentation assets were refreshed from clean committed renderer `e50ef79`;
+their manifest records `project_dirty: false` separately from the simulation
+and audit provenance. Regression locks bind the figures, main numerical table
+and headline counts to their evidence. No experimental evidence was rewritten.
 
 **M3MAN-012 deliverable: ready for owner review.** M3MAN-GATE remains the owner's
 decision; acceptance of this report does not imply new tuning, confirmation,

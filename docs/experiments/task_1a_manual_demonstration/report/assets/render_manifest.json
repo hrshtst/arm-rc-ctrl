@@ -39,8 +39,8 @@
       "size": 135000
     }
   },
-  "project_commit": "f656ba6537073670b5790c447b041071123f34a1",
-  "project_dirty": true,
+  "project_commit": "e50ef791ea825aeddd5a1d7d0d4c7751b892321f",
+  "project_dirty": false,
   "renderer_sha256": "1dabba98a02b655b6b5f7c49ee563d16b620245c44fb64b71c0228f2b6202b97",
   "task": "M3MAN-012",
   "trajectories": true
