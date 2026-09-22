@@ -37,19 +37,28 @@ PROTOCOL = repository_root() / "configs/studies/manual_esn_search_v1.toml"
 STUDY = repository_root() / "docs/experiments/task_1a_manual_demonstration/study_manifest_v1.json"
 
 
-def _edited(tmp_path: Path, replace: tuple[str, str]) -> Path:
-    """A copy of the committed protocol with one edit, so a refusal is about that edit alone.
+@pytest.fixture
+def scratch_repository(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """A copy of the committed layout that the code treats as the repository.
 
-    The whole configuration tree is copied, because the protocol resolves the
-    policy it inherits relative to its own directory, and the study manifest it
-    binds is copied to the location the protocol names.
+    The protocol resolves the policy and the study it inherits relative to its
+    own directory, and a portable identity names the study relative to the
+    repository root, so a scratch copy is only a faithful subject when it *is*
+    the root. Patching one function is more honest than letting the tests use
+    study locations the protocol refuses.
     """
-    target = tmp_path / "configs"
-    shutil.copytree(PROTOCOL.parent.parent, target)
-    study = tmp_path / "docs/experiments/task_1a_manual_demonstration"
+    shutil.copytree(PROTOCOL.parent.parent, tmp_path / "configs")
+    study = tmp_path / STUDY.relative_to(repository_root()).parent
     study.mkdir(parents=True, exist_ok=True)
     shutil.copyfile(STUDY, study / STUDY.name)
-    copy = target / "studies" / PROTOCOL.name
+    for module in ("arm_rc_ctrl.provenance", "arm_rc_ctrl.experiments.manual_search"):
+        monkeypatch.setattr(f"{module}.repository_root", lambda: tmp_path)
+    return tmp_path
+
+
+def _edited(tmp_path: Path, replace: tuple[str, str]) -> Path:
+    """The scratch protocol with one edit, so a refusal is about that edit alone."""
+    copy = tmp_path / "configs" / "studies" / PROTOCOL.name
     text = copy.read_text(encoding="utf-8")
     assert replace[0] in text, replace[0]
     copy.write_text(text.replace(*replace, 1), encoding="utf-8")
@@ -83,9 +92,9 @@ def test_the_fixed_filter_policy_is_compared_with_the_configuration_it_names() -
     assert protocol.fixed.max_dt_ratio == 3.0
 
 
-def test_a_filter_value_that_no_longer_matches_its_source_is_reported(tmp_path: Path) -> None:
+def test_a_filter_value_that_no_longer_matches_its_source_is_reported(scratch_repository: Path) -> None:
     """A drifted cutoff names the value, the source and the difference, rather than being searched under."""
-    copy = _edited(tmp_path, ("velocity_cutoff_hz = 29.980411525699598", "velocity_cutoff_hz = 29.98"))
+    copy = _edited(scratch_repository, ("velocity_cutoff_hz = 29.980411525699598", "velocity_cutoff_hz = 29.98"))
     with pytest.raises(ConfigError) as refusal:
         load_manual_search(copy)
     message = str(refusal.value)
@@ -114,20 +123,20 @@ def test_the_optimizer_scope_is_exactly_the_nominal_case() -> None:
         ('scenarios = ["nominal"]', 'scenarios = ["posture-small-20261201-01"]'),
     ],
 )
-def test_a_protocol_that_widens_the_optimizer_scope_is_refused(tmp_path: Path, edit: tuple[str, str]) -> None:
+def test_a_protocol_that_widens_the_optimizer_scope_is_refused(scratch_repository: Path, edit: tuple[str, str]) -> None:
     """Widening the optimizer's scenarios is the failure this experiment cannot tolerate."""
     with pytest.raises(ConfigError, match="nominal"):
-        load_manual_search(_edited(tmp_path, edit))
+        load_manual_search(_edited(scratch_repository, edit))
 
 
 @pytest.mark.parametrize(
     "parameter",
     ["velocity_cutoff_hz = { low = 1.0, high = 2.0 }", "seed = { low = 1, high = 2 }"],
 )
-def test_the_search_space_cannot_tune_a_fixed_condition(tmp_path: Path, parameter: str) -> None:
+def test_the_search_space_cannot_tune_a_fixed_condition(scratch_repository: Path, parameter: str) -> None:
     """Trackers, filters and the reservoir seed are fixed; an unknown search key is refused."""
     with pytest.raises(ConfigError):
-        load_manual_search(_edited(tmp_path, ("[space]", f"[space]\n{parameter}")))
+        load_manual_search(_edited(scratch_repository, ("[space]", f"[space]\n{parameter}")))
 
 
 # --- the objective --------------------------------------------------------------------------
@@ -229,12 +238,12 @@ def test_the_budget_and_comparison_scope_are_the_approved_ones() -> None:
     assert protocol.selection.n_configurations == 3
 
 
-def test_the_protocol_digest_is_stable_and_changes_with_the_protocol(tmp_path: Path) -> None:
+def test_the_protocol_digest_is_stable_and_changes_with_the_protocol(scratch_repository: Path) -> None:
     """The digest is the study identity: equal protocols agree, and one edited value does not."""
-    protocol = load_manual_search(PROTOCOL)
-    assert protocol_digest(protocol) == protocol_digest(load_manual_search(PROTOCOL))
-    edited = load_manual_search(_edited(tmp_path, ("trials = 100", "trials = 99")))
-    assert protocol_digest(edited) != protocol_digest(protocol)
+    copy = scratch_repository / "configs" / "studies" / PROTOCOL.name
+    before = protocol_digest(load_manual_search(copy))
+    assert before == protocol_digest(load_manual_search(copy))
+    assert protocol_digest(load_manual_search(_edited(scratch_repository, ("trials = 100", "trials = 99")))) != before
 
 
 @pytest.mark.parametrize(
@@ -245,10 +254,10 @@ def test_the_protocol_digest_is_stable_and_changes_with_the_protocol(tmp_path: P
         ("gib = 20.0", "gib = 24.0"),
     ],
 )
-def test_an_enlarged_budget_is_refused(tmp_path: Path, edit: tuple[str, str]) -> None:
+def test_an_enlarged_budget_is_refused(scratch_repository: Path, edit: tuple[str, str]) -> None:
     """The caps are the owner's; a protocol may tighten them, never exceed them."""
     with pytest.raises(ConfigError, match="approved"):
-        load_manual_search(_edited(tmp_path, edit))
+        load_manual_search(_edited(scratch_repository, edit))
 
 
 def test_the_sampler_seed_is_recorded_in_a_namespace_of_its_own() -> None:
@@ -284,10 +293,10 @@ def test_the_protocol_freezes_what_the_plan_promises(promise: str) -> None:
     assert promise in _rule_text()
 
 
-def test_the_loader_refuses_an_unknown_key(tmp_path: Path) -> None:
+def test_the_loader_refuses_an_unknown_key(scratch_repository: Path) -> None:
     """Unknown keys are rejected rather than silently ignored, as everywhere else in this project."""
     with pytest.raises(ConfigError):
-        load_manual_search(_edited(tmp_path, ("[budget]", "[budget]\nextra_allowance = 5")))
+        load_manual_search(_edited(scratch_repository, ("[budget]", "[budget]\nextra_allowance = 5")))
 
 
 def _callables() -> tuple[Callable[..., object], ...]:
@@ -302,27 +311,74 @@ def test_the_module_exposes_the_pieces_the_later_tasks_need() -> None:
 # --- what the owner's review of 2026-09-22 found --------------------------------------------
 
 
-def test_two_studies_that_merely_share_a_file_name_are_not_one_identity(tmp_path: Path) -> None:
-    """A resume identity that ignores the study's content could resume onto a different study."""
-    copy = _edited(tmp_path, ("[sampler]", "[sampler]"))
-    replaced = tmp_path / "docs/experiments/task_1a_manual_demonstration" / STUDY.name
+def test_a_changed_study_is_a_changed_identity(scratch_repository: Path) -> None:
+    """A resume identity that ignored the study's content could resume onto a different study."""
+    copy = scratch_repository / "configs" / "studies" / PROTOCOL.name
+    before = protocol_digest(load_manual_search(copy))
+    replaced = scratch_repository / STUDY.relative_to(repository_root())
     replaced.write_text(STUDY.read_text(encoding="utf-8").replace("feasible-best", "feasible-other", 1), "utf-8")
-    assert protocol_digest(load_manual_search(copy)) != protocol_digest(load_manual_search(PROTOCOL))
+    assert protocol_digest(load_manual_search(copy)) != before
 
 
-def test_the_identity_keeps_the_whole_portable_location(tmp_path: Path) -> None:
-    """The same file name in another directory is another source, not the same protocol."""
-    elsewhere = tmp_path / "configs/studies/elsewhere"
-    copy = _edited(tmp_path, ("[sampler]", "[sampler]"))
-    elsewhere.mkdir(parents=True)
-    moved = elsewhere / STUDY.name
-    shutil.copyfile(STUDY, moved)
-    text = copy.read_text(encoding="utf-8").replace(
-        'study = "../../docs/experiments/task_1a_manual_demonstration/study_manifest_v1.json"',
-        f'study = "{moved}"',
+def test_the_identity_keeps_the_whole_location_not_the_file_name(scratch_repository: Path) -> None:
+    """Two studies with the same name and the same content, in different places, are two identities.
+
+    Only the study path differs between the two protocols here; everything else,
+    including every other configuration path, is the same file.
+    """
+    copy = scratch_repository / "configs" / "studies" / PROTOCOL.name
+    original = protocol_digest(load_manual_search(copy))
+    elsewhere = scratch_repository / "docs/experiments/task_1a_manual_esn_search"
+    elsewhere.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(STUDY, elsewhere / STUDY.name)
+    moved = copy.parent / "moved.toml"
+    moved.write_text(
+        copy.read_text(encoding="utf-8").replace(
+            'study = "../../docs/experiments/task_1a_manual_demonstration/study_manifest_v1.json"',
+            'study = "../../docs/experiments/task_1a_manual_esn_search/study_manifest_v1.json"',
+        ),
+        encoding="utf-8",
     )
-    copy.write_text(text, encoding="utf-8")
-    assert protocol_digest(load_manual_search(copy)) != protocol_digest(load_manual_search(PROTOCOL))
+    assert protocol_digest(load_manual_search(moved)) != original
+
+
+def test_a_study_outside_the_repository_is_refused(
+    scratch_repository: Path, tmp_path_factory: pytest.TempPathFactory
+) -> None:
+    """An external path has no portable location, so it could not name the study whole."""
+    outside = tmp_path_factory.mktemp("outside")
+    shutil.copyfile(STUDY, outside / STUDY.name)
+    copy = scratch_repository / "configs" / "studies" / PROTOCOL.name
+    copy.write_text(
+        copy.read_text(encoding="utf-8").replace(
+            'study = "../../docs/experiments/task_1a_manual_demonstration/study_manifest_v1.json"',
+            f'study = "{outside / STUDY.name}"',
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(ConfigError, match="portable location"):
+        load_manual_search(copy)
+
+
+def test_a_missing_study_is_refused(scratch_repository: Path) -> None:
+    """A protocol whose study cannot be read cannot bind its content."""
+    (scratch_repository / STUDY.relative_to(repository_root())).unlink()
+    with pytest.raises(ConfigError, match="not a file"):
+        load_manual_search(scratch_repository / "configs" / "studies" / PROTOCOL.name)
+
+
+@pytest.mark.parametrize(("score", "runs"), [(0.75, 4), (0.3, 0), (1.0, 1), (0.5, 3)])
+def test_selection_cannot_be_given_another_denominator(score: float, runs: int) -> None:
+    """The denominator is the protocol's two tracker runs, whatever a caller passes."""
+    with pytest.raises(ValueError, match="two fixed trackers"):
+        select_configurations([ScoredTrial(number=0, score=score, point={"n": 1.0})], n_configurations=3, runs=runs)
+
+
+@pytest.mark.parametrize("runs", [0, 1, 4])
+def test_an_empty_study_cannot_slip_a_wrong_denominator_through(runs: int) -> None:
+    """With no trials to inspect, the denominator must still be checked."""
+    with pytest.raises(ValueError, match="two fixed trackers"):
+        select_configurations([], n_configurations=3, runs=runs)
 
 
 @pytest.mark.parametrize(
@@ -338,22 +394,24 @@ def test_the_identity_keeps_the_whole_portable_location(tmp_path: Path) -> None:
         ('trackers = ["pd_v2", "computed_torque"]', 'trackers = ["pd_v2"]'),
     ],
 )
-def test_a_protocol_outside_the_approved_scope_is_refused(tmp_path: Path, edit: tuple[str, str]) -> None:
+def test_a_protocol_outside_the_approved_scope_is_refused(scratch_repository: Path, edit: tuple[str, str]) -> None:
     """The approved invariants are enforced, not merely asserted of the committed file."""
     with pytest.raises(ConfigError):
-        load_manual_search(_edited(tmp_path, edit))
+        load_manual_search(_edited(scratch_repository, edit))
 
 
 @pytest.mark.parametrize(("edit", "kept"), [(("trials = 100", "trials = 40"), 40)])
-def test_a_tightened_cap_is_still_allowed(tmp_path: Path, edit: tuple[str, str], kept: int) -> None:
+def test_a_tightened_cap_is_still_allowed(scratch_repository: Path, edit: tuple[str, str], kept: int) -> None:
     """Spending less than the owner approved is always permitted."""
-    assert load_manual_search(_edited(tmp_path, edit)).budget.trials == kept
+    assert load_manual_search(_edited(scratch_repository, edit)).budget.trials == kept
 
 
-def test_loading_verifies_the_inherited_filter_policy(tmp_path: Path) -> None:
+def test_loading_verifies_the_inherited_filter_policy(scratch_repository: Path) -> None:
     """A drifted cutoff must fail where the protocol is loaded, not only where someone asks."""
     with pytest.raises(ConfigError, match="velocity_cutoff_hz"):
-        load_manual_search(_edited(tmp_path, ("velocity_cutoff_hz = 29.980411525699598", "velocity_cutoff_hz = 1.0")))
+        load_manual_search(
+            _edited(scratch_repository, ("velocity_cutoff_hz = 29.980411525699598", "velocity_cutoff_hz = 1.0"))
+        )
 
 
 @pytest.mark.parametrize("score", [float("nan"), 1.5, -0.5, 0.25])

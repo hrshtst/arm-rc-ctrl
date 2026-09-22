@@ -33,6 +33,7 @@ from arm_rc_ctrl.experiments.closed_loop import NominalConfig
 from arm_rc_ctrl.experiments.esn_search import FloatRange, IntRange
 from arm_rc_ctrl.experiments.studies import SamplerSpec
 from arm_rc_ctrl.provenance import config_digest, sha256_file
+from arm_rc_ctrl.repo import repository_root
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -58,6 +59,7 @@ __all__ = [
     "protocol_digest",
     "scope_mismatches",
     "select_configurations",
+    "study_mismatches",
 ]
 
 NOMINAL_SCENARIOS: Final = ("nominal",)
@@ -295,7 +297,11 @@ def protocol_digest(protocol: ManualSearchProtocol) -> str:
     study's own digest is bound beside it: two studies that merely share a name
     are two identities, and a resume cannot land on a changed study.
     """
-    identity = {"protocol": to_mapping(protocol), "study_sha256": sha256_file(protocol.study)}
+    identity = {
+        "protocol": to_mapping(protocol),
+        "study": protocol.study.resolve().relative_to(repository_root()).as_posix(),
+        "study_sha256": sha256_file(protocol.study),
+    }
     return config_digest(identity)[1]
 
 
@@ -356,9 +362,30 @@ def scope_mismatches(protocol: ManualSearchProtocol) -> list[str]:
         if value != required:
             failures.append(f"{name} is {value!r}, but the approved protocol fixes {required!r}")
     failures += filter_mismatches(protocol)
-    if not protocol.study.is_file():
-        failures.append(f"study: {protocol.study} is not a file, so its content cannot bind this protocol")
+    failures += study_mismatches(protocol.study)
     return failures
+
+
+def study_mismatches(study: Path) -> list[str]:
+    """Why a study cannot anchor a portable identity, if it cannot.
+
+    The identity names the study by its repository-relative location and binds
+    its content. A path outside the repository has no portable location -- it
+    would be reduced to a file name, and two such studies with the same name
+    and content would share one identity -- so this protocol inherits a
+    committed study or none at all.
+    """
+    if not study.is_file():
+        return [f"study: {study} is not a file, so its content cannot bind this protocol"]
+    root = repository_root()
+    if not study.resolve().is_relative_to(root):
+        return [
+            (
+                f"study: {study} lies outside {root}, so it has no portable location; this search inherits "
+                "the committed study of the closed experiment"
+            )
+        ]
+    return []
 
 
 def nominal_success_fraction(successes: int, *, runs: int = REQUIRED_RUNS) -> float:
@@ -428,7 +455,14 @@ def select_configurations(
     The evidence is validated before it is ranked. Trial numbers identify
     trials, so they must be distinct, and a score the objective cannot produce
     is refused rather than ordered: a NaN would sort ahead of a real success.
+    ``runs`` names the protocol's denominator so a caller can be explicit about
+    it, but it cannot change it: a score is a count of the two judged tracker
+    runs whatever the caller passes, checked before the trials are examined so
+    an empty study cannot slip a wrong denominator through.
     """
+    if runs != REQUIRED_RUNS:
+        msg = f"a candidate is scored over the two fixed trackers, got runs={runs}"
+        raise ValueError(msg)
     if n_configurations < 1:
         msg = f"n_configurations must be >= 1, got {n_configurations}"
         raise ValueError(msg)

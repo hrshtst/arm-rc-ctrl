@@ -105,5 +105,5 @@ def test_the_protocol_identity_is_recorded_for_the_tasks_that_run_it() -> None:
     """
     assert (
         protocol_digest(load_manual_search(PROTOCOL))
-        == "cf1869098a6324a8a082f8df61238d4cca41692743e1d1d7e1a0606ff837c584"
+        == "029739812525bed0146b333b15621faa19d4ecac576f47bb5231dc42bbf09e06"
     )
