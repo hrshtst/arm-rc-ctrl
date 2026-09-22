@@ -7,7 +7,9 @@
 Implementation tasks are registered as M3MS-001 through M3MS-GATE in the
 [work queue](../../TASKS.md#manual-data-esn-search--m3ms). No implementation or
 search has started.
-**Created / revised:** 2026-09-22.
+**Created / revised:** 2026-09-22, revised the same day with the owner's
+answers on budgeting, selection wording and execution constraints
+(section 8).
 
 This follows the closed
 [manual-demonstration experiment](../task_1a_manual_demonstration/report/report.md).
@@ -112,6 +114,11 @@ If fewer than three distinct scored candidates exist, report the shortfall
 without increasing the 100-trial cap. Selecting an early successful anchor
 under this rule is an expected possibility, not evidence of a search failure.
 
+These three are the highest *nominal* scores, and the evidence and report must
+call them that. "The three best configurations" would misstate a coarse
+two-run objective: the report separates nominal feasibility from robustness and
+from trajectory quality, neither of which this objective measures.
+
 Freeze the selected configuration identities and selection rule before the
 final perturbation evaluation begins. Final results must not cause a new
 selection, replacement, search-range change or additional adaptive tuning in
@@ -143,6 +150,13 @@ contractive construction and seed bank; do not tune augmentation here. Report
 paired outcomes per parent, tracker and scenario class, counting M10 once in
 per-arm totals. Include all four planned contrasts and the parent-matched
 replay comparisons, with unavailable results distinguished from failures.
+
+Evaluate the frozen configurations **sequentially, in their selection order**,
+completing one configuration's whole five-arm comparison before starting the
+next. If a resource ceiling stops the third, retain its partial evidence and
+report two complete comparisons plus an incomplete third. That is not a
+completed three-configuration study, and treating two as sufficient for closure
+would be a separate owner decision, not an implementation choice.
 
 Every successfully fitted model attempts every case from a fresh reset; an
 unsafe run does not suppress later cases. The comparison is conditional on
@@ -186,7 +200,11 @@ provides approximate costs of 1.37 s per RC run, 1.42 s per replay run and
 
 Search timing excludes startup, data loading, cache verification and reporting;
 allow additional time and measure a bounded initial pilot within the 100-trial
-cap. The table's storage column excludes fits and other artifacts. These are
+cap. The pilot measures fitting and verification overhead as well as
+simulation, because those are what the estimates omit. Neither the plan's
+simulation-rate estimate nor an extrapolation from audit re-simulation, whose
+overheads differ from a production sweep, guarantees completion within the
+ceiling. The table's storage column excludes fits and other artifacts. These are
 estimates, not bounds; candidate parameters and aborted runs affect costs.
 No fourfold parallel speedup is assumed: the prior four-worker benchmark
 established only 1.03x end-to-end.
@@ -215,7 +233,32 @@ ceilings above apply even if overhead makes the estimate optimistic.
    five-arm comparison without feeding perturbation results back to Optuna.
    The reporting assistant interprets the resulting evidence for the owner.
 
-## 7. Decision record
+## 7. Execution and concurrency constraints
+
+These are acceptance criteria for the implementation tasks, not advice.
+
+`EsnModel.__init__` re-seeds the C library generator immediately before it
+constructs the reservoir (`src/arm_rc_ctrl/rc/esn.py`, the UP-005 guard), so
+repeated **serial** construction in one interpreter reproduces. The reseed and
+the construction are not one atomic step, so concurrent construction in threads
+can still interleave and produce different reservoirs from the same seed.
+Numerical work therefore runs in **process-isolated workers**, and the
+reproducibility tests drive real subprocesses rather than in-process threads.
+
+Workers inherit the **complete** canonical affinity set with numerical-library
+threads fixed at one. Worker count is never implemented by giving workers
+different CPU subsets: the execution identity includes the CPU set, so runs
+produced under a narrowed set are not admissible as this study's evidence.
+
+Optuna trials run **serially** to begin with. The nominal-only search is small,
+and the four-worker benchmark established only a 1.03x end-to-end speedup, so
+serial execution buys reproducibility at negligible cost. Any later parallel
+scheduling must demonstrate the same identities and evidence first.
+
+Optuna's sampler seed is chosen and recorded by M3MS-001 as a routine
+implementation decision in a new namespace; it needs no further approval.
+
+## 8. Decision record
 
 All owner decisions below were received on 2026-09-22.
 
@@ -230,6 +273,9 @@ All owner decisions below were received on 2026-09-22.
 | D5: search budget | 100 total trials including anchor/pilot/failed candidates; 10 h and 20 GiB caps |
 | D6: final comparison | S, M10, R10, C10 and Replay at the same three highest-scoring configurations; no separate singleton tuning, fresh-scenario or multiple-seed validation |
 | Selection ties | Earlier trial number, after descending nominal success fraction |
+| Configuration order (2026-09-22) | Keep three configurations as the target and complete them sequentially in selection order; a ceiling-stopped third is retained as partial evidence and reported as incomplete, and accepting two as sufficient for closure needs a separate owner decision |
+| Selection wording (2026-09-22) | Report the three *highest nominal scores*, never "the three best"; separate nominal feasibility from robustness and trajectory quality; keep 100 trials and add no tie-break |
+| Execution constraints (2026-09-22) | Process-isolated numerical workers with subprocess reproducibility tests; workers inherit the whole canonical affinity set with one thread each; serial Optuna trials initially; sampler seed is an M3MS-001 implementation decision |
 
 The requested experiment choices are resolved. The protocol implementation
 must preserve these decisions and enforce the declared scope and shared
