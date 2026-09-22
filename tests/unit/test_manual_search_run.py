@@ -32,15 +32,24 @@ from arm_rc_ctrl.experiments.manual_sampled import SampledPoint, arm_of, sampled
 from arm_rc_ctrl.experiments.manual_search import ManualSearchBudget, load_manual_search
 from arm_rc_ctrl.experiments.manual_search_run import (
     BudgetLedger,
+    TrialOutcome,
+    TrialReservation,
     TrialResult,
     budget_complaints,
     evaluate_trial,
+    ledger_of,
     nominal_scope_mismatches,
+    pending_reservations,
+    read_record,
     read_result,
     trial_command,
+    trial_directory,
+    verified_outcome,
+    write_record,
 )
+from arm_rc_ctrl.provenance import ArtifactReference
 from arm_rc_ctrl.repo import repository_root
-from arm_rc_ctrl.storage import ENV_VAR
+from arm_rc_ctrl.storage import ENV_VAR, StorageRoot
 
 if TYPE_CHECKING:
     from arm_rc_ctrl.experiments.manual_search import ManualSearchProtocol
@@ -124,6 +133,11 @@ def test_the_worker_command_carries_the_scope_and_the_point(tmp_path: Path) -> N
 # --- what a worker reports ----------------------------------------------------------------------
 
 
+EVIDENCE = ArtifactReference(
+    uri="armrc://reports/task_1a_manual_v1/model/x/manifest-abc.json", sha256="b" * 64, size=10
+)
+
+
 def _result(**changes: object) -> TrialResult:
     base = TrialResult(
         trial=1,
@@ -133,20 +147,9 @@ def _result(**changes: object) -> TrialResult:
         scenarios=("nominal",),
         seconds=3.0,
         stored_bytes=2048,
+        evidence=EVIDENCE,
     )
     return replace(base, **changes)
-
-
-def test_a_result_scores_the_two_nominal_runs() -> None:
-    """The score is the success fraction over the runs the worker actually judged."""
-    assert _result().score == 0.5
-    assert _result(successes=2).score == 1.0
-    assert _result(successes=0).score == 0.0
-
-
-def test_a_failed_candidate_has_no_score() -> None:
-    """A fit failure or an interruption is retained as itself, never read as a zero."""
-    assert _result(failure="the fit did not converge").score is None
 
 
 @pytest.mark.parametrize(
@@ -283,8 +286,9 @@ def test_the_worker_evaluates_the_nominal_case_under_both_trackers(
     )
     assert result.runs == 2, "the two fixed trackers, and only the nominal case"
     assert result.scenarios == ("nominal",)
-    assert result.score in (0.0, 0.5, 1.0)
-    assert result.stored_bytes > 0, "the candidate's runs are retained whatever its verdict"
+    assert result.successes <= result.runs
+    assert result.evidence is not None, "a scored candidate reports where its evidence was installed"
+    assert result.stored_bytes > 0, "the candidate's runs and fit are retained and charged"
 
 
 def test_a_sampled_fit_reproduces_in_a_fresh_interpreter(
@@ -306,69 +310,142 @@ def test_a_sampled_fit_reproduces_in_a_fresh_interpreter(
     assert refit.weights_bitwise_equal
 
 
-# --- the parent loop, its accounting and its failures --------------------------------------------
+# --- the parent loop: reservations, recovery, verification and deadlines ------------------------
 
 
 class _FakeWorker:
-    """A worker that reports what the test wants, without fitting or simulating anything."""
+    """A worker that writes the reports the test wants, without fitting or simulating anything."""
 
-    def __init__(self, results: list[TrialResult | None]) -> None:
-        self.results = results
-        self.calls = 0
+    def __init__(self, reports: list[TrialResult | str | None]) -> None:
+        self.reports = reports
+        self.calls: list[int] = []
 
-    def __call__(self, command: Sequence[str]) -> subprocess.CompletedProcess[bytes]:
+    def __call__(self, command: Sequence[str], *, timeout: float | None = None) -> subprocess.CompletedProcess[bytes]:
         command = list(command)
-        result = self.results[self.calls] if self.calls < len(self.results) else None
-        self.calls += 1
-        if result is None:
-            return subprocess.CompletedProcess(command, returncode=1, stdout=b"", stderr=b"the fit did not converge")
-        output = Path(command[command.index("--output") + 1])
         trial = int(command[command.index("--trial") + 1])
-        output.parent.mkdir(parents=True, exist_ok=True)
-        output.write_text(json.dumps(to_mapping(replace(result, trial=trial)), sort_keys=True), encoding="utf-8")
+        report = self.reports[len(self.calls)] if len(self.calls) < len(self.reports) else None
+        self.calls.append(trial)
+        if isinstance(report, str):  # an interruption: nothing written, non-zero exit
+            if report == "timeout":
+                raise subprocess.TimeoutExpired(command, timeout or 0.0)
+            return subprocess.CompletedProcess(command, returncode=1, stdout=b"", stderr=report.encode())
+        if report is None:
+            return subprocess.CompletedProcess(command, returncode=1, stdout=b"", stderr=b"the worker crashed")
+        output = Path(command[command.index("--output") + 1])
+        write_record(output, replace(report, trial=trial))
         return subprocess.CompletedProcess(command, returncode=0, stdout=b"", stderr=b"")
 
 
-def _search(
-    protocol: ManualSearchProtocol, worker: _FakeWorker, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> BudgetLedger:
+def _search(protocol: ManualSearchProtocol, worker: _FakeWorker, monkeypatch: pytest.MonkeyPatch) -> BudgetLedger:
     monkeypatch.setattr(manual_search_run, "spawn_trial", worker)
-    return manual_search_run.run_search(
-        protocol, PROTOCOL_FILE, root=ROOT, scratch=tmp_path / "trials", exploratory=True
-    )
+    return manual_search_run.run_search(protocol, PROTOCOL_FILE, root=ROOT, exploratory=True)
 
 
 @pytest.fixture
-def search_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def search_store(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> StorageRoot:
     """A store of this test's own: two protocols are two studies, and neither is the configured store."""
     root = tmp_path / "store"
     root.mkdir(parents=True, exist_ok=True)
     monkeypatch.setenv(ENV_VAR, str(root))
+    return StorageRoot(root)
 
 
-@pytest.mark.usefixtures("search_store")
-def test_the_parent_spends_its_budget_once_across_resumes(
-    protocol: ManualSearchProtocol, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def _failed_report() -> TrialResult:
+    return TrialResult(
+        trial=0,
+        successes=0,
+        runs=0,
+        statuses=(),
+        scenarios=("nominal",),
+        seconds=0.5,
+        stored_bytes=4096,
+        failure="the fit did not converge",
+    )
+
+
+def test_a_failed_fit_consumes_its_trial_and_is_charged(
+    protocol: ManualSearchProtocol, search_store: StorageRoot, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """The spend is read back rather than restarted, and a spent cap schedules nothing."""
-    tightened = replace(protocol, budget=replace(protocol.budget, trials=2))
-    scored = _result(successes=2, stored_bytes=1024)
-    # One scored candidate, then a worker that fails: both consume a trial of the two-trial cap.
-    worker = _FakeWorker([scored])
-    first = _search(tightened, worker, tmp_path, monkeypatch)
-    assert (first.trials, first.stored_bytes) == (2, 1024)
-    assert first.seconds > 0.0
-    resumed = _FakeWorker([scored, scored])
-    second = _search(tightened, resumed, tmp_path, monkeypatch)
-    assert second == first, "the resumed invocation read the spend back instead of starting a fresh allowance"
-    assert resumed.calls == 0, "a spent cap schedules no worker at all"
-
-
-@pytest.mark.usefixtures("search_store")
-def test_a_failed_worker_consumes_its_trial(
-    protocol: ManualSearchProtocol, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    """A candidate that could not be fitted is retained as a failed trial, not replaced for free."""
+    """A candidate that could not be fitted is a failed trial, and what it stored is still charged."""
     tightened = replace(protocol, budget=replace(protocol.budget, trials=1))
-    ledger = _search(tightened, _FakeWorker([None]), tmp_path, monkeypatch)
-    assert ledger.trials == 1
+    ledger = _search(tightened, _FakeWorker([_failed_report()]), monkeypatch)
+    assert (ledger.trials, ledger.stored_bytes) == (1, 4096)
+    outcome = read_record(trial_directory(search_store, 0) / "outcome.json", TrialOutcome)
+    assert (outcome.state, outcome.score, outcome.failure) == ("failed", None, "the fit did not converge")
+
+
+@pytest.mark.parametrize("interruption", ["the worker crashed", "timeout"])
+def test_an_interrupted_trial_stays_pending_and_resumes_under_its_own_number(
+    protocol: ManualSearchProtocol, search_store: StorageRoot, monkeypatch: pytest.MonkeyPatch, interruption: str
+) -> None:
+    """An interruption is not a failed fit: the trial keeps its number and the resume finishes it."""
+    tightened = replace(protocol, budget=replace(protocol.budget, trials=1))
+    interrupted = _search(tightened, _FakeWorker([interruption]), monkeypatch)
+    assert interrupted.trials == 0, "an interrupted trial has not been spent"
+    assert interrupted.seconds > 0.0, "its measured cost is charged even though it has no outcome"
+    assert [r.trial for r in pending_reservations(search_store)] == [0]
+    resumed_worker = _FakeWorker([_failed_report()])
+    resumed = _search(tightened, resumed_worker, monkeypatch)
+    assert resumed_worker.calls == [0], "the resume finished trial 0 rather than opening trial 1"
+    assert resumed.trials == 1
+    assert pending_reservations(search_store) == ()
+
+
+def test_the_ledger_is_derived_from_the_retained_records(
+    protocol: ManualSearchProtocol, search_store: StorageRoot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Accounting a resume can recover has to be derivable, not carried in a counter that can lag."""
+    tightened = replace(protocol, budget=replace(protocol.budget, trials=2))
+    _search(tightened, _FakeWorker([_failed_report(), _failed_report()]), monkeypatch)
+    derived = ledger_of(search_store)
+    assert (derived.trials, derived.stored_bytes) == (2, 8192)
+    (trial_directory(search_store, 1) / "outcome.json").unlink()
+    assert ledger_of(search_store).trials == 1, "the ledger follows the records, not a stored total"
+
+
+@pytest.mark.usefixtures("search_store")
+def test_a_spent_cap_schedules_no_worker(protocol: ManualSearchProtocol, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A resumed invocation with its budget spent does nothing at all."""
+    tightened = replace(protocol, budget=replace(protocol.budget, trials=1))
+    _search(tightened, _FakeWorker([_failed_report()]), monkeypatch)
+    resumed = _FakeWorker([_failed_report()])
+    _search(tightened, resumed, monkeypatch)
+    assert resumed.calls == []
+
+
+@pytest.mark.usefixtures("search_store")
+def test_a_worker_is_given_the_remaining_allowance_as_its_timeout(
+    protocol: ManualSearchProtocol, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The elapsed cap has to constrain a running worker, not only the gap between trials."""
+    seen: list[float | None] = []
+
+    def recording(command: Sequence[str], *, timeout: float | None = None) -> subprocess.CompletedProcess[bytes]:
+        seen.append(timeout)
+        return _FakeWorker([_failed_report()])(command, timeout=timeout)
+
+    tightened = replace(protocol, budget=replace(protocol.budget, trials=1, hours=0.5))
+    monkeypatch.setattr(manual_search_run, "spawn_trial", recording)
+    manual_search_run.run_search(tightened, PROTOCOL_FILE, root=ROOT, exploratory=True)
+    assert seen == [pytest.approx(0.5 * 3600.0 - manual_search_run.HEADROOM_S)]
+
+
+def test_a_report_for_another_trial_is_refused(search_store: StorageRoot) -> None:
+    """A report is not evidence: it must answer for the trial that was scheduled."""
+    reservation = TrialReservation(trial=0, configuration="search-t0000", point=POINT, protocol_sha256="a" * 64)
+    with pytest.raises(ValueError, match="names trial 999"):
+        verified_outcome(search_store, reservation, replace(_failed_report(), trial=999), seconds=1.0)
+
+
+def test_a_scored_report_must_point_at_evidence() -> None:
+    """Counts alone cannot be scored; a scored candidate says where its evidence is."""
+    with pytest.raises(ValueError, match="evidence"):
+        TrialResult(
+            trial=0,
+            successes=2,
+            runs=2,
+            statuses=("completed", "completed"),
+            scenarios=("nominal",),
+            seconds=1.0,
+            stored_bytes=10,
+        )

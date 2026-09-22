@@ -65,18 +65,40 @@ evaluates through the closed experiment's own runner, and the frozen manifest is
 never written to. `study_model` is published for the same reason, with a test
 that it still reproduces a frozen entry's fit identity.
 
-Budgets are a `BudgetLedger` persisted on the study itself, so trials, elapsed
-seconds and stored bytes accumulate across resumed invocations; each approved
-cap stops scheduling on its own and none is ever enlarged. A worker that fails
-consumes its trial, and its partial work stays where it was written.
+Each trial is **reserved** before its worker starts: a record under
+`armrc://reports/task_1a_manual_search/trials/trial-NNNN/` names the trial, the
+configuration and the exact point. A resumed search finishes every pending
+reservation under its original number before it draws anything new, so
+interrupted work is never replaced by a fresh trial. The ledger is **derived**
+from those retained records — an outcome charges its trial, an interrupted
+trial charges the cost that was measured — so an interruption between
+finalizing a trial and accounting for it cannot lose the spend.
+
+A worker that reports a fit failure has failed a trial and consumed its slot; a
+worker that writes no report has been interrupted, which leaves its reservation
+pending for recovery. The remaining elapsed allowance, less the headroom kept
+to persist an in-flight result, is the worker's timeout, so the ceiling
+constrains a running worker and not only the gap between trials.
+
+A report is not evidence. The parent refuses one that names another trial, and
+a scored candidate must point at a model evidence manifest that verifies
+against its digest and belongs to this trial's configuration; the successes are
+recounted from that manifest's own runs. Stored bytes are measured from the
+directories the worker actually wrote — each run's payloads, the evidence
+manifest and the fit — including for a candidate that failed.
 
 ### What the tests hold
 
-`tests/unit/test_manual_search_run.py` (29 cases): the nominal scope is refused
+`tests/unit/test_manual_search_run.py` (33 cases): the nominal scope is refused
 when widened, replaced, emptied or repeated — in the module, in `evaluate_trial`
 and at the real worker entry point, through a subprocess that writes no report;
 a worker report that cannot be true is refused; the ledger accumulates, refuses
 negative spend and honours a tightened cap; the parent spends its budget once
 across resumes and a failed worker consumes its trial; the worker evaluates
 exactly two nominal runs over the fixture study; and a sampled fit reproduces
-bitwise in a fresh interpreter, which is why workers are processes.
+bitwise in a fresh interpreter, which is why workers are processes. The resume
+protocol is held to the same standard: a failed fit consumes its trial and is
+charged, an interruption — a crash or a reached deadline — leaves the trial
+pending and resumes under its own number, the ledger follows the records rather
+than a stored total, a spent cap schedules no worker at all, and the worker is
+given the remaining allowance as its timeout.
