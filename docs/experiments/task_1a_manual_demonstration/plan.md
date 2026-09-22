@@ -883,3 +883,36 @@ takes were accepted; the three rejections failed only the one-second dwell
 duration. The dwell tolerance stays at a 1 cm radius, since the closed-loop
 evaluation uses the same target region. Practice payloads remain disposable and
 are not retained.
+
+## 12. Gate decision (2026-09-22)
+
+The owner closed M3MAN-GATE on 2026-09-22, accepting the assistant-authored
+[report](report/report.md) and the reproduction evidence behind it, and closing
+the experiment. The recorded finding is the accepted report's:
+
+- **Negative for the primary question.** Ten human demonstrations did not
+  consistently improve reaching and holding robustness over one under this
+  fixed learner, configuration panel and tracker pair. Across the six frozen
+  configurations and two trackers, the median paired effect of ten versus one
+  was negative in six combinations, tied in six and positive in none. Ten
+  demonstrations did rescue individual weak singletons; those gains did not
+  become a consistent advantage.
+- **Copies are neutral.** All 7,800 matched singleton-versus-copy comparisons
+  agreed on every scenario verdict, with regularization held equivalent, so
+  repeating the same recording bought no robustness.
+- **Synthetic contractive variation is not a dependable substitute.** It
+  rescued some recordings, harmed others, and reduced one otherwise strong
+  configuration to zero successes for every parent under both trackers.
+- **The recordings themselves were usually trackable.** Replay succeeded in
+  7,750 of 7,800 runs, so the larger failures of learned motion are not
+  explained by unfollowable human recordings.
+
+The result is a negative finding for "more demonstrations improve this fixed
+learner without further changes", not evidence that diverse human teaching is
+generally unhelpful: the configurations were inherited and unoptimized for this
+bank, and neither learner nor tracker was tuned for it.
+
+Follow-up decision: the experiment is concluded. No model is selected, and
+additional held-out recordings, tuning, and any confirmatory study remain
+deferred to a separately approved plan. No deployment or hardware operation is
+implied or authorized. The M3MAN milestone closes.

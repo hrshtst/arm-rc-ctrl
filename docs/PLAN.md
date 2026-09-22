@@ -1,8 +1,8 @@
 # Reservoir-Computing Robot-Arm Controller: Implementation Plan
 
-**Status:** Implemented through M3REP and M3MAN; manual-demonstration report awaiting owner review
+**Status:** Implemented through M3REP and M3MAN; the manual-demonstration experiment closed at its gate on 2026-09-22 with a negative finding. Task 1-b awaits its protocol lock
 
-**Last updated:** 2026-09-21
+**Last updated:** 2026-09-22
 
 **Companion task ledger:** [TASKS.md](TASKS.md)
 
@@ -288,10 +288,16 @@ operation is authorized by this pilot approval.
 
 #### Approved manual-demonstration follow-up
 
-The implementation and reproduction audit are complete. The reporting
-assistant has authored the [human-readable interpretation](experiments/task_1a_manual_demonstration/report/report.md)
-under M3MAN-012 for owner review; M3MAN-GATE remains open. The historical
-protocol below records the approved design rather than current task status.
+The experiment is closed. The owner accepted the assistant-authored
+[human-readable interpretation](experiments/task_1a_manual_demonstration/report/report.md)
+and its reproduction evidence at M3MAN-GATE on 2026-09-22 and recorded a
+negative finding for the one-versus-ten question, with copies neutral,
+synthetic contractive variation unreliable, and the recordings themselves
+trackable; the decision and its follow-up deferrals are in
+[plan section 12](experiments/task_1a_manual_demonstration/plan.md#12-gate-decision-2026-09-22)
+and the ledger row. No model is selected, and further recordings, tuning or any
+confirmatory study need a separately approved plan. The historical protocol
+below records the approved design rather than current task status.
 
 The owner approved
 [`task_1a_manual_v1`](experiments/task_1a_manual_demonstration/plan.md), including

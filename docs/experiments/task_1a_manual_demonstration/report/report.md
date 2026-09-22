@@ -395,3 +395,10 @@ and headline counts to their evidence. No experimental evidence was rewritten.
 **M3MAN-012 deliverable: ready for owner review.** M3MAN-GATE remains the owner's
 decision; acceptance of this report does not imply new tuning, confirmation,
 physical robot operation or deployment.
+
+*Recorded after issue: the owner accepted this report and its reproduction
+evidence at M3MAN-GATE on 2026-09-22 and closed the experiment, with no model
+selected and further recordings, tuning and any confirmatory study deferred to
+a separately approved plan. The decision, in the owner's recorded terms, is in
+[plan section 12](../plan.md#12-gate-decision-2026-09-22) and the ledger row.
+The interpretation above is unchanged.*

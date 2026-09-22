@@ -298,7 +298,10 @@ of what replaced it.
 
 The [assistant-authored report](docs/experiments/task_1a_manual_demonstration/report/report.md)
 interprets the audited one-versus-ten comparison, copy controls and synthetic
-variation by configuration and tracker. The owner review remains M3MAN-GATE.
+variation by configuration and tracker. The owner accepted it at M3MAN-GATE on
+2026-09-22 and closed the experiment with a negative finding for the
+one-versus-ten question; the decision is in the ledger and
+[plan section 12](docs/experiments/task_1a_manual_demonstration/plan.md#12-gate-decision-2026-09-22).
 The [reproduction guide](docs/experiments/task_1a_manual_demonstration/report/reproduce.md)
 and `scripts/render_manual_report.py` recreate its plots and animation from
 the existing evidence without new training or simulation.
