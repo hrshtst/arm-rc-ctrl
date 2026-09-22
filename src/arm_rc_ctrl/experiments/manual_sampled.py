@@ -48,6 +48,7 @@ __all__ = [
     "configuration_label",
     "contractive_bank",
     "fixed_policy_mismatches",
+    "point_mismatches",
     "sampled_configuration",
     "sampled_esn",
     "sampled_point",
@@ -117,55 +118,89 @@ def _range_complaint(name: str, value: float, bounds: FloatRange | IntRange) -> 
     return None
 
 
+def point_mismatches(space: ManualSearchSpace, point: SampledPoint) -> list[str]:
+    """Every way a point departs from the approved space.
+
+    This is the one validator. A point reaches training through a
+    configuration, so the configuration checks it too: a point built directly
+    is as trainable as one read from a trial's parameters, and requiring the
+    caller to remember which door to use would be no protection at all.
+    """
+    return [
+        complaint
+        for complaint in (
+            _range_complaint("n_neurons", point.n_neurons, space.n_neurons),
+            _range_complaint("spectral_radius", point.spectral_radius, space.spectral_radius),
+            _range_complaint("sparsity", point.sparsity, space.sparsity),
+            _range_complaint("leak_rate", point.leak_rate, space.leak_rate),
+            _range_complaint("input_scaling", point.input_scaling, space.input_scaling),
+            _range_complaint("alpha_0", point.alpha_0, space.alpha_0),
+            (
+                None
+                if point.warmup_s in space.warmup_s
+                else f"warmup_s: {point.warmup_s!r} is not one of {space.warmup_s}"
+            ),
+        )
+        if complaint is not None
+    ]
+
+
+def _integral(name: str, value: float) -> int:
+    """``value`` as the integer it exactly is, refusing one that would be truncated."""
+    number = float(value)
+    if not number.is_integer():
+        msg = f"{name}: {value!r} is not a whole number; truncating it would train another point"
+        raise ValueError(msg)
+    return int(number)
+
+
 def sampled_point(space: ManualSearchSpace, params: Mapping[str, float]) -> SampledPoint:
     """Read a trial's parameters as a point of the approved space, refusing anything else.
 
     Optuna hands back a mapping; this is where it becomes a checked value. A
     missing parameter is never defaulted and an extra one is never ignored,
     because either would mean the trial searched something the owner did not
-    approve.
+    approve. A reservoir size is checked for integrality before it is converted,
+    so a fractional value is refused rather than quietly truncated onto the
+    grid.
     """
     missing = [name for name in SAMPLED_PARAMETERS if name not in params]
     unknown = [name for name in params if name not in SAMPLED_PARAMETERS]
     if missing or unknown:
         msg = f"a trial samples exactly {list(SAMPLED_PARAMETERS)}; missing {missing}, unknown {unknown}"
         raise ValueError(msg)
-    warmup_s = float(params["warmup_s"])
-    complaints = [
-        complaint
-        for complaint in (
-            _range_complaint("n_neurons", int(params["n_neurons"]), space.n_neurons),
-            _range_complaint("spectral_radius", float(params["spectral_radius"]), space.spectral_radius),
-            _range_complaint("sparsity", float(params["sparsity"]), space.sparsity),
-            _range_complaint("leak_rate", float(params["leak_rate"]), space.leak_rate),
-            _range_complaint("input_scaling", float(params["input_scaling"]), space.input_scaling),
-            _range_complaint("alpha_0", float(params["alpha_0"]), space.alpha_0),
-            None if warmup_s in space.warmup_s else f"warmup_s: {warmup_s!r} is not one of {space.warmup_s}",
-        )
-        if complaint is not None
-    ]
-    if complaints:
-        msg = "; ".join(complaints)
-        raise ValueError(msg)
-    return SampledPoint(
-        n_neurons=int(params["n_neurons"]),
+    point = SampledPoint(
+        n_neurons=_integral("n_neurons", params["n_neurons"]),
         spectral_radius=float(params["spectral_radius"]),
         sparsity=float(params["sparsity"]),
         leak_rate=float(params["leak_rate"]),
         input_scaling=float(params["input_scaling"]),
         alpha_0=float(params["alpha_0"]),
-        warmup_s=warmup_s,
+        warmup_s=float(params["warmup_s"]),
     )
+    complaints = point_mismatches(space, point)
+    if complaints:
+        msg = "; ".join(complaints)
+        raise ValueError(msg)
+    return point
 
 
 def sampled_configuration(protocol: ManualSearchProtocol, point: SampledPoint, *, trial: int) -> StudyConfiguration:
     """The configuration a trial defines: its sampled point over the protocol's fixed policy.
+
+    The point is checked against the approved space here as well as where a
+    trial's parameters are read, because this is where a point becomes
+    trainable: a directly constructed point is no less real than a sampled one.
 
     The reservoir is the base model configuration's with the sampled
     parameters and the fixed seed, so anything the base file declares and the
     search does not touch is inherited rather than restated. The estimator
     cutoffs are the fixed policy's, which is what makes every trial comparable.
     """
+    complaints = point_mismatches(protocol.space, point)
+    if complaints:
+        msg = "; ".join(complaints)
+        raise ValueError(msg)
     base = load_model_config(protocol.model)
     reservoir = replace(
         base.esn.reservoir,

@@ -301,3 +301,62 @@ def test_two_trials_at_the_same_point_are_different_configurations(protocol: Man
     second = sampled_configuration(protocol, POINT, trial=10)
     assert first.label != second.label
     assert replace(first, label=second.label, source_trial=second.source_trial) == second
+
+
+# --- what the owner's review of 2026-09-23 found ------------------------------------------------
+
+
+@pytest.mark.parametrize("n_neurons", [100.9, 200.5, 400.9, 149.5])
+def test_a_fractional_reservoir_size_is_refused_rather_than_truncated(
+    protocol: ManualSearchProtocol, n_neurons: float
+) -> None:
+    """Truncating would train a different point from the one the trial supplied."""
+    params = {
+        "n_neurons": n_neurons,
+        "spectral_radius": 1.0,
+        "sparsity": 0.7,
+        "leak_rate": 0.1,
+        "input_scaling": 0.5,
+        "alpha_0": 0.05,
+        "warmup_s": 1.0,
+    }
+    with pytest.raises(ValueError, match="n_neurons"):
+        sampled_point(protocol.space, params)
+
+
+def test_an_integral_reservoir_size_given_as_a_float_is_accepted(protocol: ManualSearchProtocol) -> None:
+    """A resumed study may hand back 200.0; that is the same point, and it stays on the grid."""
+    params = {
+        "n_neurons": 200.0,
+        "spectral_radius": 1.0,
+        "sparsity": 0.7,
+        "leak_rate": 0.1,
+        "input_scaling": 0.5,
+        "alpha_0": 0.05,
+        "warmup_s": 1.0,
+    }
+    assert sampled_point(protocol.space, params).n_neurons == 200
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("n_neurons", 125),
+        ("n_neurons", 90),
+        ("input_scaling", 2.0),
+        ("spectral_radius", 1.4),
+        ("alpha_0", 2.0),
+        ("warmup_s", 0.75),
+    ],
+)
+def test_a_point_built_directly_is_still_checked_against_the_approved_space(
+    protocol: ManualSearchProtocol, field: str, value: float
+) -> None:
+    """A configuration is where a point becomes trainable, so that is where the space is enforced."""
+    with pytest.raises(ValueError, match=field):
+        sampled_configuration(protocol, replace(POINT, **{field: value}), trial=12)
+
+
+def test_an_approved_point_built_directly_still_builds_a_configuration(protocol: ManualSearchProtocol) -> None:
+    """The check refuses what the owner did not approve, and nothing else."""
+    assert sampled_configuration(protocol, POINT, trial=13).reservoir.n_neurons == POINT.n_neurons
