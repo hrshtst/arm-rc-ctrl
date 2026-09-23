@@ -170,3 +170,32 @@ nobody was left to measure or to name what had been written.
    candidate branch. The error now lives with the fit cache, the lowest layer
    that serves stored evidence, and the fit readers raise it, so a corrupted
    cache propagates, leaves no report and stays recoverable.
+
+## M3MS-003, round 4 (2026-09-23): three findings, two P1
+
+The owner reproduced all three against temporary fixture stores.
+
+1. **P1 — a fresh parent could not verify valid evidence.** The parent probed
+   its execution environment before the numerical runtimes were loaded, so its
+   identity omitted rclib's OpenMP runtime and the study it was resuming
+   refused it — invisible in every in-process test, because the fixture loads
+   those runtimes first. The parent no longer keeps a preamble of its own: its
+   fit inputs are prepared through `prepare_runner`, the path a worker uses,
+   which requires the canonical environment, loads the runtimes before the
+   probe and binds the study. The successful path is now tested in a fresh
+   interpreter, where it is the only place it can fail.
+2. **P1 — staged storage became uncharged at finalization.** Unpublished
+   payloads were charged only while a reservation was pending, so finalizing
+   the trial that wrote them handed the search a fresh allowance while the
+   bytes remained: a 1,000,000-byte staged payload dropped out of the ledger.
+   They are charged to the search itself now, once per ledger and for as long
+   as they are in the store, because no outcome counts them and finalizing a
+   trial does not remove them.
+3. **P2 — an undecodable cached payload was still a failed candidate.** The
+   digest and shape checks raised `EvidenceIntegrityError`, but a decoding
+   failure from `np.load` — or from the record's own JSON — escaped as an
+   ordinary `ValueError`, which the worker reads as a terminal candidate
+   failure. Every read of a cached payload now goes through one guard that
+   turns anything stopping it from being read whole into an integrity fault,
+   so a truncated or overwritten cache propagates and the trial stays
+   recoverable.

@@ -224,15 +224,17 @@ def test_a_tightened_cap_binds_earlier() -> None:
 
 
 @contextmanager
-def _corrupted(path: Path) -> Generator[None]:
+def _corrupted(path: Path, content: bytes | None = None) -> Generator[None]:
     """Rewrite one stored payload for the length of a check, then restore it.
 
-    The demonstration fixture and its store are built once for the module, so
-    a check that a corrupted payload is refused has to leave the store exactly
-    as it found it.
+    ``content`` replaces the payload outright, for a file that can no longer be
+    decoded at all; the default keeps its length and breaks only its digest.
+    The demonstration fixture and its store are built once for the module, so a
+    check that a corrupted payload is refused has to leave the store exactly as
+    it found it.
     """
     original = path.read_bytes()
-    path.write_bytes(original[:-8] + bytes(8))
+    path.write_bytes(original[:-8] + bytes(8) if content is None else content)
     try:
         yield
     finally:
@@ -340,7 +342,7 @@ def test_a_scored_candidate_is_checked_against_reconstructed_inputs(
         argv=["evaluate-trial"],
         exploratory=True,
     )
-    inputs = manual_search_run.SearchInputs(fixture_search, root=manual_fixture.root, store=manual_fixture.store)
+    inputs = manual_search_run.SearchInputs(fixture_search, root=manual_fixture.root, exploratory=True)
     reservation = manual_search_run.reserve_trial(fixture_search, inputs, POINT, trial=0)
     scored = verified_outcome(
         manual_fixture.store, reservation, result, seconds=1.0, protocol=fixture_search, inputs=inputs
@@ -351,10 +353,96 @@ def test_a_scored_candidate_is_checked_against_reconstructed_inputs(
         verified_outcome(manual_fixture.store, reservation, result, seconds=1.0, protocol=fixture_search, inputs=inputs)
 
 
-def test_corrupt_cached_evidence_is_not_a_failed_candidate(
-    fixture_search: ManualSearchProtocol, manual_fixture: ManualFixture, monkeypatch: pytest.MonkeyPatch
+_FRESH_PARENT = """
+import json, sys
+from pathlib import Path
+
+from arm_rc_ctrl.experiments import manual_evaluation, manual_search, manual_search_run
+from arm_rc_ctrl.experiments.manual_fixture import manual_narrowed
+
+root = Path(sys.argv[1])
+manual_search.repository_root = lambda: root
+manual_evaluation.repository_root = lambda: root
+manual_evaluation.evaluation_scenarios = manual_narrowed
+protocol = manual_search.load_manual_search(Path(sys.argv[2]))
+inputs = manual_search_run.SearchInputs(protocol, root=root, exploratory=True)
+point = manual_search_run.sampled_point(protocol.space, json.loads(sys.argv[3]))
+reservation = manual_search_run.reserve_trial(protocol, inputs, point, trial=0)
+outcome = manual_search_run.verified_outcome(
+    manual_search_run.open_storage(),
+    reservation,
+    manual_search_run.read_result(Path(sys.argv[4])),
+    seconds=1.0,
+    protocol=protocol,
+    inputs=inputs,
+)
+print(json.dumps({"state": outcome.state, "runs": outcome.runs}))
+"""
+"""A parent that verifies one trial's evidence and nothing else, to be run in a fresh interpreter."""
+
+
+def test_a_fresh_parent_verifies_a_trials_evidence(
+    fixture_search: ManualSearchProtocol,
+    manual_fixture: ManualFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
-    """A fault in the store is not a verdict on a candidate: it propagates and the trial stays recoverable."""
+    """The parent's environment has to be the one the study was frozen in, which only a fresh process shows.
+
+    Every in-process test has already loaded the numerical runtimes through
+    the fixture, so a parent that probed its environment before loading them
+    looks correct here and is refused by the very study it is resuming. The
+    successful path is therefore tested where it can fail: in an interpreter
+    that starts with nothing loaded.
+    """
+    for name, value in manual_fixture.env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(manual_evaluation, "repository_root", lambda: manual_fixture.root)
+    monkeypatch.setattr(manual_evaluation, "evaluation_scenarios", manual_narrowed)
+    result = evaluate_trial(
+        fixture_search,
+        trial=0,
+        point=POINT,
+        scenarios=("nominal",),
+        root=manual_fixture.root,
+        argv=["evaluate-trial"],
+        exploratory=True,
+    )
+    report = tmp_path / "result.json"
+    write_record(report, result)
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            _FRESH_PARENT,
+            str(manual_fixture.root),
+            str(manual_fixture.root / "configs" / "studies" / "fixture_search.toml"),
+            json.dumps(to_mapping(POINT)),
+            str(report),
+        ],
+        check=False,
+        capture_output=True,
+        env=dict(manual_fixture.env),
+        cwd=ROOT,
+    )
+    assert completed.returncode == 0, completed.stderr.decode("utf-8", "replace")
+    assert json.loads(completed.stdout) == {"state": "scored", "runs": 2}
+
+
+@pytest.mark.parametrize("content", [None, b"this is not an npy file at all"])
+def test_corrupt_cached_evidence_is_not_a_failed_candidate(
+    fixture_search: ManualSearchProtocol,
+    manual_fixture: ManualFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    content: bytes | None,
+) -> None:
+    """A fault in the store is not a verdict on a candidate: it propagates and the trial stays recoverable.
+
+    Both kinds of fault, because they arrive by different routes: a payload
+    whose digest disagrees is caught by a check, while one that cannot be
+    decoded at all is whatever the decoder raises, and that was an ordinary
+    ``ValueError`` the worker read as a failed fit.
+    """
     for name, value in manual_fixture.env.items():
         monkeypatch.setenv(name, value)
     monkeypatch.setattr(manual_evaluation, "repository_root", lambda: manual_fixture.root)
@@ -371,7 +459,8 @@ def test_corrupt_cached_evidence_is_not_a_failed_candidate(
     configuration = sampled_configuration(fixture_search, POINT, trial=0)
     entry = sampled_entry(manual_fixture.manifest, configuration, arm_of("M10"))
     weights = manual_fixture.store.root / cache_uri(entry.fit_identity).relative_path / WEIGHTS_FILE
-    with _corrupted(weights), pytest.raises(manual_evaluation.EvidenceIntegrityError, match="recorded digest"):
+    expected = r"recorded digest|cannot be read"
+    with _corrupted(weights, content), pytest.raises(manual_evaluation.EvidenceIntegrityError, match=expected):
         evaluate_trial(fixture_search, **kwargs)
 
 
@@ -775,15 +864,33 @@ def test_a_trial_abandoned_for_unusable_parameters_still_spends_its_slot(
     assert worker.calls == [], "so the one-trial cap scheduled nothing after it"
 
 
-def test_bytes_staged_before_any_claim_are_charged_to_the_work_in_flight(search_store: StorageRoot) -> None:
-    """A payload killed between staging and its claim has no owner; the serial protocol has only one."""
+def test_bytes_staged_before_any_claim_stay_charged_across_finalization(search_store: StorageRoot) -> None:
+    """A payload killed between staging and its claim has no owner, and finalizing a trial does not remove it.
+
+    Charging it only while a reservation is pending would hand the search a
+    fresh allowance at every finalization, though the bytes are still there.
+    """
     reservation = _reservation()
-    reservation_file = trial_directory(search_store, reservation.trial) / "reservation.json"
-    write_record(reservation_file, reservation)
+    directory = trial_directory(search_store, reservation.trial)
+    write_record(directory / "reservation.json", reservation)
     staging = search_store.root / "runs" / "staging-0123456789abcdef"
     staging.mkdir(parents=True)
-    (staging / "arrays.npz").write_bytes(b"x" * 2048)
-    assert manual_search_run.unpublished_bytes(search_store) == 2048
-    assert ledger_of(search_store).stored_bytes >= 2048, "the trial in flight is charged for it"
-    reservation_file.unlink()
-    assert ledger_of(search_store).stored_bytes == 0, "with nothing in flight there is nothing to charge it to"
+    (staging / "arrays.npz").write_bytes(b"x" * 1_000_000)
+    assert manual_search_run.unpublished_bytes(search_store) == 1_000_000
+    assert ledger_of(search_store).stored_bytes >= 1_000_000, "the staged payload is charged while it is in flight"
+    write_record(
+        directory / "outcome.json",
+        TrialOutcome(
+            trial=reservation.trial,
+            state="failed",
+            score=None,
+            successes=0,
+            runs=0,
+            seconds=1.0,
+            stored_bytes=0,
+            failure="the fit did not converge",
+        ),
+    )
+    finalized = ledger_of(search_store)
+    assert finalized.trials == 1
+    assert finalized.stored_bytes >= 1_000_000, "and it is still charged once the trial is finalized"

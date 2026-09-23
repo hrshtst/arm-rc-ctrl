@@ -91,9 +91,11 @@ run's identity once the run is accepted and before the staging directory is
 renamed into the runs bucket, and the evaluation keeps those claims beside its
 progress record. The parent therefore charges the fit cache, the evidence
 directory and every run that directory owns — including a payload whose
-progress entry never landed — plus the bytes staged before any claim, which
-belong to the one worker the serial protocol allows. A progress or claims
-record that cannot be read is refused rather than counted as no runs.
+progress entry never landed — plus the bytes staged before any claim. Staged
+bytes are charged to the search itself, once per ledger and for as long as they
+are in the store: no outcome counts them, and finalizing the trial that wrote
+them does not remove them. A progress or claims record that cannot be read is
+refused rather than counted as no runs.
 
 A report is not evidence. The parent refuses one that names another trial, and
 a scored candidate must point at a model evidence manifest that verifies
@@ -110,11 +112,22 @@ A fault in the store is not a verdict on a candidate.
 `EvidenceIntegrityError` lives with the fit cache, the lowest layer that serves
 stored evidence, and both the fit readers and the run readers raise it, so
 corrupted evidence propagates out of the worker, leaves no report and keeps
-the trial recoverable; only a numerical refusal is a failed candidate.
+the trial recoverable; only a numerical refusal is a failed candidate. Every
+read of a cached payload passes through one guard, because a payload that
+cannot be decoded is as much a fault in the store as one whose digest
+disagrees, and the decoder's own `ValueError` would otherwise be read as a
+verdict.
+
+The parent keeps no preamble of its own. Its fit inputs come from
+`prepare_runner`, the path a worker uses, which requires the canonical
+environment and loads the numerical runtimes before the environment is probed:
+the parent's execution identity has to be the identity the study was frozen
+under, and a parent that probed before loading rclib's OpenMP runtime is
+refused by the very study it is resuming.
 
 ### What the tests hold
 
-`tests/unit/test_manual_search_run.py` (45 cases): the nominal scope is refused
+`tests/unit/test_manual_search_run.py` (48 cases): the nominal scope is refused
 when widened, replaced, emptied or repeated — in the module, in `evaluate_trial`
 and at the real worker entry point, through a subprocess that writes no report;
 a worker report that cannot be true is refused; the ledger accumulates, refuses
@@ -134,4 +147,10 @@ spends the slot it took, a real trial's evidence is refused once its cached
 weights no longer match their digest, and a corrupted cache propagates instead
 of being scored as a failed candidate. `tests/unit/test_run_record.py` holds
 the claim itself: a run is claimed before its payload is published, and a
-refused run is never claimed.
+refused run is never claimed. The fourth round's findings need a fresh
+interpreter and the store: a parent that starts with nothing loaded verifies a
+real trial's evidence and scores it, staged bytes stay charged once the trial
+is finalized, and an undecodable cache — not only one whose digest disagrees —
+propagates out of the worker rather than failing the candidate
+(`tests/unit/test_manual_numerics.py` holds the same guarantee at each of the
+three cached payloads).

@@ -38,6 +38,7 @@ import json
 import math
 import shutil
 import time
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Final, cast
@@ -56,7 +57,7 @@ from arm_rc_ctrl.storage import AccessMode, ArtifactUri, StorageRoot
 from arm_rc_ctrl.validation import SHA256_HEX_LENGTH, is_hex, validate_utc_timestamp
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Generator, Sequence
     from pathlib import Path
 
     from numpy.typing import NDArray
@@ -93,6 +94,25 @@ __all__ = [
 ]
 
 
+@contextmanager
+def _readable(described: str, path: Path) -> Generator[None]:
+    """Read a cache payload, turning anything that stops it being read whole into an integrity fault.
+
+    A payload that cannot be decoded is exactly as much a fault in the store as
+    one whose digest disagrees: a truncated or overwritten file is not a verdict
+    on the candidate it was cached for. Leaving a decoding error as a plain
+    ``ValueError`` would let a search read it as a failed fit and spend the
+    trial, so every read of a cached payload comes through here.
+    """
+    try:
+        yield
+    except EvidenceIntegrityError:
+        raise
+    except (OSError, ValueError, TypeError, KeyError, EOFError) as error:
+        msg = f"{described} cannot be read from {path.name}: {type(error).__name__}: {error}"
+        raise EvidenceIntegrityError(msg) from error
+
+
 class EvidenceIntegrityError(ValueError):
     """Stored evidence does not match what its own records say it is.
 
@@ -116,6 +136,8 @@ RECIPE_FILE: Final = "recipe.toml"
 FIT_FILE: Final = "fit.json"
 WEIGHTS_FILE: Final = "weights.npy"
 _SHAPE_DIMENSIONS: Final = 2
+_SHORT: Final = 12
+"""Digest prefix length in messages; the whole value is what is ever compared."""
 
 RECIPE_HEADER: Final = (
     "# Deterministic model recipe (docs/PLAN.md section 8): rebuild and refit, never unpickle.\n"
@@ -506,30 +528,36 @@ class ManualFitStore:
 
     def read_record(self, identity: str) -> ManualFitRecord:
         """The strictly loaded ``fit.json`` of ``identity``."""
-        text = (self.directory(identity) / FIT_FILE).read_text(encoding="utf-8")
-        record = from_mapping(cast("dict[str, object]", json.loads(text)), ManualFitRecord)
+        path = self.directory(identity) / FIT_FILE
+        with _readable(f"cached fit {identity[:_SHORT]}", path):
+            record = from_mapping(
+                cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8"))), ManualFitRecord
+            )
         if record.identity != identity:
-            msg = f"cached fit {identity[:12]} carries the identity {record.identity[:12]}"
+            msg = f"cached fit {identity[:_SHORT]} carries the identity {record.identity[:_SHORT]}"
             raise EvidenceIntegrityError(msg)
         return record
 
     def read_weights(self, record: ManualFitRecord) -> NDArray[np.float64]:
         """The digest-verified weights of ``record``."""
-        weights = np.asarray(
-            np.load(self.directory(record.identity) / WEIGHTS_FILE, allow_pickle=False), dtype=np.float64
-        )
+        path = self.directory(record.identity) / WEIGHTS_FILE
+        with _readable(f"cached weights of {record.identity[:_SHORT]}", path):
+            weights = np.asarray(np.load(path, allow_pickle=False), dtype=np.float64)
         if array_digest(weights) != record.weights_sha256 or weights.shape != record.weights_shape:
-            msg = f"cached weights of {record.identity[:12]} do not match their recorded digest or shape"
+            msg = f"cached weights of {record.identity[:_SHORT]} do not match their recorded digest or shape"
             raise EvidenceIntegrityError(msg)
         return weights
 
     def read_recipe(self, record: ManualFitRecord) -> ModelRecipe:
         """The digest-verified recipe of ``record``."""
         path = self.directory(record.identity) / RECIPE_FILE
-        if sha256_file(path) != record.recipe_sha256:
-            msg = f"cached recipe of {record.identity[:12]} does not match its recorded digest"
+        with _readable(f"cached recipe of {record.identity[:_SHORT]}", path):
+            digest = sha256_file(path)
+        if digest != record.recipe_sha256:
+            msg = f"cached recipe of {record.identity[:_SHORT]} does not match its recorded digest"
             raise EvidenceIntegrityError(msg)
-        return load_recipe(path)
+        with _readable(f"cached recipe of {record.identity[:_SHORT]}", path):
+            return load_recipe(path)
 
     def write(self, record: ManualFitRecord, recipe_text: str, weights: NDArray[np.float64]) -> Path:
         """Write a complete fit transactionally; an existing fit under the identity is an error."""

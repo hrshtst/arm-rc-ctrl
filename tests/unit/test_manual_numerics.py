@@ -29,6 +29,7 @@ from arm_rc_ctrl.experiments.manual_fits import (
     RECIPE_FILE,
     WEIGHTS_FILE,
     EpisodeIdentity,
+    EvidenceIntegrityError,
     ManualFitRecord,
     ManualFitStore,
     cache_uri,
@@ -196,6 +197,47 @@ def test_weighted_normal_system_matches_an_independently_scaled_solve() -> None:
 
 
 # --- the fit cache --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("name", "content"),
+    [
+        (WEIGHTS_FILE, b"this is not an npy file at all"),
+        (WEIGHTS_FILE, b"\x93NUMPY\x01\x00truncated"),
+        (FIT_FILE, b'{"identity": "trunca'),
+        (RECIPE_FILE, b"[not valid toml"),
+    ],
+)
+def test_a_cache_payload_that_cannot_be_read_is_an_integrity_failure(
+    manual_fixture: ManualFixture, name: str, content: bytes
+) -> None:
+    """A payload that cannot be decoded is a fault in the store, exactly like one whose digest disagrees.
+
+    The distinction matters to a caller: a reader that saw a plain
+    ``ValueError`` here would be free to treat a truncated cache as a verdict
+    on the candidate it was cached for, spend the trial and move on.
+    """
+    f = manual_fixture
+    fits = ManualFitStore(f.store)
+    entry = f.manifest.entry(CONFIGURATION, "S/D04")
+    record = fits.fit_or_load(entry, f.inputs, now=f.now).record
+    path = fits.directory(record.identity) / name
+    original = path.read_bytes()
+    path.write_bytes(content)
+    try:
+        with pytest.raises(EvidenceIntegrityError, match=r"cannot be read|digest"):
+            _read_payload(fits, record, name)
+    finally:
+        path.write_bytes(original)
+
+
+def _read_payload(fits: ManualFitStore, record: ManualFitRecord, name: str) -> object:
+    """Read one cached payload through the verified reader that serves it."""
+    if name == WEIGHTS_FILE:
+        return fits.read_weights(record)
+    if name == FIT_FILE:
+        return fits.read_record(record.identity)
+    return fits.read_recipe(record)
 
 
 def test_the_fit_cache_serves_verifies_and_refuses_a_stale_fit(manual_fixture: ManualFixture) -> None:

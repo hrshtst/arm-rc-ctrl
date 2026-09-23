@@ -40,12 +40,10 @@ from typing import TYPE_CHECKING, Final, Literal, cast
 from optuna.trial import TrialState
 
 from arm_rc_ctrl.config import from_mapping, to_mapping
-from arm_rc_ctrl.execution import collect_execution
 from arm_rc_ctrl.experiments.manual_evaluation import (
     PROGRESS_FILE,
     RUN_CLAIMS_FILE,
     EvidenceIntegrityError,
-    ManualStudyContext,
     load_manual_evaluation_config,
     load_manual_model_evidence,
     load_verified_run,
@@ -370,7 +368,7 @@ def ledger_of(store: StorageRoot) -> BudgetLedger:
     between finalizing a trial and recording its spend cannot lose the spend,
     because there is no separate place for it to be lost from.
     """
-    trials, seconds, stored, pending = 0, 0.0, 0, False
+    trials, seconds, stored = 0, 0.0, 0
     for directory in trial_directories(store):
         outcome_file, spend_file, reservation_file = (
             directory / "outcome.json",
@@ -386,10 +384,9 @@ def ledger_of(store: StorageRoot) -> BudgetLedger:
         if reservation_file.is_file():
             # An unfinished trial has still written whatever it wrote, and the ceiling counts it.
             stored += retained_bytes(store, read_record(reservation_file, TrialReservation))
-            pending = True
-    return BudgetLedger(
-        trials=trials, seconds=seconds, stored_bytes=stored + (unpublished_bytes(store) if pending else 0)
-    )
+    # Staged payloads are charged whatever the trials are doing: no outcome counts them, and
+    # finalizing the trial that wrote them does not remove them from the store.
+    return BudgetLedger(trials=trials, seconds=seconds, stored_bytes=stored + unpublished_bytes(store))
 
 
 def trial_directories(store: StorageRoot) -> list[Path]:
@@ -438,9 +435,10 @@ def unpublished_bytes(store: StorageRoot) -> int:
 
     A run payload is written into a staging directory and published by
     renaming it, and its owner claims it between the two. A process killed
-    before that claim leaves bytes with no owner at all; the protocol runs one
-    worker at a time, so they belong to the trial in flight and are counted
-    once for the search rather than per trial.
+    before that claim leaves bytes with no owner at all: no trial's outcome
+    counts them and finalizing the trial that wrote them does not remove them.
+    They are therefore charged to the search itself, once per ledger and for as
+    long as they are in the store.
     """
     runs = store.root / _RUNS_BUCKET
     return _bytes_of(sorted(runs.glob("staging-*"))) if runs.is_dir() else 0
@@ -564,22 +562,36 @@ class SearchInputs:
     once and only when that happens.
     """
 
-    def __init__(self, protocol: ManualSearchProtocol, *, root: Path, store: StorageRoot) -> None:
+    def __init__(self, protocol: ManualSearchProtocol, *, root: Path, exploratory: bool = False) -> None:
         """Read the frozen study and the evaluation this search inherits."""
         self.manifest = load_study(protocol.study)
         self.config = load_manual_evaluation_config(protocol.comparison.evaluation)
         self.evaluation_file = protocol.comparison.evaluation
         self.root = root
-        self._store = store
         self._study_file = protocol.study
+        self._exploratory = exploratory
         self._fits: ManualFitInputs | None = None
 
     def fit_inputs(self) -> ManualFitInputs:
-        """The study's own fit inputs, loaded once: the samples a manifest check compares against."""
+        """The study's own fit inputs, loaded once: the samples a manifest check compares against.
+
+        Prepared through `prepare_runner`, the path a worker uses, rather than
+        a second preamble of its own. The parent's execution identity has to be
+        the identity the study was frozen under, and that identity records the
+        numerical runtimes the probe can see: a parent that probed before
+        loading rclib's OpenMP runtime records a different environment and is
+        refused by the very study it is resuming. Sharing the prepared path is
+        what keeps the two from drifting.
+        """
         if self._fits is None:
-            execution = collect_execution(command=f"python -m {_MODULE}", role="main", now=datetime.now(tz=UTC))
-            context = ManualStudyContext.load(self._study_file, store=self._store, root=self.root, execution=execution)
-            self._fits = context.inputs
+            args = argparse.Namespace(
+                study=str(self._study_file),
+                evaluation=str(self.evaluation_file),
+                exploratory=self._exploratory,
+                argv=["search"],
+            )
+            prepared = prepare_runner(args, role="main", root=self.root, module=_MODULE, scenario_ids=NOMINAL_SCENARIOS)
+            self._fits = prepared.context.inputs
         return self._fits
 
 
@@ -918,7 +930,7 @@ def run_search(
     is gone, scheduling stops and the work that exists is retained.
     """
     store = open_storage()
-    inputs = SearchInputs(protocol, root=root, store=store)
+    inputs = SearchInputs(protocol, root=root, exploratory=exploratory)
     study = open_study(
         store,
         STUDY_NAME,
