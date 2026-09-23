@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import subprocess
 import sys
 import time
@@ -41,6 +42,9 @@ from optuna.trial import TrialState
 
 from arm_rc_ctrl.config import from_mapping, to_mapping
 from arm_rc_ctrl.experiments.manual_evaluation import (
+    PHASE_FIT,
+    PHASE_SERVE_FIT,
+    PHASE_SWEEP,
     PROGRESS_FILE,
     RUN_CLAIMS_FILE,
     EvidenceIntegrityError,
@@ -80,25 +84,30 @@ if TYPE_CHECKING:
 
     import optuna
 
-    from arm_rc_ctrl.experiments.manual_evaluation import ManualRunConditions
+    from arm_rc_ctrl.experiments.manual_evaluation import ManualEvaluationRunner, ManualRunConditions
     from arm_rc_ctrl.experiments.manual_fits import ManualFitInputs
     from arm_rc_ctrl.experiments.manual_search import ManualSearchBudget, ManualSearchProtocol, ManualSearchSpace
     from arm_rc_ctrl.experiments.manual_study import StudyConfiguration
 
 __all__ = [
     "HEADROOM_S",
+    "INVOCATIONS_PREFIX",
     "STUDY_NAME",
     "TRIALS_PREFIX",
     "BudgetLedger",
+    "SearchInvocation",
     "TrialOutcome",
     "TrialReservation",
     "TrialResult",
     "TrialSpend",
+    "TrialTiming",
     "budget_complaints",
     "evaluate_trial",
+    "invocation_records",
     "ledger_of",
     "nominal_scope_mismatches",
     "pending_reservations",
+    "pilot_bound_mismatches",
     "read_result",
     "run_search",
     "spawn_trial",
@@ -119,6 +128,8 @@ TRIALS_PREFIX: Final = "armrc://reports/task_1a_manual_search/trials"
 """Where each trial's reservation, report and outcome are retained, outside the closed study's prefix."""
 HEADROOM_S: Final = 60.0
 """Allowance reserved so an in-flight result can still be persisted when a cap is near."""
+INVOCATIONS_PREFIX: Final = "armrc://reports/task_1a_manual_search/invocations"
+"""Where each parent invocation's wall clock is kept, so what the per-trial ledger omits can be measured."""
 
 
 def nominal_scope_mismatches(scenarios: Sequence[str]) -> list[str]:
@@ -174,6 +185,18 @@ def budget_complaints(ledger: BudgetLedger, budget: ManualSearchBudget) -> list[
     return complaints
 
 
+def pilot_bound_mismatches(stop_at_trials: int | None, budget: ManualSearchBudget) -> list[str]:
+    """Why a pilot bound is not one the search may stop at, if it is not.
+
+    A bound only stops the search earlier. Its trials are the search's own: they
+    consume the cap and a later invocation continues after them, so a bound
+    naming no trial or more trials than the cap in force allows is refused.
+    """
+    if stop_at_trials is None or 1 <= stop_at_trials <= budget.trials:
+        return []
+    return [f"a pilot stops inside the {budget.trials}-trial cap, got a bound of {stop_at_trials} trials"]
+
+
 def suggest_sampled_point(space: ManualSearchSpace, trial: optuna.Trial) -> SampledPoint:
     """Draw one point of the approved space, then read it back through the protocol's own validation."""
     params: dict[str, float] = {
@@ -222,6 +245,43 @@ class TrialReservation:
 
 
 @dataclass(frozen=True)
+class TrialTiming:
+    """How a worker's own time divided, measured where it was spent (M3MS-004).
+
+    The plan's estimates count simulation only; preparing the study, fitting
+    and persisting are what they omit, so each is reported apart. The sweep
+    encloses the runs it simulates and persists, and is never summed with them.
+    """
+
+    prepare_seconds: float
+    """Loading the frozen study, the demonstrations and the evaluation, and binding the environment."""
+    fit_seconds: float
+    """This invocation's fit, or its cache hit's verification refit."""
+    fit_cache_hit: bool
+    sweep_seconds: float
+    """The whole nominal sweep: it encloses ``simulate_seconds`` and ``persist_seconds``."""
+    simulate_seconds: float
+    persist_seconds: float
+    run_bytes: int
+    simulated_runs: int
+
+    def __post_init__(self) -> None:
+        """Durations, bytes and counts are non-negative."""
+        figures = (
+            self.prepare_seconds,
+            self.fit_seconds,
+            self.sweep_seconds,
+            self.simulate_seconds,
+            self.persist_seconds,
+            self.run_bytes,
+            self.simulated_runs,
+        )
+        if min(figures) < 0:
+            msg = f"a worker's timing is non-negative, got {self}"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
 class TrialResult:
     """What a worker reports about one candidate: verdict counts and where its evidence was left."""
 
@@ -235,6 +295,8 @@ class TrialResult:
     """The model evidence manifest the worker installed, which the parent verifies before scoring."""
     failure: str | None = None
     """Why the candidate has no score: a fit failure, retained as a failed trial rather than a zero."""
+    timing: TrialTiming | None = None
+    """How the worker's time divided; a measurement for the pilot, never a charge (the parent measures that)."""
 
     def __post_init__(self) -> None:
         """A reported result is internally consistent and stays inside the nominal scope."""
@@ -269,6 +331,10 @@ class TrialOutcome:
     stored_bytes: int
     evidence: str | None = None
     failure: str | None = None
+    worker_seconds: float | None = None
+    """The finalizing attempt's worker process, spawn to exit, as the parent measured it."""
+    verify_seconds: float | None = None
+    """The parent's verification of the report and its evidence, charged in ``seconds`` too."""
 
     def __post_init__(self) -> None:
         """A scored trial has a score and a failed one has a reason; neither has both."""
@@ -278,8 +344,34 @@ class TrialOutcome:
         if (self.state == "failed") != (self.failure is not None):
             msg = f"trial {self.trial}: state {self.state!r} with failure {self.failure!r}"
             raise ValueError(msg)
-        if self.seconds < 0.0 or self.stored_bytes < 0:
+        measured = (self.worker_seconds, self.verify_seconds)
+        if self.seconds < 0.0 or self.stored_bytes < 0 or any(m is not None and m < 0.0 for m in measured):
             msg = f"trial {self.trial}: spend is never negative"
+            raise ValueError(msg)
+
+
+@dataclass(frozen=True)
+class SearchInvocation:
+    """One parent invocation: its wall clock, and how much of it the per-trial ledger charged.
+
+    The ledger charges trials. The parent's own start-up, study bookkeeping and
+    reconciliation happen outside any trial, so this record is what shows how
+    much elapsed execution the ledger does not see.
+    """
+
+    started_at: str
+    seconds: float
+    charged_seconds: float
+    """The ledger's growth over this invocation."""
+    trials: tuple[int, ...]
+    stop_at_trials: int | None
+    completed: bool
+    """False when the invocation raised: its time was still spent."""
+
+    def __post_init__(self) -> None:
+        """An instant, and non-negative durations."""
+        if _instant(self.started_at) is None or self.seconds < 0.0:
+            msg = f"an invocation has a UTC start and a non-negative duration, got {self}"
             raise ValueError(msg)
 
 
@@ -442,6 +534,13 @@ def unpublished_bytes(store: StorageRoot) -> int:
     """
     runs = store.root / _RUNS_BUCKET
     return _bytes_of(sorted(runs.glob("staging-*"))) if runs.is_dir() else 0
+
+
+def invocation_records(store: StorageRoot) -> tuple[SearchInvocation, ...]:
+    """Every recorded parent invocation, in the order they started."""
+    root = store.root / ArtifactUri.parse(f"{INVOCATIONS_PREFIX}/x.json").relative_path.parent
+    records = [read_record(path, SearchInvocation) for path in root.glob("*.json")] if root.is_dir() else []
+    return tuple(sorted(records, key=lambda record: record.started_at))
 
 
 def pending_reservations(store: StorageRoot) -> tuple[TrialReservation, ...]:
@@ -676,6 +775,7 @@ def evaluate_trial(
         exploratory=exploratory,
         argv=list(argv),
     )
+    preparing = time.perf_counter()
     prepared = prepare_runner(
         args,
         role="worker",
@@ -684,6 +784,7 @@ def evaluate_trial(
         scenario_ids=tuple(scenarios),
         sampled=(configuration,),
     )
+    prepare_seconds = time.perf_counter() - preparing
     manifest = prepared.context.manifest
     entry = sampled_entry(manifest, configuration, arm_of("M10"))
     started = time.perf_counter()
@@ -705,6 +806,7 @@ def evaluate_trial(
             scenarios=tuple(scenarios),
             seconds=time.perf_counter() - started,
             failure=f"{type(error).__name__}: {str(error)[:300]}",
+            timing=_worker_timing(prepared.runner, entry.label, prepare_seconds=prepare_seconds),
         )
     pointer = next(item for item in prepared.runner.pointers if item.label == entry.label)
     return TrialResult(
@@ -715,6 +817,28 @@ def evaluate_trial(
         scenarios=tuple(scenarios),
         seconds=time.perf_counter() - started,
         evidence=pointer.payload,
+        timing=_worker_timing(prepared.runner, entry.label, prepare_seconds=prepare_seconds),
+    )
+
+
+def _worker_timing(runner: ManualEvaluationRunner, label: str, *, prepare_seconds: float) -> TrialTiming:
+    """What the runner measured of one candidate, gathered into the worker's report.
+
+    Sums are taken as floats: a retried worker served stored evidence measures no sweep, and an
+    integer zero is a report the parent's strict reader refuses.
+    """
+    phases = [item for item in runner.phase_timings if item.label == label]
+    model = runner.model_timings.get(label)
+    runs = runner.run_timings
+    return TrialTiming(
+        prepare_seconds=prepare_seconds,
+        fit_seconds=math.fsum(item.seconds for item in phases if item.phase in (PHASE_FIT, PHASE_SERVE_FIT)),
+        fit_cache_hit=model is not None and model.fit_cache_hit,
+        sweep_seconds=math.fsum(item.seconds for item in phases if item.phase == PHASE_SWEEP),
+        simulate_seconds=math.fsum(run.simulate_seconds for run in runs),
+        persist_seconds=math.fsum(run.persist_seconds for run in runs),
+        run_bytes=sum(run.run_bytes for run in runs),
+        simulated_runs=len(runs),
     )
 
 
@@ -809,9 +933,14 @@ def _finalize(
         # Infrastructure, not a fit: no outcome, so the trial stays pending and is resumed.
         write_record(spend_file, charged)
         return None
+    verify_started = time.perf_counter()
     outcome = verified_outcome(
         store, reservation, read_result(output), seconds=charged.seconds, protocol=protocol, inputs=inputs
     )
+    verified = time.perf_counter() - verify_started
+    # Verification is elapsed execution too. If it is interrupted, the attempt opened on disk is still
+    # in flight, so a resume charges it by the wall clock; if it completes, it is charged here.
+    outcome = replace(outcome, seconds=outcome.seconds + verified, worker_seconds=elapsed, verify_seconds=verified)
     write_record(directory / "outcome.json", outcome)
     spend_file.unlink(missing_ok=True)
     study.tell(
@@ -919,7 +1048,12 @@ def _abandon(study: optuna.Study, store: StorageRoot, trial: int, *, reason: str
 
 
 def run_search(
-    protocol: ManualSearchProtocol, protocol_file: Path, *, root: Path, exploratory: bool = False
+    protocol: ManualSearchProtocol,
+    protocol_file: Path,
+    *,
+    root: Path,
+    exploratory: bool = False,
+    stop_at_trials: int | None = None,
 ) -> BudgetLedger:
     """Run or resume the search: reconcile, finish every pending trial, then draw new ones until a cap.
 
@@ -928,8 +1062,60 @@ def run_search(
     records, so neither an interruption nor a resume can spend a cap twice. A
     trial is never started without a real deadline: when the elapsed allowance
     is gone, scheduling stops and the work that exists is retained.
+
+    ``stop_at_trials`` bounds a pilot: no new trial is drawn once that many are
+    finalized, while pending work is still finished first. The bound is not a
+    second study or a second allowance; its trials are the search's own.
+    Every invocation's wall clock is recorded, whether or not it completes.
     """
+    mismatches = pilot_bound_mismatches(stop_at_trials, protocol.budget)
+    if mismatches:
+        raise ValueError("; ".join(mismatches))
     store = open_storage()
+    # The real clock, not the attempt seam `_now`: an invocation's stamp names its record and is
+    # never charged, so it must not consume an instant meant for an attempt.
+    started_at, started = datetime.now(tz=UTC), time.perf_counter()
+    charged_before = ledger_of(store).seconds
+    touched: list[int] = []
+    completed = False
+    try:
+        ledger = _run_search(
+            protocol,
+            protocol_file,
+            store=store,
+            root=root,
+            exploratory=exploratory,
+            stop_at_trials=stop_at_trials,
+            touched=touched,
+        )
+        completed = True
+        return ledger
+    finally:
+        write_record(
+            store.root
+            / ArtifactUri.parse(f"{INVOCATIONS_PREFIX}/{started_at.strftime('%Y%m%dT%H%M%S%fZ')}.json").relative_path,
+            SearchInvocation(
+                started_at=started_at.isoformat(),
+                seconds=time.perf_counter() - started,
+                charged_seconds=ledger_of(store).seconds - charged_before,
+                trials=tuple(touched),
+                stop_at_trials=stop_at_trials,
+                completed=completed,
+            ),
+        )
+
+
+def _run_search(
+    protocol: ManualSearchProtocol,
+    protocol_file: Path,
+    *,
+    store: StorageRoot,
+    root: Path,
+    exploratory: bool,
+    stop_at_trials: int | None,
+    touched: list[int],
+) -> BudgetLedger:
+    """The body of `run_search`, which records the invocation around it."""
     inputs = SearchInputs(protocol, root=root, exploratory=exploratory)
     study = open_study(
         store,
@@ -952,6 +1138,8 @@ def run_search(
                 return _report(ledger, reported, stopped=stopped)
             pending = pending_reservations(store)
             recovering = bool(pending)
+            if not recovering and stop_at_trials is not None and ledger.trials >= stop_at_trials:
+                return _report(ledger, reported, stopped=[f"the pilot bound of {stop_at_trials} trials is reached"])
             if recovering:
                 reservation = pending[0]
             else:
@@ -971,6 +1159,7 @@ def run_search(
                 allowance=allowance,
                 exploratory=exploratory,
             )
+            touched.append(reservation.trial)
             key = "recovered" if recovering else "trial"
             reported.append({key: reservation.trial, "state": None if outcome is None else outcome.state})
             if outcome is None:
@@ -993,6 +1182,12 @@ def main(argv: Sequence[str] | None = None) -> int:
     search = subparsers.add_parser("search", help="run or resume the approved search")
     search.add_argument("--protocol", required=True, type=Path, help="the frozen search protocol")
     search.add_argument("--exploratory", action="store_true", help="tolerate a dirty worktree (fixtures, trials)")
+    search.add_argument(
+        "--stop-at-trials",
+        type=int,
+        default=None,
+        help="a pilot bound inside the cap: stop once this many trials exist",
+    )
     worker = subparsers.add_parser("evaluate-trial", help="evaluate one candidate in this process")
     worker.add_argument("--protocol", required=True, type=Path)
     worker.add_argument("--trial", required=True, type=int)
@@ -1009,6 +1204,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             Path(cast("Path", args.protocol)),
             root=repository_root(),
             exploratory=bool(args.exploratory),
+            stop_at_trials=cast("int | None", args.stop_at_trials),
         )
         return 0
     point = read_record_from_text(cast("str", args.point), SampledPoint)

@@ -309,6 +309,36 @@ The [reproduction guide](docs/experiments/task_1a_manual_demonstration/report/re
 and `scripts/render_manual_report.py` recreate its plots and animation from
 the existing evidence without new training or simulation.
 
+### Manual-demonstration ESN search (M3MS)
+
+The [approved search](docs/experiments/task_1a_manual_esn_search/plan.md) runs
+and resumes through one command, launched pinned; every invocation continues the
+same study and the same trial, time and storage caps:
+
+```sh
+uv run python -m arm_rc_ctrl.execution run --policy p-cores -- \
+  uv run python -m arm_rc_ctrl.experiments.manual_search_run search \
+  --protocol configs/studies/manual_esn_search_v1.toml [--stop-at-trials N]
+```
+
+`--stop-at-trials` bounds a pilot inside the cap: its trials are the search's
+own, and a later invocation without the bound continues after them. The timing
+pilot (M3MS-004) states what it will schedule before it runs and is reported
+against that statement afterwards; `preflight` never overwrites a stated plan,
+and `report` exits non-zero when the records, the ledger and the Optuna study
+disagree with it:
+
+```sh
+uv run python -m arm_rc_ctrl.experiments.manual_search_pilot preflight \
+  --protocol configs/studies/manual_esn_search_v1.toml --stop-at-trials 10 \
+  --output docs/experiments/task_1a_manual_esn_search/pilot/preflight_v1.json
+uv run python -m arm_rc_ctrl.experiments.manual_search_pilot report \
+  --protocol configs/studies/manual_esn_search_v1.toml \
+  --preflight docs/experiments/task_1a_manual_esn_search/pilot/preflight_v1.json \
+  --output docs/experiments/task_1a_manual_esn_search/pilot/timing_pilot_v1.json \
+  --markdown docs/experiments/task_1a_manual_esn_search/pilot/timing_pilot_v1.md
+```
+
 ## Requirements
 
 - Linux (x86_64 tested), Git.

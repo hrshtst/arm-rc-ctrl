@@ -154,3 +154,51 @@ is finalized, and an undecodable cache — not only one whose digest disagrees �
 propagates out of the worker rather than failing the candidate
 (`tests/unit/test_manual_numerics.py` holds the same guarantee at each of the
 three cached payloads).
+
+## M3MS-004 — the bounded timing pilot
+
+The pilot is the approved search stopped early, not a study of its own.
+`search --stop-at-trials N` draws no new trial once N are finalized, but
+finishes pending work first. The bound is checked against the cap in force
+(`pilot_bound_mismatches`), so it can only stop the search sooner. Pilot trials
+therefore consume the 100-trial cap, and an invocation without the bound
+continues after them under the next numbers. The pilot takes **10 trials**
+(20 nominal runs at most). All ten fall inside the sampler's 20 random start-up
+trials, so they are drawn exactly as the search would draw them and TPE has
+not begun modelling. No anchor was queued: the frozen protocol declares none.
+
+What the estimates omit is measured where it is spent. The worker's report
+carries a `TrialTiming`: preparing the study and environment, the fit (or a
+cache hit's verification refit), and the sweep with the simulation and
+persistence it encloses, plus the run bytes it wrote. Sums are floats, because
+a retried worker served stored evidence measures no sweep, and an integer zero
+is a report the strict reader refuses. The parent records each finalizing
+attempt's worker wall clock. It also **charges its own verification** to the
+trial: that is elapsed execution, and before M3MS-004 the ledger omitted it.
+If verification is interrupted, the attempt is still open on disk, so the
+existing wall-clock recovery charges it.
+
+Each parent invocation leaves a `SearchInvocation` record under
+`armrc://reports/task_1a_manual_search/invocations/`, even when it raises. The
+record holds the invocation's wall clock and the ledger's growth over it. The
+difference is the parent overhead (start-up, study bookkeeping,
+reconciliation) that the per-trial ledger does not charge.
+
+`arm_rc_ctrl.experiments.manual_search_pilot` holds the rest. `preflight`
+states what a bounded search will schedule before it runs and never overwrites
+a stated plan. `report` then compares that statement with the retained
+records, the derived ledger and the Optuna study's trial states. It lists
+every disagreement and exits non-zero if there are any. The report divides
+each trial's charged time into start-up, preparation, fit, simulation,
+persistence and verification. It gives the parent overhead and the bytes the
+ledger does not count (the records and the study database), and projects the
+remaining search and the comparison that shares the ceiling. The projections
+are estimates; the ledger's caps remain what stops the work.
+
+Tests: `tests/unit/test_manual_search_pilot.py` covers the bound (inside the
+cap, continued by the search, pending work finished first), verification
+charging, invocation records including a failed invocation, the preflight
+before and after spend, agreement and each kind of disagreement, and a
+portable, reproducible report. `tests/unit/test_manual_search_run.py` checks
+the worker's timing over the fixture study, including a retried worker served
+stored evidence.

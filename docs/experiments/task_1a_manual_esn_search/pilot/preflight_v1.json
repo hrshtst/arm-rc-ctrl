@@ -1,0 +1,1 @@
+{"gib_cap":20.0,"hours_cap":10.0,"max_rc_runs":20,"pending_trials":0,"protocol_sha256":"029739812525bed0146b333b15621faa19d4ecac576f47bb5231dc42bbf09e06","runs_per_trial":2,"scenarios":["nominal"],"spent_bytes":0,"spent_runs":0,"spent_seconds":0.0,"spent_trials":0,"stop_at_trials":10,"trial_cap":100,"trials_to_schedule":10}

@@ -290,7 +290,10 @@ def fixture_search(
 
 
 def test_the_worker_evaluates_the_nominal_case_under_both_trackers(
-    fixture_search: ManualSearchProtocol, manual_fixture: ManualFixture, monkeypatch: pytest.MonkeyPatch
+    fixture_search: ManualSearchProtocol,
+    manual_fixture: ManualFixture,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
 ) -> None:
     """One trial is one candidate's two nominal runs, and nothing else is simulated."""
     for name, value in manual_fixture.env.items():
@@ -310,6 +313,12 @@ def test_the_worker_evaluates_the_nominal_case_under_both_trackers(
     assert result.scenarios == ("nominal",)
     assert result.successes <= result.runs
     assert result.evidence is not None, "a scored candidate reports where its evidence was installed"
+    timing = result.timing
+    assert timing is not None, "the worker says how its time divided, which the estimates omit (M3MS-004)"
+    assert timing.simulated_runs == 2
+    assert min(timing.prepare_seconds, timing.fit_seconds, timing.simulate_seconds) > 0.0
+    assert timing.sweep_seconds >= timing.simulate_seconds + timing.persist_seconds
+    assert timing.run_bytes > 0
     directory = manual_fixture.store.path(result.evidence.uri, mode="read").parent
     claimed = manual_evaluation.read_run_claims(directory / manual_evaluation.RUN_CLAIMS_FILE)
     recorded = manual_evaluation.read_progress_runs(directory / manual_evaluation.PROGRESS_FILE)
@@ -317,6 +326,22 @@ def test_the_worker_evaluates_the_nominal_case_under_both_trackers(
     assert {f"armrc://runs/{run}/{RUN_SUMMARY_FILE}" for run in claimed} == set(recorded), (
         "and the claims are the runs the progress record ended up naming"
     )
+    # A retried worker is served the evidence the first attempt stored: nothing is swept or simulated,
+    # and its report must still be one the parent can read.
+    served = evaluate_trial(
+        fixture_search,
+        trial=0,
+        point=POINT,
+        scenarios=("nominal",),
+        root=manual_fixture.root,
+        argv=["evaluate-trial"],
+        exploratory=True,
+    )
+    assert served.timing is not None
+    assert (served.timing.simulated_runs, served.timing.sweep_seconds) == (0, 0.0)
+    report = tmp_path / "served.json"
+    write_record(report, served)
+    assert read_result(report) == served
 
 
 def test_a_scored_candidate_is_checked_against_reconstructed_inputs(
