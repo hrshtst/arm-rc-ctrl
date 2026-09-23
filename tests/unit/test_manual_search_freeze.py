@@ -430,3 +430,15 @@ def test_the_verified_load_verifies_the_evidence_again(
     monkeypatch.setattr(manual_search_freeze, "reverify_outcome", record)
     load_verified_freeze(path, searched, store, inputs=NO_INPUTS)
     assert calls == [0, 1, 3]
+
+
+def test_a_line_ending_change_is_refused_on_the_bytes(
+    searched_freeze: tuple[ManualSearchProtocol, Path], store: StorageRoot
+) -> None:
+    """Text reading turns CRLF into LF; the comparison binds bytes, so bytes are what is compared."""
+    searched, path = searched_freeze
+    canonical = path.read_bytes()
+    path.write_bytes(canonical.removesuffix(b"\n") + b"\r\n")
+    assert path.read_text(encoding="utf-8") == canonical.decode("utf-8"), "text reading cannot see the change"
+    with pytest.raises(ValueError, match="bytes"):
+        load_verified_freeze(path, searched, store, inputs=NO_INPUTS)

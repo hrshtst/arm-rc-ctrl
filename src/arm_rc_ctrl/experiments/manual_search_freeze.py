@@ -363,7 +363,7 @@ def write_freeze(path: Path, freeze: ManualSearchFreeze) -> None:
         msg = f"{path} already holds a freeze; a frozen selection is never rewritten"
         raise FileExistsError(msg)
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(freeze_json(freeze), encoding="utf-8")
+    path.write_bytes(freeze_json(freeze).encode("utf-8"))
 
 
 def read_freeze(path: Path) -> ManualSearchFreeze:
@@ -404,7 +404,8 @@ def load_verified_freeze(
     if stored != rebuilt:
         msg = f"{path} is not the freeze the search produces: it differs in {', '.join(_differences(stored, rebuilt))}"
         raise ValueError(msg)
-    if path.read_text(encoding="utf-8") != freeze_json(rebuilt):
+    # Bytes, not text: text reading normalizes line endings, and the digest is taken over bytes.
+    if path.read_bytes() != freeze_json(rebuilt).encode("utf-8"):
         msg = f"{path} holds the right freeze in other bytes than its canonical form, which is what is bound"
         raise ValueError(msg)
     return rebuilt
@@ -470,7 +471,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         verified = load_verified_freeze(
             output, protocol, open_storage(), inputs=SearchInputs(protocol, root=repository_root())
         )
-        if markdown.read_text(encoding="utf-8") != render_freeze(verified):
+        if markdown.read_bytes() != render_freeze(verified).encode("utf-8"):
             msg = f"{markdown} is not the rendering of the verified freeze"
             raise ValueError(msg)
         print(f"verified: {output} is the search's freeze, digest {freeze_digest(verified)}")
@@ -483,7 +484,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     inputs = SearchInputs(protocol, root=repository_root())
     frozen = freeze_search(protocol, open_storage(), inputs=inputs)
     write_freeze(output, frozen)
-    markdown.write_text(render_freeze(frozen), encoding="utf-8")
+    markdown.write_bytes(render_freeze(frozen).encode("utf-8"))
     print(render_freeze(frozen))
     return 0
 

@@ -266,3 +266,19 @@ and Markdown match.
    later staging does not unfreeze the search (this test fails if the freeze
    uses the live ledger); and every verified load re-verifies the chosen
    evidence.
+
+## M3MS-005, round 2 (2026-09-23): one P2
+
+The owner confirmed that the verified loader refuses all three earlier
+alterations and that the unchanged committed freeze verifies.
+
+1. **P2: a line-ending change bypassed the canonical-byte check.** The check
+   compared `read_text()` with the canonical JSON, and text reading turns CRLF
+   into LF. A file whose final newline was changed to CRLF was therefore
+   accepted, although its digest (`773db1eac2d2…`) was not the returned
+   canonical digest (`7e97649720f2…`). The check now compares
+   `read_bytes()` with the canonical form encoded as UTF-8, and so does the
+   CLI's check of the rendered Markdown. The writers produce those exact
+   bytes with `write_bytes`, so no platform translates line endings on the
+   way out either. Test written first: a CRLF-terminated copy reads back as
+   the same text but is refused on its bytes.
