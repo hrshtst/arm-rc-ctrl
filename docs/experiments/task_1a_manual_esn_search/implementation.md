@@ -207,7 +207,7 @@ stored evidence.
 
 Ten trials ran at `5a6cde2`, pinned to the P-cores, in one invocation of
 114.6 s wall clock. [Preflight](pilot/preflight_v1.json) and
-[observation](pilot/timing_pilot_v1.md) agree on every count: 10 finalized and
+[observation](pilot/timing_pilot_v2.md) agree on every count: 10 finalized and
 none pending, 20 nominal runs, `COMPLETE 10` in the study, and the nominal
 scenario alone. The ledger holds 10 trials, 111.8 s and 15.1 MiB. The parent
 spent 1.4 s outside every charged trial, and 139 KiB of records and study
@@ -221,10 +221,10 @@ reservoir size). The parent's first verification took 5.7 s because it loads
 the study's fit inputs once; later verifications take 0.01 s. A nominal run
 costs 1.36 s to simulate and persist, which agrees with the plan's measured
 1.37 s, and stores 0.75 MiB. At these rates the 100-trial search needs about
-0.31 h and 0.15 GiB. The comparison's runs and fits alone need at least 6.1 h
+0.31 h and 0.15 GiB. The comparison's runs and fits alone are estimated at 6.1 h
 and 11.6 GiB, which leaves about 3.5 h and 8.2 GiB of the shared ceiling for
 the comparison's own start-up, verification and reporting. These figures are
-estimates, not bounds.
+estimates, not bounds: nominal runs do not bound the cost of perturbed ones.
 
 Six of the ten trials (1, 2, 4, 7, 8 and 9) scored the maximum of 1.0. These
 are distinct points, and under the frozen rule (descending score, then
@@ -232,3 +232,9 @@ earliest trial) no later trial can outrank trials 1, 2 and 4. The plan
 anticipated this outcome in section 3. It is recorded here because the
 remaining 90 trials can no longer change which configurations M3MS-005 would
 freeze.
+
+After the owner's review, per-run costs are divided by the runs a worker
+actually simulated: runs served from the store are recorded but not measured.
+A trial abandoned before any parameter was recorded is reported with its
+parameters unavailable. The first report is kept in
+[`pilot/superseded/`](pilot/superseded/README.md).

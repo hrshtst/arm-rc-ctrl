@@ -25,9 +25,11 @@ import pytest
 from arm_rc_ctrl.experiments import manual_search_pilot, manual_search_run
 from arm_rc_ctrl.experiments.manual_search import load_manual_search
 from arm_rc_ctrl.experiments.manual_search_pilot import (
+    PilotTrialRow,
     SearchPreflight,
     count_disagreements,
     observe_search,
+    pilot_projection,
     pilot_report,
     render_markdown,
     search_preflight,
@@ -370,3 +372,90 @@ def test_a_preflight_round_trips_through_its_file(protocol: ManualSearchProtocol
     assert manual_search_pilot.read_preflight(path) == preflight
     assert isinstance(json.loads(path.read_text(encoding="utf-8")), dict)
     assert isinstance(preflight, SearchPreflight)
+
+
+# --- the owner's review of M3MS-004 -------------------------------------------------------------
+
+
+def test_an_abandoned_trial_is_reported_without_parameters(
+    protocol: ManualSearchProtocol, store: StorageRoot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Reconciliation retains a trial lost mid-sampling as an outcome alone; the report still covers it."""
+    preflight = search_preflight(protocol, store, stop_at_trials=2)
+    study = manual_search_run.open_study(
+        store,
+        manual_search_run.STUDY_NAME,
+        protocol_sha256=manual_search_run.protocol_digest(protocol),
+        sampler=protocol.sampler,
+        pruner=manual_search_run.PrunerSpec(kind="none"),
+        direction="maximize",
+    )
+    study.ask()  # drawn, then lost before a single parameter was recorded
+    manual_search_run.close_study(study)
+    _search(protocol, _Worker([_failed()]), monkeypatch, stop_at_trials=2)
+    assert not (trial_directory(store, 0) / "reservation.json").exists()
+    report = pilot_report(protocol, store, preflight)
+    assert report.disagreements == ()
+    abandoned = report.trials[0]
+    assert abandoned.point is None, "its parameters are unavailable, not invented"
+    assert (abandoned.state, abandoned.simulated_runs, abandoned.fit_seconds) == ("failed", None, None)
+    assert abandoned.failure is not None
+    assert abandoned.failure.startswith("abandoned")
+    assert "| 0 | — | — | failed |" in render_markdown(report)
+
+
+def _row(trial: int, *, runs: int, simulated: int, simulate: float, persist: float, run_bytes: int) -> PilotTrialRow:
+    return PilotTrialRow(
+        trial=trial,
+        point=None,
+        state="scored",
+        score=1.0,
+        runs=runs,
+        charged_seconds=10.0,
+        worker_seconds=10.0,
+        verify_seconds=0.0,
+        prepare_seconds=5.0,
+        fit_seconds=0.5,
+        fit_cache_hit=simulated == 0,
+        sweep_seconds=simulate + persist,
+        simulate_seconds=simulate,
+        persist_seconds=persist,
+        simulated_runs=simulated,
+        startup_seconds=1.0,
+        stored_bytes=run_bytes,
+        run_bytes=run_bytes,
+        failure=None,
+    )
+
+
+def test_cached_runs_do_not_dilute_the_per_run_cost(protocol: ManualSearchProtocol) -> None:
+    """Measured time and bytes are divided by the runs that were measured, not by every recorded run."""
+    ledger = BudgetLedger(trials=2, seconds=20.0, stored_bytes=1_000_000)
+    simulated = _row(0, runs=2, simulated=2, simulate=2.6, persist=0.2, run_bytes=1_000_000)
+    cached = _row(1, runs=2, simulated=0, simulate=0.0, persist=0.0, run_bytes=0)
+    projection = pilot_projection(protocol, (simulated, cached), ledger, 0.0)
+    assert projection.rc_seconds_per_run == pytest.approx(1.4)
+    assert projection.bytes_per_run == pytest.approx(500_000)
+
+
+def test_no_measured_run_is_an_unavailable_cost_not_a_free_one(protocol: ManualSearchProtocol) -> None:
+    """A pilot whose runs were all served from the store has measured no run cost at all."""
+    ledger = BudgetLedger(trials=1, seconds=10.0, stored_bytes=0)
+    cached = _row(0, runs=2, simulated=0, simulate=0.0, persist=0.0, run_bytes=0)
+    projection = pilot_projection(protocol, (cached,), ledger, 0.0)
+    assert (projection.rc_seconds_per_run, projection.bytes_per_run, projection.comparison_seconds) == (
+        None,
+        None,
+        None,
+    )
+
+
+def test_the_comparison_figure_is_an_estimate_not_a_bound(
+    protocol: ManualSearchProtocol, store: StorageRoot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Nominal runs do not bound the cost of perturbed ones, so the report never calls it a lower bound."""
+    preflight = search_preflight(protocol, store, stop_at_trials=1)
+    _search(protocol, _Worker([_failed()]), monkeypatch, stop_at_trials=1)
+    markdown = render_markdown(pilot_report(protocol, store, preflight))
+    assert "lower bound" not in markdown
+    assert "Estimated runs-and-fits cost" in markdown

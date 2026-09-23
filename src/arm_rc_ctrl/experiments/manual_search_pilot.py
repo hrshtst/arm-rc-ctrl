@@ -70,6 +70,7 @@ __all__ = [
     "SearchPreflight",
     "count_disagreements",
     "observe_search",
+    "pilot_projection",
     "pilot_report",
     "read_preflight",
     "render_markdown",
@@ -261,7 +262,8 @@ class PilotTrialRow:
     """One finalized trial's point, verdict and where its time went."""
 
     trial: int
-    point: SampledPoint
+    point: SampledPoint | None
+    """``None`` for a trial abandoned before any parameter was recorded: it has only an outcome."""
     state: str
     score: float | None
     runs: int
@@ -275,6 +277,8 @@ class PilotTrialRow:
     sweep_seconds: float | None
     simulate_seconds: float | None
     persist_seconds: float | None
+    simulated_runs: int | None
+    """Runs this trial's worker actually simulated; runs served from the store cost nothing measured."""
     startup_seconds: float | None
     """Worker wall clock not inside preparing, fitting or the sweep: interpreter and imports."""
     stored_bytes: int
@@ -287,7 +291,9 @@ def _row(directory: Path) -> PilotTrialRow | None:
     if not outcome_file.is_file():
         return None
     outcome = read_record(outcome_file, TrialOutcome)
-    reservation = read_record(directory / "reservation.json", TrialReservation)
+    # Reconciliation retains a trial lost mid-sampling as an outcome alone, so a reservation is optional.
+    reservation_file = directory / "reservation.json"
+    point = read_record(reservation_file, TrialReservation).point if reservation_file.is_file() else None
     result_file = directory / "result.json"
     timing = read_result(result_file).timing if result_file.is_file() else None
     startup = None
@@ -296,7 +302,7 @@ def _row(directory: Path) -> PilotTrialRow | None:
         startup = max(0.0, outcome.worker_seconds - inside)
     return PilotTrialRow(
         trial=outcome.trial,
-        point=reservation.point,
+        point=point,
         state=outcome.state,
         score=outcome.score,
         runs=outcome.runs,
@@ -309,6 +315,7 @@ def _row(directory: Path) -> PilotTrialRow | None:
         sweep_seconds=None if timing is None else timing.sweep_seconds,
         simulate_seconds=None if timing is None else timing.simulate_seconds,
         persist_seconds=None if timing is None else timing.persist_seconds,
+        simulated_runs=None if timing is None else timing.simulated_runs,
         startup_seconds=startup,
         stored_bytes=outcome.stored_bytes,
         run_bytes=None if timing is None else timing.run_bytes,
@@ -340,14 +347,17 @@ class PilotProjection:
     bytes_per_trial: float
     search_bytes: float
     rc_seconds_per_run: float | None
-    """Simulating and persisting one nominal run, from the pilot's scored trials."""
+    """Simulating and persisting one nominal run, over the runs the pilot actually simulated."""
     fit_seconds_per_model: float | None
     bytes_per_run: float | None
     comparison_rc_runs: int
     comparison_replay_runs: int
     comparison_models: int
     comparison_seconds: float | None
-    """Runs and fits alone at the pilot's rates, replay scaled by the plan's measured ratio: a lower bound."""
+    """Runs and fits alone at the pilot's nominal rates, replay scaled by the plan's measured ratio: an estimate.
+
+    Perturbed runs can cost more or less than nominal ones, so this bounds nothing.
+    """
     comparison_bytes: float | None
     ceiling_seconds: float
     ceiling_bytes: float
@@ -380,22 +390,29 @@ def _mean(values: Sequence[float]) -> float | None:
     return sum(values) / len(values) if values else None
 
 
-def _projection(
+def pilot_projection(
     protocol: ManualSearchProtocol, rows: Sequence[PilotTrialRow], ledger: BudgetLedger, overhead: float
 ) -> PilotProjection:
+    """Project the search and the comparison from the pilot's charged spend and its measured runs.
+
+    Per-run time and bytes are divided by the runs a worker actually
+    simulated: a run served from the store was recorded but not measured, and
+    counting it would make runs look cheaper than they are. With no measured
+    run the cost is unavailable, never zero.
+    """
     trials = max(ledger.trials, 1)
     per_trial = ledger.seconds / trials
     bytes_per_trial = ledger.stored_bytes / trials
     search_seconds = per_trial * protocol.budget.trials + overhead
     search_bytes = bytes_per_trial * protocol.budget.trials
-    scored = [row for row in rows if row.state == "scored" and row.simulate_seconds is not None and row.runs]
-    runs = sum(row.runs for row in scored)
+    measured = [row for row in rows if row.simulated_runs]
+    runs = sum(cast("int", row.simulated_runs) for row in measured)
     rc_per_run = (
-        sum(cast("float", row.simulate_seconds) + cast("float", row.persist_seconds) for row in scored) / runs
+        math.fsum(cast("float", row.simulate_seconds) + cast("float", row.persist_seconds) for row in measured) / runs
         if runs
         else None
     )
-    bytes_per_run = sum(cast("int", row.run_bytes) for row in scored) / runs if runs else None
+    bytes_per_run = sum(cast("int", row.run_bytes) for row in measured) / runs if runs else None
     fit = _mean([row.fit_seconds for row in rows if row.fit_seconds is not None and row.fit_seconds > 0.0])
     comparison_seconds = (
         None
@@ -454,7 +471,7 @@ def pilot_report(protocol: ManualSearchProtocol, store: StorageRoot, preflight: 
         invocations=invocations,
         invocation_seconds=wall,
         uncharged=uncharged,
-        projection=_projection(protocol, rows, ledger, overhead),
+        projection=pilot_projection(protocol, rows, ledger, overhead),
     )
 
 
@@ -473,6 +490,14 @@ def _hours(seconds: float | None) -> str:
 
 def _gib(value: float | None) -> str:
     return "—" if value is None else f"{value / _GIB:.3f} GiB"
+
+
+def _neurons(point: SampledPoint | None) -> str:
+    return "—" if point is None else str(point.n_neurons)
+
+
+def _warmup(point: SampledPoint | None) -> str:
+    return "—" if point is None else f"{point.warmup_s:g}"
 
 
 def render_markdown(report: PilotReport) -> str:
@@ -518,7 +543,7 @@ def render_markdown(report: PilotReport) -> str:
         "| ---: | ---: | ---: | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     lines += [
-        f"| {row.trial} | {row.point.n_neurons} | {row.point.warmup_s:g} | {row.state} | {_s(row.score, 1)} | "
+        f"| {row.trial} | {_neurons(row.point)} | {_warmup(row.point)} | {row.state} | {_s(row.score, 1)} | "
         f"{_s(row.charged_seconds)} | {_s(row.worker_seconds)} | {_s(row.startup_seconds)} | "
         f"{_s(row.prepare_seconds)} | {_s(row.fit_seconds)} | {_s(row.sweep_seconds)} | "
         f"{_s(row.simulate_seconds)} | {_s(row.persist_seconds)} | {_s(row.verify_seconds)} | "
@@ -559,10 +584,11 @@ def render_markdown(report: PilotReport) -> str:
             f"{_s(proj.fit_seconds_per_model)} s per model."
         ),
         (
-            f"- Comparison lower bound: {proj.comparison_rc_runs:,} RC + {proj.comparison_replay_runs:,} replay runs "
+            f"- Estimated runs-and-fits cost of the comparison: {proj.comparison_rc_runs:,} RC + "
+            f"{proj.comparison_replay_runs:,} replay runs "
             f"(replay at the plan's {PLAN_REPLAY_TO_RC:.3f}x RC ratio) and {proj.comparison_models} fits: "
             f"{_hours(proj.comparison_seconds)}, {_gib(proj.comparison_bytes)}. It omits the comparison's own "
-            "start-up, verification and reporting."
+            "start-up, verification and reporting, and nominal runs do not bound the cost of perturbed ones."
         ),
         (
             f"- Shared ceiling {_hours(proj.ceiling_seconds)} / {_gib(proj.ceiling_bytes)}; left after both: "

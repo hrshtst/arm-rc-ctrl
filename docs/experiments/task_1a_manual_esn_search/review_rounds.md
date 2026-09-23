@@ -199,3 +199,34 @@ The owner reproduced all three against temporary fixture stores.
    turns anything stopping it from being read whole into an integrity fault,
    so a truncated or overwritten cache propagates and the trial stays
    recoverable.
+
+## M3MS-004, round 1 (2026-09-23): two P2 findings and one wording correction
+
+The owner independently verified the pilot. The study holds 10 COMPLETE
+trials and there are 20 nominal runs (12 successful, 8 infeasible). All model
+bindings, cached fits and run payloads verify, and provenance names clean,
+non-exploratory `5a6cde2`. The owner confirmed 111.84 s charged and 15.14 MiB
+retained, confirmed that the report's rows, the Optuna parameters and scores,
+and the projection arithmetic agree, and confirmed that trials 1, 2 and 4
+fix the selection. The findings concern the report generator:
+
+1. **P2 — cached runs diluted the per-run projection.** The generator divided
+   the measured simulation time and bytes by every recorded run. In the
+   owner's reproduction, one cached two-run result halved the estimate from
+   1.392 to 0.696 s per run, and halved bytes per run too. Rows now carry
+   the worker's `simulated_runs`, and the projection divides by those runs
+   only. With no simulated run, the cost is unavailable, never zero.
+2. **P2 — an abandoned trial broke the report.** Reconciliation retains a trial
+   lost mid-sampling as an outcome alone, and the row builder required a
+   reservation, so report generation raised `FileNotFoundError`. That trial
+   is now reported with its parameters and timing unavailable.
+3. **Wording.** The comparison figure was called a lower bound. Nominal
+   measurements do not bound perturbed runs, so it is now an "estimated
+   runs-and-fits cost".
+
+Each finding has a test written first, and each test fails against the
+committed generator. v1 of the report moved unedited to
+[`pilot/superseded/`](pilot/superseded/README.md). v2 was regenerated from the
+same records and carries identical figures, because neither defect occurred
+in this pilot. The owner recommends finishing the approved 100 trials: stopping
+early would need an explicit amendment.

@@ -335,8 +335,8 @@ uv run python -m arm_rc_ctrl.experiments.manual_search_pilot preflight \
 uv run python -m arm_rc_ctrl.experiments.manual_search_pilot report \
   --protocol configs/studies/manual_esn_search_v1.toml \
   --preflight docs/experiments/task_1a_manual_esn_search/pilot/preflight_v1.json \
-  --output docs/experiments/task_1a_manual_esn_search/pilot/timing_pilot_v1.json \
-  --markdown docs/experiments/task_1a_manual_esn_search/pilot/timing_pilot_v1.md
+  --output docs/experiments/task_1a_manual_esn_search/pilot/timing_pilot_v2.json \
+  --markdown docs/experiments/task_1a_manual_esn_search/pilot/timing_pilot_v2.md
 ```
 
 ## Requirements
