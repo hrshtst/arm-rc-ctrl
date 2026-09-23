@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shutil
 import subprocess
 import time
 from dataclasses import replace
@@ -37,12 +38,15 @@ from arm_rc_ctrl.experiments.manual_comparison_run import (
     comparison_units,
     evaluate_unit,
     locked_scenario_ids,
+    publish_pointers,
+    serve_unit,
     shared_ledger,
     shared_stopped,
     unit_bytes,
     unit_directory,
     verified_unit,
 )
+from arm_rc_ctrl.experiments.manual_evaluation import EvidenceIntegrityError
 from arm_rc_ctrl.experiments.manual_fits import cache_uri
 from arm_rc_ctrl.experiments.manual_fixture import ManualFixture, manual_narrowed
 from arm_rc_ctrl.experiments.manual_sampled import SampledPoint, sampled_configuration
@@ -327,6 +331,11 @@ class _Context(ComparisonContext):
     def conditions(self, rank: int) -> ManualRunConditions:
         del rank
         return cast("ManualRunConditions", argparse.Namespace(pairs=tuple(range(PAIRS))))
+
+    def installed_evidence(self, unit: ComparisonUnit, reservation: UnitReservation) -> ArtifactReference | None:
+        """The synthetic manifest every fake worker reports as installed."""
+        del unit, reservation
+        return EVIDENCE
 
 
 def _result(number: int, *, identity: str, failure: str | None = None) -> UnitResult:
@@ -698,3 +707,153 @@ def test_a_worker_refuses_a_freeze_other_than_the_verified_one(
             argv=["evaluate-unit"],
             exploratory=True,
         )
+
+
+# --- the owner's review of M3MS-006 --------------------------------------------------------------
+
+
+@pytest.mark.usefixtures("loop")
+def test_a_finished_units_reservation_is_checked_on_resume(
+    protocol: ManualSearchProtocol, store: StorageRoot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A resume does not skip a finalized unit on its word: its reservation must still derive."""
+    _run(protocol, _Worker(), monkeypatch)
+    path = unit_directory(store, comparison_units(3)[0]) / "reservation.json"
+    recorded = read_record(path, UnitReservation)
+    write_record(path, replace(recorded, freeze_sha256="0" * 64, identity="1" * 64))
+    with pytest.raises(ValueError, match="reservation"):
+        _run(protocol, _Worker(), monkeypatch)
+
+
+@pytest.mark.usefixtures("loop")
+def test_a_finished_outcome_must_fit_the_trusted_schedule(
+    protocol: ManualSearchProtocol, store: StorageRoot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An outcome claiming more pairs than every case under both trackers is refused, in status and on resume."""
+    _run(protocol, _Worker(), monkeypatch)
+    path = unit_directory(store, comparison_units(3)[0]) / "outcome.json"
+    write_record(path, replace(read_record(path, UnitOutcome), pairs=999, completed=999))
+    context = _Context(protocol, PROTOCOL_FILE, Path("freeze.json"), root=ROOT)
+    with pytest.raises(ValueError, match="999"):
+        comparison_status(context)
+    with pytest.raises(ValueError, match="999"):
+        _run(protocol, _Worker(), monkeypatch)
+
+
+@pytest.mark.usefixtures("loop")
+def test_a_finished_outcome_must_name_the_installed_evidence(
+    protocol: ManualSearchProtocol, store: StorageRoot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A complete outcome pointing anywhere but the manifest installed under its identity is refused."""
+    _run(protocol, _Worker(), monkeypatch)
+    path = unit_directory(store, comparison_units(3)[5]) / "outcome.json"
+    write_record(path, replace(read_record(path, UnitOutcome), evidence="armrc://reports/elsewhere.json"))
+    with pytest.raises(ValueError, match="installed"):
+        comparison_status(_Context(protocol, PROTOCOL_FILE, Path("freeze.json"), root=ROOT))
+
+
+def _fixture_environment(f: ManualFixture, monkeypatch: pytest.MonkeyPatch) -> None:
+    for name, value in f.env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(manual_evaluation, "repository_root", lambda: f.root)
+    monkeypatch.setattr(manual_evaluation, "evaluation_scenarios", manual_narrowed)
+    monkeypatch.setattr(manual_comparison_run, "comparison_scope_mismatches", _any_scope)
+
+
+def _evaluate(protocol: ManualSearchProtocol, f: ManualFixture, freeze_file: Path, number: int) -> UnitResult:
+    """One unit evaluated in this process over the fixture study, as its worker would."""
+    return evaluate_unit(
+        protocol,
+        freeze_file=freeze_file,
+        freeze_sha256=sha256_file(freeze_file),
+        number=number,
+        root=f.root,
+        argv=["evaluate-unit"],
+        exploratory=True,
+    )
+
+
+def _forbidden(*args: object, **kwargs: object) -> None:
+    del args, kwargs
+    msg = "a run was simulated outside a worker, its deadline and its budget"
+    raise AssertionError(msg)
+
+
+def test_publication_never_computes_missing_evidence(
+    fixture_search: ManualSearchProtocol,
+    manual_fixture: ManualFixture,
+    fixture_freeze: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> None:
+    """Publishing serves what exists; a completed unit whose evidence is gone is refused, not rebuilt."""
+    _fixture_environment(manual_fixture, monkeypatch)
+    context = _FixtureContext(fixture_search, manual_fixture, fixture_freeze)
+    unit = context.units[1]  # D02: its own bank, untouched by the other tests
+    result = _evaluate(fixture_search, manual_fixture, fixture_freeze, unit.number)
+    reservation = context.reservation(unit)
+    outcome = verified_unit(context, unit, reservation, result, seconds=1.0)
+    directory = unit_directory(manual_fixture.store, unit)
+    write_record(directory / "reservation.json", reservation)
+    write_record(directory / "outcome.json", outcome)
+    assert result.evidence is not None
+    bank = manual_fixture.store.root / ArtifactUri.parse(result.evidence.uri).relative_path.parent
+    removed = tmp_path / "removed-bank"
+    shutil.move(bank, removed)
+    try:
+        context = _FixtureContext(fixture_search, manual_fixture, fixture_freeze)
+        context.units = (unit,)
+        monkeypatch.setattr(context.runner, "simulate", _forbidden, raising=False)
+        with pytest.raises(ValueError, match="installed"):
+            publish_pointers(context, tmp_path / "pointers")
+        with pytest.raises(ValueError, match="its own evidence is not installed"):
+            serve_unit(context, unit, reservation)
+        assert not bank.exists(), "refusing does not leave an empty directory behind"
+    finally:
+        shutil.move(removed, bank)
+        shutil.rmtree(directory)
+
+
+def test_a_corrupt_manifest_leaves_the_unit_recoverable(
+    fixture_search: ManualSearchProtocol,
+    manual_fixture: ManualFixture,
+    fixture_freeze: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A fault in stored evidence is not a verdict: it propagates, so no failed outcome can be written."""
+    _fixture_environment(manual_fixture, monkeypatch)
+    result = _evaluate(fixture_search, manual_fixture, fixture_freeze, 2)  # D03's bank, used by no other test
+    assert result.evidence is not None
+    manifest = manual_fixture.store.root / ArtifactUri.parse(result.evidence.uri).relative_path
+    original = manifest.read_bytes()
+    manifest.write_bytes(original + b" ")
+    try:
+        with pytest.raises(EvidenceIntegrityError):
+            _evaluate(fixture_search, manual_fixture, fixture_freeze, 2)
+    finally:
+        manifest.write_bytes(original)
+
+
+def test_only_a_refused_fit_is_a_failed_model(
+    fixture_search: ManualSearchProtocol,
+    manual_fixture: ManualFixture,
+    fixture_freeze: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The learner refusing a candidate is a result; any other refusal during the sweep propagates."""
+    _fixture_environment(manual_fixture, monkeypatch)
+
+    def refused(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+        msg = "the readout is singular"
+        raise ValueError(msg)
+
+    with monkeypatch.context() as patched:
+        patched.setattr(manual_comparison_run.ManualFitStore, "fit_or_load", refused)
+        result = _evaluate(fixture_search, manual_fixture, fixture_freeze, 20)  # M10: no paired bank
+    assert result.failure is not None
+    assert "singular" in result.failure
+    with monkeypatch.context() as patched:
+        patched.setattr(manual_evaluation.ManualEvaluationRunner, "evaluate", refused)
+        with pytest.raises(ValueError, match="singular"):
+            _evaluate(fixture_search, manual_fixture, fixture_freeze, 20)  # M10: no paired bank

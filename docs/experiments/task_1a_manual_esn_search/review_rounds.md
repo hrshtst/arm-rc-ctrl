@@ -282,3 +282,48 @@ alterations and that the unchanged committed freeze verifies.
    bytes with `write_bytes`, so no platform translates line endings on the
    way out either. Test written first: a CRLF-terminated copy reads back as
    the same text but is refused on its bytes.
+
+## M3MS-006, round 1 (2026-09-24): two P1, one P2
+
+The owner independently verified the recorded run. All 123 pointers and
+manifests and all 15,990 run payloads verify, including fit and source
+bindings and stored verdicts. The status reproduces exactly, per-unit storage
+matches the recorded charges, and the order, the ten reused banks, the 7.04 s
+interrupted attempt and the shared spend (6.05 h, 10.49 GiB) match the report.
+The findings concern the code paths, not the evidence.
+
+1. **P1: publication could start unbudgeted simulations.** `publish_pointers`
+   called the evaluation's resume path, which builds whatever it does not
+   find. With a completed bank's evidence removed, publication entered
+   simulation outside any worker, deadline or budget. Publication and the
+   parent's verification now share `serve_unit`. It first requires the unit's
+   own manifest, its fit and its parent's bank to be installed, looked up
+   without creating any directory, then serves them. It refuses loudly if a
+   run was simulated anyway. Publication also checks every finalized unit's
+   records first.
+2. **P1: manifest corruption became a finalized failure.** The worker caught
+   every `ValueError` as a failed unit. A bank manifest with one appended byte
+   therefore produced a failed-unit report, which would have made its
+   dependent models permanently unavailable. The worker now asks the learner
+   first, on its own. Only a refused fit is a failed model. Serving stored
+   evidence, building a bank and the sweep are infrastructure, so a refusal
+   there propagates, no report is written, and the unit stays recoverable. A
+   bank has no learner, so nothing about building one is a verdict. The
+   evaluation's manifest lookup now raises `EvidenceIntegrityError` (a
+   `ValueError`) for a manifest whose name does not match its content, or a
+   directory holding two.
+3. **P2: finalized records bypassed verification.** A resume skipped
+   completed units before checking their reservations, and `status` counted
+   an outcome claiming 999 pairs. `check_finalized` now runs wherever a
+   finalized unit is skipped, counted or published. The recorded reservation
+   must equal the one the verified freeze derives. The outcome must name that
+   identity and, when complete, hold every case under both trackers and point
+   at the manifest installed under the identity.
+
+Each finding has a test written first from the owner's reproductions, and
+each fails against the reviewed code. Rechecked against the real store,
+pinned, with the fixed code: `status` reproduces the committed status byte for
+byte, and `publish` into a scratch directory, which serves every unit through
+the new guard, reproduces all 123 committed pointers. No rerun was needed.
+The search's trial worker has the same broad handler; the search is finished,
+so it is noted here rather than changed.

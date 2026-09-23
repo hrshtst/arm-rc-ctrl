@@ -947,7 +947,8 @@ def _existing_manifest(store: StorageRoot, directory_uri: str) -> Path | None:
     manifests = sorted(directory.glob("manifest-*.json"))
     if len(manifests) > 1:
         msg = f"{directory} holds {len(manifests)} manifests; completed evidence is written once"
-        raise ValueError(msg)
+        # A fault in the store, not a verdict on anything evaluated (M3MS-006 review).
+        raise EvidenceIntegrityError(msg)
     if not manifests:
         return None
     found = manifests[0]
@@ -956,7 +957,7 @@ def _existing_manifest(store: StorageRoot, directory_uri: str) -> Path | None:
     named = found.stem.split("-", 1)[1]
     if sha256_file(found)[:_SHORT] != named:
         msg = f"{found.name} does not match its content digest; a manifest is named by what it holds"
-        raise ValueError(msg)
+        raise EvidenceIntegrityError(msg)
     return found
 
 

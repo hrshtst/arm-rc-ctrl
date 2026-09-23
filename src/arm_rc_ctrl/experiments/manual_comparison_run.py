@@ -70,7 +70,7 @@ from arm_rc_ctrl.experiments.manual_evaluation import (
     stored_manifest,
     stored_reference,
 )
-from arm_rc_ctrl.experiments.manual_fits import cache_uri
+from arm_rc_ctrl.experiments.manual_fits import ManualFitStore, cache_uri
 from arm_rc_ctrl.experiments.manual_sampled import LEARNED_ARMS, sampled_configuration, sampled_entry
 from arm_rc_ctrl.experiments.manual_search import load_manual_search
 from arm_rc_ctrl.experiments.manual_search_freeze import freeze_digest, load_verified_freeze, read_freeze
@@ -488,12 +488,12 @@ def evaluate_unit(
     else:
         identity, timing_label = runner.model_identity(entry, warmup_s=configuration.warmup_s), entry.label
     try:
-        if entry is None:
-            evidence: ManualReplayBank | ManualModelEvidence = runner.replay_bank(
-                unit.label, warmup_s=configuration.warmup_s, replay_cutoffs=cutoffs
-            )
-        else:
-            evidence = runner.evaluate(entry, warmup_s=configuration.warmup_s)
+        # Only the learner refusing a candidate is a result. It is asked first, on its own; everything
+        # after it -- serving stored evidence, building a bank, the sweep -- is infrastructure, and a
+        # refusal there propagates, leaving no report, so the unit stays recoverable. A bank has no
+        # learner at all, so nothing about building one is ever a verdict.
+        if entry is not None:
+            ManualFitStore(runner.store).fit_or_load(entry, runner.inputs)
     except EvidenceIntegrityError:
         raise
     except ValueError as error:
@@ -508,6 +508,12 @@ def evaluate_unit(
             failure=f"{type(error).__name__}: {str(error)[:300]}",
             timing=_timing(runner, timing_label, prepare_seconds=prepare_seconds),
         )
+    if entry is None:
+        evidence: ManualReplayBank | ManualModelEvidence = runner.replay_bank(
+            unit.label, warmup_s=configuration.warmup_s, replay_cutoffs=cutoffs
+        )
+    else:
+        evidence = runner.evaluate(entry, warmup_s=configuration.warmup_s)
     uri = _evidence_uri(unit, conditions, identity)
     stored = stored_manifest(runner.store, uri)
     if stored is None:
@@ -532,6 +538,12 @@ def locked_scenario_ids(evaluation: Path) -> tuple[str, ...]:
     config = load_manual_evaluation_config(evaluation)
     cases = evaluation_scenarios(load_development_robustness(config.development), load_manual_scenario(config.scenario))
     return tuple(case.scenario_id for case in cases)
+
+
+def installed_manifest(store: StorageRoot, directory_uri: str) -> Path | None:
+    """The manifest installed under ``directory_uri``, looked up without creating the directory it would be in."""
+    directory = store.root / ArtifactUri.parse(f"{directory_uri}/manifest.json").relative_path.parent
+    return stored_manifest(store, directory_uri) if directory.is_dir() else None
 
 
 def _evidence_uri(unit: ComparisonUnit, conditions: ManualRunConditions, identity: str) -> str:
@@ -614,6 +626,12 @@ class ComparisonContext:
             fit_identity=fit_identity,
         )
 
+    def installed_evidence(self, unit: ComparisonUnit, reservation: UnitReservation) -> ArtifactReference | None:
+        """The manifest installed under the unit's reserved identity, or ``None`` when there is none."""
+        uri = _evidence_uri(unit, self.conditions(unit.rank), reservation.identity)
+        stored = installed_manifest(self.store, uri)
+        return None if stored is None else stored_reference(stored, self.store)
+
     def bank_unit(self, unit: ComparisonUnit) -> ComparisonUnit | None:
         """The replay unit a model is paired against, or ``None`` for the all-ten arm."""
         if unit.kind == REPLAY:
@@ -685,23 +703,12 @@ def verified_unit(
             failure=result.failure,
         )
     conditions = context.conditions(unit.rank)
-    configuration = context.configurations[unit.rank]
-    cutoffs = (configuration.velocity_cutoff_hz, configuration.acceleration_cutoff_hz)
-    uri = _evidence_uri(unit, conditions, reservation.identity)
-    stored = stored_manifest(store, uri)
-    if stored is None or stored_reference(stored, store) != result.evidence:
-        msg = f"unit {unit.number}: the reported evidence is not the manifest installed under {uri}"
+    installed = context.installed_evidence(unit, reservation)
+    if installed is None or installed != result.evidence:
+        msg = f"unit {unit.number}: the reported evidence is not the manifest installed under its identity"
         raise ValueError(msg)
-    # Served, never computed, here: everything the resume path would otherwise build must already exist.
-    missing = _missing_inputs(context, unit, reservation)
-    if missing:
-        raise ValueError(f"unit {unit.number}: " + "; ".join(missing))
-    if unit.kind == REPLAY:
-        served: ManualReplayBank | ManualModelEvidence = context.runner.replay_bank(
-            unit.label, warmup_s=configuration.warmup_s, replay_cutoffs=cutoffs
-        )
-    else:
-        served = context.runner.evaluate(context.entry(unit), warmup_s=configuration.warmup_s)
+    served = serve_unit(context, unit, reservation)
+    stored = installed
     complaints = [
         f"the served evidence is {served.identity[:12]}" if served.identity != reservation.identity else None,
         (
@@ -730,8 +737,40 @@ def verified_unit(
         unexecuted=unexecuted,
         seconds=seconds,
         stored_bytes=unit_bytes(store, reservation),
-        evidence=stored_reference(stored, store).uri,
+        evidence=stored.uri,
     )
+
+
+def serve_unit(
+    context: ComparisonContext, unit: ComparisonUnit, reservation: UnitReservation
+) -> ManualReplayBank | ManualModelEvidence:
+    """Serve a unit's stored evidence through the verifying resume path, and never compute any of it.
+
+    The evaluation's resume path builds whatever it does not find, so
+    everything it would otherwise build is required first: the unit's own
+    manifest, its fit, and its parent's bank. Serving then verifies them; a
+    run simulated anyway would be work outside any worker, deadline or budget,
+    and is refused loudly rather than kept.
+    """
+    missing = _missing_inputs(context, unit, reservation)
+    if context.installed_evidence(unit, reservation) is None:
+        missing.insert(0, "its own evidence is not installed")
+    if missing:
+        raise ValueError(f"unit {unit.number}: " + "; ".join(missing))
+    configuration = context.configurations[unit.rank]
+    simulated = len(context.runner.run_timings)
+    if unit.kind == REPLAY:
+        served: ManualReplayBank | ManualModelEvidence = context.runner.replay_bank(
+            unit.label,
+            warmup_s=configuration.warmup_s,
+            replay_cutoffs=(configuration.velocity_cutoff_hz, configuration.acceleration_cutoff_hz),
+        )
+    else:
+        served = context.runner.evaluate(context.entry(unit), warmup_s=configuration.warmup_s)
+    if len(context.runner.run_timings) != simulated:
+        msg = f"unit {unit.number}: serving simulated runs; stored evidence is served, never computed, here"
+        raise ValueError(msg)
+    return served
 
 
 def _missing_inputs(context: ComparisonContext, unit: ComparisonUnit, reservation: UnitReservation) -> list[str]:
@@ -743,7 +782,10 @@ def _missing_inputs(context: ComparisonContext, unit: ComparisonUnit, reservatio
     ):
         found.append("its fit is not in the cache")
     bank = context.bank_unit(unit)
-    if bank is not None and stored_manifest(store, replay_bank_uri(context.conditions(unit.rank), bank.label)) is None:
+    if (
+        bank is not None
+        and installed_manifest(store, replay_bank_uri(context.conditions(unit.rank), bank.label)) is None
+    ):
         found.append(f"its replay bank {bank.label} is not installed")
     return found
 
@@ -819,6 +861,42 @@ def reconcile(context: ComparisonContext) -> list[dict[str, object]]:
     return repaired
 
 
+def finalized_mismatches(context: ComparisonContext, unit: ComparisonUnit) -> list[str]:
+    """Why a finalized unit's records are not what the trusted schedule and the store support, if they are not.
+
+    A finalized unit is never taken on its word: its reservation must be the
+    one the verified freeze derives, and its outcome must name that identity,
+    hold every case under both trackers when it is complete, and point at the
+    manifest actually installed under the identity.
+    """
+    directory = unit_directory(context.store, unit)
+    outcome = read_record(directory / "outcome.json", UnitOutcome)
+    derived = context.reservation(unit)
+    found: list[str] = []
+    recorded = _read_optional(directory / "reservation.json", UnitReservation)
+    if recorded != derived:
+        found.append("its recorded reservation is not the one the verified freeze derives")
+    if outcome.number != unit.number or outcome.identity != derived.identity:
+        found.append(f"its outcome names unit {outcome.number} at {outcome.identity[:12]}")
+    if outcome.state == "complete":
+        expected = len(context.conditions(unit.rank).pairs)
+        if outcome.pairs != expected:
+            found.append(f"its outcome holds {outcome.pairs} pairs, not the {expected} of every case and tracker")
+        installed = context.installed_evidence(unit, derived)
+        if installed is None or installed.uri != outcome.evidence:
+            found.append("its outcome does not name the manifest installed under its identity")
+    elif outcome.pairs:
+        found.append(f"a {outcome.state} unit holds no pairs, got {outcome.pairs}")
+    return found
+
+
+def check_finalized(context: ComparisonContext, unit: ComparisonUnit) -> None:
+    """Refuse a finalized unit whose records the schedule and the store do not support."""
+    found = finalized_mismatches(context, unit)
+    if found:
+        raise ValueError(f"unit {unit.number}: " + "; ".join(found))
+
+
 def _reserve(context: ComparisonContext, unit: ComparisonUnit) -> UnitReservation:
     """The unit's reservation: written once, and on a resume required to be exactly the one derived now."""
     derived = context.reservation(unit)
@@ -867,6 +945,7 @@ def run_comparison(
         for unit in context.units:
             directory = unit_directory(context.store, unit)
             if (directory / "outcome.json").is_file():
+                check_finalized(context, unit)
                 continue
             ledger = shared_ledger(context.store, context.freeze, context.units)
             stopped = shared_stopped(ledger, protocol.budget)
@@ -975,6 +1054,7 @@ def comparison_status(context: ComparisonContext) -> ComparisonStatus:
             directory = unit_directory(context.store, unit)
             outcome = _read_optional(directory / "outcome.json", UnitOutcome)
             if outcome is not None:
+                check_finalized(context, unit)
                 outcomes.append(outcome)
             elif (directory / "reservation.json").is_file():
                 pending += 1
@@ -1058,19 +1138,10 @@ def publish_pointers(context: ComparisonContext, evidence_dir: Path) -> list[Pat
         outcome = _read_optional(unit_directory(context.store, unit) / "outcome.json", UnitOutcome)
         if outcome is None or outcome.state != "complete":
             continue
-        reservation = read_record(unit_directory(context.store, unit) / "reservation.json", UnitReservation)
-        missing = _missing_inputs(context, unit, reservation)
-        if missing:
-            raise ValueError(f"unit {unit.number}: " + "; ".join(missing))
-        configuration = context.configurations[unit.rank]
-        if unit.kind == REPLAY:
-            context.runner.replay_bank(
-                unit.label,
-                warmup_s=configuration.warmup_s,
-                replay_cutoffs=(configuration.velocity_cutoff_hz, configuration.acceleration_cutoff_hz),
-            )
-        else:
-            context.runner.evaluate(context.entry(unit), warmup_s=configuration.warmup_s)
+        check_finalized(context, unit)
+        serve_unit(
+            context, unit, read_record(unit_directory(context.store, unit) / "reservation.json", UnitReservation)
+        )
     return context.runner.write_pointers(evidence_dir)
 
 

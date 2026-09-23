@@ -323,6 +323,14 @@ verification to the unit. It never computes a unit itself: the fit and the
 parent's bank must already be installed. A model whose parent bank did not
 complete is recorded as unavailable without running.
 
+After the owner's review, the parent never computes evidence at all:
+verification and publication share `serve_unit`. It requires the unit's
+manifest, fit and parent bank to be installed, and refuses if serving
+simulated anything. Only a refused fit is a failed model; any other refusal
+propagates and leaves the unit recoverable. Every finalized unit is checked
+against the derived reservation and the installed evidence before it is
+skipped, counted or published.
+
 Git pointers are published once the comparison has stopped (`publish`), by
 serving every complete unit again; a worker refuses a dirty worktree, so they
 cannot be written while units still run. `status` records how far each
