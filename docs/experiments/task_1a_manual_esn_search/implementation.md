@@ -7,7 +7,7 @@ What each implementation task built, kept beside the experiment so the task
 queue can stay a queue. The [plan](plan.md) is the approved protocol and the
 [review rounds](review_rounds.md) record the owner's findings; this file records
 the shape of the code. Nothing here authorizes execution: the real bank has
-seen only the ten-trial M3MS-004 timing pilot.
+seen the search (M3MS-004/005) and nothing perturbed.
 
 ## M3MS-001 — the frozen protocol
 
@@ -264,3 +264,15 @@ loaded. `freeze_digest` is what the comparison will bind.
 Tests: `tests/unit/test_manual_search_freeze.py` and, against the fixture
 study's real evidence, `test_a_frozen_trial_is_verified_again_against_its_evidence`
 in `tests/unit/test_manual_search_run.py`.
+
+### The search and the freeze (2026-09-23)
+
+The search ran its remaining 90 trials in one invocation from clean
+`7eabf48`, pinned, in 16 min 19 s of wall clock. It stopped because the
+100-trial cap was spent, having charged 1,084 s and 145.6 MiB. All 100
+candidates were fitted and scored: 70 at 1.0, 4 at 0.5 and 26 at 0.0. The
+[freeze](freeze/selection_v1.md) was taken from clean `526d79e` (digest
+`7e97649720f2`). Its three highest nominal scores are trials 1, 2 and 4, as
+the pilot anticipated, with no shortfall, and each was verified again against
+its evidence. The three configurations use different warm-ups (1, 0.25 and
+0.5 s), so the comparison cannot reuse a replay bank across them.

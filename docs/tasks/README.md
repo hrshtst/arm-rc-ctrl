@@ -10,7 +10,8 @@ second status database.
 
 | IDs | Canonical location |
 | --- | --- |
-| M3MS-* | [Active queue](../TASKS.md#manual-data-esn-search--m3ms) |
+| M3MS-001 through M3MS-005 | [M3MS archive](archive/M3MS.md) |
+| M3MS-006 onward | [Active queue](../TASKS.md#manual-data-esn-search--m3ms) |
 | UP-001 through UP-005 | [Open upstream queue](../TASKS.md#cross-cutting-upstream-work) |
 | DOC-* | [DOC archive](archive/DOC.md) |
 | M0-* | [M0 archive](archive/M0.md) |
