@@ -6,8 +6,8 @@
 What each implementation task built, kept beside the experiment so the task
 queue can stay a queue. The [plan](plan.md) is the approved protocol and the
 [review rounds](review_rounds.md) record the owner's findings; this file records
-the shape of the code. Nothing here authorizes execution: no search of the real
-bank has run.
+the shape of the code. Nothing here authorizes execution: the real bank has
+seen only the ten-trial M3MS-004 timing pilot.
 
 ## M3MS-001 — the frozen protocol
 
@@ -202,3 +202,33 @@ before and after spend, agreement and each kind of disagreement, and a
 portable, reproducible report. `tests/unit/test_manual_search_run.py` checks
 the worker's timing over the fixture study, including a retried worker served
 stored evidence.
+
+### The pilot's result (2026-09-23)
+
+Ten trials ran at `5a6cde2`, pinned to the P-cores, in one invocation of
+114.6 s wall clock. [Preflight](pilot/preflight_v1.json) and
+[observation](pilot/timing_pilot_v1.md) agree on every count: 10 finalized and
+none pending, 20 nominal runs, `COMPLETE 10` in the study, and the nominal
+scenario alone. The ledger holds 10 trials, 111.8 s and 15.1 MiB. The parent
+spent 1.4 s outside every charged trial, and 139 KiB of records and study
+database are uncharged; both are negligible against the ceiling and recorded
+rather than charged.
+
+A trial costs about 10.5 s. Only about 2.8 s of that is the simulation the
+plan's estimate counts. Preparing the study and demonstrations takes 5.6–5.9 s,
+interpreter start-up about 1.1 s, and the fit 0.4–2.0 s (it grows with
+reservoir size). The parent's first verification took 5.7 s because it loads
+the study's fit inputs once; later verifications take 0.01 s. A nominal run
+costs 1.36 s to simulate and persist, which agrees with the plan's measured
+1.37 s, and stores 0.75 MiB. At these rates the 100-trial search needs about
+0.31 h and 0.15 GiB. The comparison's runs and fits alone need at least 6.1 h
+and 11.6 GiB, which leaves about 3.5 h and 8.2 GiB of the shared ceiling for
+the comparison's own start-up, verification and reporting. These figures are
+estimates, not bounds.
+
+Six of the ten trials (1, 2, 4, 7, 8 and 9) scored the maximum of 1.0. These
+are distinct points, and under the frozen rule (descending score, then
+earliest trial) no later trial can outrank trials 1, 2 and 4. The plan
+anticipated this outcome in section 3. It is recorded here because the
+remaining 90 trials can no longer change which configurations M3MS-005 would
+freeze.
