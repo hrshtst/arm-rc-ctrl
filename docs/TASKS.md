@@ -3,7 +3,7 @@
 
 # Implementation task queue
 
-**Updated:** 2026-09-23. **Roadmap:** [PLAN.md](PLAN.md).
+**Updated:** 2026-09-24. **Roadmap:** [PLAN.md](PLAN.md).
 
 This is the authoritative entry point for work selection. Each task has exactly
 one canonical status/acceptance row: here for active work, in the linked backlog
@@ -25,9 +25,9 @@ criteria and evidence complete. A negative scientific result can close a task.
 
 ## Additional manual-study presentation
 
-| ID | Status | Task | Dependencies | Acceptance / evidence |
-| --- | --- | --- | --- | --- |
-| M3MAN-015 | `IN PROGRESS` | Standalone expert HTML report | M3MAN-012, M3MAN-GATE | Owner requested 2026-09-23: explain background, aim, methods, results, discussion and conclusion without assuming prior project knowledge; expand successful/failed case animations and plots with reproducible scripts. Work isolated on `docs/manual-expert-report` while M3MS-006 runs. [Report](experiments/task_1a_manual_demonstration/expert_report/index.html) and [reproduction instructions](experiments/task_1a_manual_demonstration/expert_report/README.md); validation in progress. |
+M3MAN-015 is complete: [standalone HTML report](experiments/task_1a_manual_demonstration/expert_report/index.html),
+[validation and reproduction](experiments/task_1a_manual_demonstration/expert_report_validation.md),
+and [archived task](tasks/archive/M3MAN.md#additional-expert-presentation).
 
 ## Manual-data ESN search — M3MS
 

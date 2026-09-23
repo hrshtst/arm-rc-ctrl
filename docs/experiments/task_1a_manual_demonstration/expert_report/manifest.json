@@ -177,8 +177,8 @@
       "size": 62692
     }
   },
-  "project_commit": "741be60ad46b902610691b4c30533916380a905f",
-  "project_dirty": true,
+  "project_commit": "8a6f746243263df42730d9604b95e7a6de0dba6c",
+  "project_dirty": false,
   "run_table": {
     "sha256": "137ba90b681203a9d65aa7c7d954dafef4fccf6ad263d7bd07b5144de3b2fd42",
     "uri": "armrc://reports/task_1a_manual_v1/results/runs_v1-137ba90b6812.csv"
