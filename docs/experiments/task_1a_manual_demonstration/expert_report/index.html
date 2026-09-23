@@ -1,0 +1,333 @@
+<!doctype html>
+<!-- Copyright (c) 2026 Hiroshi Atsuta · SPDX-License-Identifier: GPL-3.0-only -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="An evidence-based, standalone report of learning robot reaching from one versus ten human-guided demonstrations, with synchronized animations and scientific plots.">
+<title>Does more human teaching improve a learned reach?</title><link rel="stylesheet" href="assets/report.css"></head>
+<body><a class="skip" href="#main">Skip to report</a>
+<header><div class="masthead">ROBOT LEARNING · EXPERIMENT REPORT <span>Task 1-a · Manual demonstrations</span></div>
+<div class="hero"><p class="eyebrow">A controlled simulation study · Expert edition</p><h1>Does more human teaching<br>improve a learned reach?</h1>
+<p class="dek">Ten human-guided trajectories, six fixed echo-state network configurations, two trackers, and 65 evaluation conditions. More demonstrations did not consistently improve robustness in this setup.</p>
+<p class="byline">Interpretation of the completed, audited manual-demonstration experiment. This edition adds explanatory context and visualizations; it introduces no new fits, tuning, or simulations.</p>
+<div class="hero-stats"><div><strong>10</strong><span>accepted human demonstrations</span></div><div><strong>31,980</strong><span>evaluated runs, none missing</span></div><div><strong>8</strong><span>matched visual case studies below</span></div></div></div></header>
+<div class="layout"><nav aria-label="Report sections"><p>IN THIS REPORT</p><a href="#summary">Reading guide &amp; summary</a><a href="#background">1 · General background</a><a href="#question">2 · Aim &amp; scope</a><a href="#methods">3 · Methodology</a><a href="#results">4 · Results</a><a href="#gallery">5 · Visual case studies</a><a href="#discussion">6 · Discussion</a><a href="#conclusion">7 · Conclusion</a><a href="#reproduce">Evidence &amp; reproduction</a></nav>
+<main id="main">
+<section id="summary"><p class="eyebrow">Executive summary</p><h2>Additional demonstrations were useful in some cases, but not a reliable improvement.</h2>
+<p>The experiment asks whether a recurrent model trained on ten similar human demonstrations reaches and holds a target more robustly than the same kind of model trained on one. Across six fixed configurations and two trackers, the median paired benefit of ten demonstrations was <strong>negative in six combinations and zero in six; positive in none</strong>. Some zero differences reflect universal success, others universal failure.</p>
+<div class="callout"><strong>What this result means.</strong> It is evidence against assuming that additional demonstrations improve this fixed learning-and-control pipeline. It is not evidence that human teaching, demonstration diversity, or multi-demonstration learning are generally ineffective.</div>
+<p>Exact copies changed none of the 7,800 matched success/failure verdicts. Contractive synthetic variation helped some parent recordings and harmed others. Meanwhile, replay of the recorded trajectories succeeded in 7,750 of 7,800 runs. The recordings were usually followable; learning a state-dependent reference from them was the harder part.</p>
+<p class="reading">For the scientific argument, read sections 1–4 and 6–7. For behavior, use section 5: eight synchronized animations, eight task-space figures, eight diagnostic time-series figures, and eight expandable joint-history figures. Every plot is linked at full size. JavaScript is needed only for playback; the text and static plots remain readable without it.</p></section>
+<section id="background"><p class="eyebrow">01 / General background</p><h2>Learning a motion is different from playing it back.</h2>
+<p>In learning from demonstration, a robot policy is inferred from examples instead of being specified entirely by hand. The examples can be acquired through teleoperation, observation, or direct guidance. The central design questions include what the teacher provides, what the learner observes and predicts, and how performance is tested away from the demonstrations. <a href="https://publications.ri.cmu.edu/a-survey-of-robot-learning-from-demonstration">Argall et al., 2009</a> survey this framework.</p>
+<p>A recording can be replayed on a clock: at each instant, ask the robot to follow the stored posture. A learned state-dependent motion generator instead observes the robot and produces a new reference. This creates an opportunity to react to an unexpected starting posture or disturbance. It also creates a failure mode: once its outputs influence the robot, the learner may encounter states and histories unlike those used for training.</p>
+<h3>The learner: an echo-state network</h3>
+<p>An <strong>echo-state network (ESN)</strong> is a form of reservoir computing. A fixed recurrent network transforms a sequence of inputs into a history-dependent internal state; a comparatively simple output layer is fitted to the desired outputs. Reservoir size, input scale, recurrence, leakage and regularization affect its behavior. This architecture and its practical training choices are described by <a href="https://mantas.info/get-publication/?f=Practical_ESN.pdf">Lukoševičius, 2012</a>.</p>
+<p>Here the ESN uses measured joint position and velocity and predicts the next desired joint position. The readout is trained by ridge regression using demonstrated states. During execution it receives the actual robot state, so its predictions become part of a feedback loop. Low one-step training error alone does not establish that this loop will reach a stable target hold.</p>
+<div class="flow" aria-label="Closed-loop architecture"><div><b>Measured state</b><span>Joint angles and velocities</span></div><i>→</i><div><b>ESN motion generator</b><span>Recurrent memory + fitted readout</span></div><i>→</i><div><b>Reference &amp; tracker</b><span>Causal derivatives, then joint torque</span></div><i>→</i><div><b>Simulated arm</b><span>New measured state feeds back</span></div></div>
+<p>The tracker is separate from the ESN. A proportional–derivative controller (<strong>PD</strong>) corrects position and velocity errors. A <strong>computed-torque controller</strong> also uses the robot dynamics. Both retain torque limits. The ESN generates a desired motion; it does not directly command unrestricted torque.</p>
+<h3>Why compare one, ten, copies, synthetic episodes, and replay?</h3>
+<p>Ten trajectories add human variation. Ten copies add repetition without new human information. Synthetic episodes add deliberately constructed variation without additional human teaching. Replay asks whether the source trajectory can be followed at all under the same tracker and conditions. Together, these comparisons help distinguish data diversity from repetition count and learned behavior from basic trajectory trackability.</p></section>
+<section id="question"><p class="eyebrow">02 / Experiment background, aim &amp; scope</p><h2>A specific test of demonstration count under fixed learning choices.</h2>
+<p>The broader project studies recurrent reference generators for robot reaching. Its earlier simulation work established the arm, tracking controllers, ESN pipeline, and a set of starting-posture and force disturbances. Planned synthetic trajectories were used before this experiment. The present study replaced that kind of teacher with manually recorded motion and isolated whether adding human demonstrations changes the outcome. No knowledge of those earlier experiments is needed to interpret the comparison here.</p>
+<div class="question"><strong>Primary question</strong><p>At the same ESN configuration and tracker, does training on all ten accepted demonstrations improve reaching-and-holding success relative to each single demonstration?</p></div>
+<p>Secondary questions concern exact repetition, contractive synthetic augmentation, and the gap between learned motion and replay. The study freezes six inherited configurations before the manual comparison; it does <strong>not</strong> optimize them for these manual recordings. Their historical labels are identifiers, not performance rankings in this experiment.</p>
+<div class="two-col"><div><h3>Included</h3><ul><li>One simulated planar reaching task and one target.</li><li>One operator, ten accepted full-length demonstrations.</li><li>Six fixed ESN/filter/warm-up configurations.</li><li>Two fixed trackers, 65 shared evaluation conditions each.</li><li>Complete successes, failures, aborts and paired comparisons.</li></ul></div><div><h3>Not established</h3><ul><li>Physical robot performance or safety qualification.</li><li>Generalization to new targets, operators or task types.</li><li>Performance after tuning each arm independently.</li><li>A population estimate over random reservoir seeds.</li><li>A fresh, unseen confirmatory disturbance distribution.</li></ul></div></div>
+<p>The 65 cases are development conditions inherited from earlier work. They were not chosen to make a particular manual-data arm look good, but they were already known to the research process. Treat the results as a controlled development comparison, not a new held-out benchmark. A separate manual-data parameter-search study is outside this report; none of its results is mixed in.</p></section>
+<section id="methods"><p class="eyebrow">03 / Methodology</p><h2>Same task, same comparisons, explicit success criteria.</h2>
+<h3>Robot and task</h3><p>The simulated arm has two revolute joints in a gravity-free plane, with link lengths 0.30 m and 0.25 m. Every demonstration starts at joint angles [0.2, 1.2] rad. The common endpoint target is [0.10, 0.45] m. Joint positions are bounded by ±3 rad, joint speed by 6 rad/s, and joint torque by 10 and 5 N·m respectively. This is mouse-guided simulated teaching, not physical manipulation of a robot.</p>
+<h3>Recording, acceptance and preprocessing</h3><p>The operator recorded trajectories using inverse-kinematics mouse guidance at 50 Hz. Actual timestamps were retained. The most recently saved trajectory was visible as a faint guide, so the recordings are intentionally similar and not independent samples from unrelated operators. Practice was excluded; study take order and display conditions were retained.</p>
+<p>The first ten passing takes, from eleven saved attempts in session <code>study-01</code>, became D01–D10. Attempt 3 was rejected for a 0.0612 s sampling gap beyond the frozen 0.06 s limit, and collection continued for the shortfall. Acceptance occurred before model evaluation; weak learned performance did not permit replacing a teacher.</p>
+<p>The accepted processed trajectories last 12.87–16.92 s. Smoothing and timestamp-based reconstruction put them on the common 100 Hz grid while preserving the first posture. Natural initial fluctuations, pauses and movement timing remained part of the data. There was no motion-onset cropping, prescribed three-second reach, inter-take time warping, or invented stationary tail. The recordings had to end in a qualifying target hold and pass raw as well as processed validity checks.</p>
+<figure><img loading="lazy" src="assets/demonstrations.png" alt="All ten processed demonstrations: task-space paths and both joint-angle histories"><figcaption>The ten human teachers on their own recording clocks. Similar endpoints and paths coexist with variation in transient motion and timing. This figure is reused from the previous presentation, with its fingerprint checked during this build.</figcaption></figure>
+<h3>Training arms</h3><div class="table-scroll"><table><thead><tr><th>Arm</th><th>Training information</th><th>Per configuration</th><th>Purpose</th></tr></thead><tbody>
+<tr><th>S · One take</th><td>One accepted recording, separately for D01–D10</td><td>10 fitted models</td><td>Baseline and sensitivity to teacher choice</td></tr>
+<tr><th>M10 · All ten</th><td>All ten accepted human recordings</td><td>1 fitted model</td><td>Effect of additional human variation</td></tr>
+<tr><th>R10 · Copies</th><td>Ten exact copies of each parent recording</td><td>10 fitted models</td><td>Repetition without new information</td></tr>
+<tr><th>C10 · Synthetic</th><td>Each parent plus nine contractive synthetic episodes</td><td>10 fitted models</td><td>Constructed transient variation</td></tr>
+<tr><th>Replay</th><td>Recorded parent trajectory, then its final posture held</td><td>10 baseline banks</td><td>Trackability under matched control conditions</td></tr></tbody></table></div>
+<p>Each training episode has equal total loss weight, despite different lengths. In schematic form, the fitted readout minimizes:</p>
+<div class="equation" role="math">Σ<sub>e=1…E</sub> (N<sub>ref</sub>/N<sub>e</sub>) Σ<sub>t∈e</sub> ‖Wz<sub>e,t</sub> − q<sub>e,t+1</sub>‖² + Eα<sub>0</sub>‖W‖²<sub>F</sub></div>
+<p>Here <em>E</em> is the number of episodes, <em>N<sub>e</sub></em> their contributing row counts, <em>N<sub>ref</sub></em> a fixed reference count, and <em>z</em> the reservoir features with an explicit bias column. The bias column is scaled together with every other feature and target. Multiplying both data and regularization terms by the copy count leaves the optimum unchanged. This prevents copies from gaining an advantage merely by weakening effective regularization. A separate warm-up primes the model before the full recorded episode enters the loss; recorded pre-roll remains part of the task.</p>
+<p>The input transform is frozen from the prior scripted-data pipeline, not fitted separately to each manual take. C10 uses a frozen contractive construction: its perturbation is zero at the initial sample, ramps in over 0.5 s, and tapers through the final dwell. The latent joint-angle noise is a stationary AR(1) process with standard deviation 0.05 rad and coefficient 0.99. Its amplitude is multiplied by the parent’s endpoint-distance ratio to the target, clipped to [0, 1], with exponent 1, and by the start/end boundary envelope. Thus “contractive” describes shrinking perturbations near the target, not a stability proof for the learned system. Each parent supplies nine accepted synthetic episodes within a 36-attempt limit, after derivative reconstruction and validity checks. Different parents have distinct deterministic noise streams. Preserving teacher endpoints and dwell does not guarantee stable learned behavior.</p>
+<h3>The six configurations</h3><p>Letters A–F below are presentation labels assigned in the existing frozen order. They include different reservoir seeds, regularization, warm-up and causal derivative cutoffs. The panel contains three historically feasible settings and three historical failure examples from scripted-data work; it is not an unbiased sample of ESN hyperparameters. All of these settings are held fixed within a paired comparison. Across configurations they change together, so this experiment does not isolate their individual causal effects.</p>
+<details><summary>Full configuration table (rounded display; exact values remain in the study manifest)</summary><div class="table-scroll"><table class="dense"><thead><tr><th>Letter</th><th>Stored identifier</th><th>Units</th><th>Spectral radius</th><th>Sparsity parameter</th><th>Leak</th><th>Input scale</th><th>α₀</th><th>Seed</th><th>Warm-up (s)</th><th>Velocity / acceleration cutoffs (Hz)</th></tr></thead><tbody><tr><td>A</td><td>feasible-best</td><td>100</td><td>1.2633</td><td>0.90867</td><td>0.065446</td><td>0.41628</td><td>0.11917</td><td>965</td><td>0.25</td><td>6.6695 / 5.5903</td></tr>
+<tr><td>B</td><td>feasible-middle</td><td>400</td><td>1.2998</td><td>0.64057</td><td>0.038577</td><td>0.27588</td><td>0.0030976</td><td>922</td><td>0</td><td>21.854 / 9.3317</td></tr>
+<tr><td>C</td><td>feasible-worst</td><td>300</td><td>1.1484</td><td>0.86748</td><td>0.013524</td><td>0.022282</td><td>0.0049355</td><td>938</td><td>1</td><td>6.7311 / 5.1302</td></tr>
+<tr><td>D</td><td>failure-actual-dwell</td><td>100</td><td>1.1622</td><td>0.6098</td><td>0.014664</td><td>0.21141</td><td>0.61916</td><td>340</td><td>0.25</td><td>28.457 / 5.7304</td></tr>
+<tr><td>E</td><td>failure-joint-velocity</td><td>250</td><td>1.2945</td><td>0.97911</td><td>0.0409</td><td>0.021177</td><td>0.0028495</td><td>896</td><td>1</td><td>29.98 / 10.938</td></tr>
+<tr><td>F</td><td>failure-generated-dwell</td><td>300</td><td>1.1183</td><td>0.78194</td><td>0.12632</td><td>0.044105</td><td>0.08366</td><td>966</td><td>0</td><td>7.556 / 20.383</td></tr></tbody></table></div><p>“Units” means reservoir neurons. Sparsity is the stored library parameter. Labels such as “feasible-worst” and “failure-joint-velocity” describe historical selection roles, not a prediction of performance here.</p></details>
+<h3>Evaluation and disturbances</h3><div class="table-scroll"><table><thead><tr><th>Class</th><th>Cases per tracker</th><th>Condition</th></tr></thead><tbody>
+<tr><td>Nominal</td><td>1</td><td>Exact demonstration starting posture</td></tr><tr><td>Small posture offset</td><td>20</td><td>Frozen initial-posture draws at the 0.05 rad perturbation level</td></tr><tr><td>Large posture offset</td><td>20</td><td>Frozen draws at the 0.10 rad perturbation level</td></tr><tr><td>Force</td><td>4</td><td>12 N endpoint pulse for 0.2 s, in four directions</td></tr><tr><td>Combined</td><td>20</td><td>Posture offset plus force pulse</td></tr></tbody></table></div>
+<p>A force pulse is triggered only after the measured arm satisfies the target predicate continuously for 0.5 s. The realized trigger time is recorded separately for each run. A model that never earns the pulse is a failure, not a successful recovery. Force and combined cases must subsequently recover and satisfy final dwell. Each case starts from a fresh reset; an abort does not suppress later cases.</p>
+<div class="callout"><strong>Success is a conjunction, not “the tip came close.”</strong><ul><li>Complete the 30 s active horizon after warm-up.</li><li>End with at least one uninterrupted second inside the 10 mm target radius, with both joint speeds at most 0.05 rad/s.</li><li>Keep the generated reference within the position, speed and workspace criteria and satisfy its dwell requirement.</li><li>Meet the force-trigger/recovery criteria when applicable.</li><li>Meet the effort criterion: saturation fraction at most 0.005 (0.5%).</li></ul><p>The 0.05 rad/s bound is a dwell condition. The much higher 6 rad/s bound is the motion abort limit. A transient may vary greatly without failing; an endpoint inside the circle can still fail because of speed, reference validity, effort or incomplete duration.</p></div>
+<p>Reference velocity and acceleration are computed causally in execution. Replay uses the same estimator policy as its paired configuration; it is not given ideal offline derivatives. Because all six configuration policies differ, there are 60 replay banks, each containing 65 cases × two trackers.</p>
+<h3>Denominators and units of comparison</h3><p>There are 31 learned models per configuration: 10 S + 1 M10 + 10 R10 + 10 C10. Across six configurations this gives <strong>186 learned models and 24,180 learned runs</strong>. Replay contributes <strong>60 banks and 7,800 runs</strong>, for <strong>31,980 runs</strong> total. No expected run is missing.</p>
+<p>Comparisons are paired by parent recording, configuration, tracker and scenario. The single M10 fit is reused in ten parent comparisons; it is not ten independent fits. A score difference is the number of cases where arm A succeeds minus that number for arm B, over the same cases. Improved/worsened/tied tallies are retained separately. A net zero can hide opposing changes.</p>
+<p>All-65 scores weight each scenario once. Consequently the 20-case classes contribute more than nominal or force. We therefore also show class-specific comparisons. Medians and ranges describe the ten observed parents; they are not confidence intervals. Copies, synthetic episodes, overlapping training sets and deterministic evaluations are not independent human observations.</p></section>
+<section id="results"><p class="eyebrow">04 / Results</p><h2>The paired comparison is more informative than the pooled success rate.</h2>
+<p>The learned runs produce 14,184 successes out of 24,180; replay produces 7,750 out of 7,800. These totals are useful completeness checks but pool different arms, configurations and trackers. They do not answer the one-versus-ten question.</p>
+<figure><img loading="lazy" src="assets/success_counts.png" alt="Successful cases for every parent model and the single all-ten model, separately by configuration and tracker"><figcaption>Each parent-specific point is a model or replay baseline; the orange diamond is the single M10 model. Overlapping points are retained. R10 is omitted visually because its scores equal S. Counts are out of 65 under each tracker.</figcaption></figure>
+<h3>Primary comparison: all ten versus one</h3><div class="table-scroll"><table><caption>Cases succeeded out of 65. Paired effect = M10 minus S. Parent tallies count positive / negative / zero effects.</caption><thead><tr><th>Configuration / tracker</th><th>S median [range]</th><th>M10</th><th>Paired effect: median [range]</th><th>Parents better / worse / tied</th></tr></thead><tbody><tr data-result="feasible-best/pd_v2"><th>A / PD</th><td>65 [1–65]</td><td>50</td><td>−15 [−15 … +49]</td><td>2 / 7 / 1</td></tr>
+<tr data-result="feasible-best/computed_torque"><th>A / Computed torque</th><td>56 [0–59]</td><td>42</td><td>−14 [−17 … +42]</td><td>3 / 7 / 0</td></tr>
+<tr data-result="feasible-middle/pd_v2"><th>B / PD</th><td>65 [59–65]</td><td>14</td><td>−51 [−51 … −45]</td><td>0 / 10 / 0</td></tr>
+<tr data-result="feasible-middle/computed_torque"><th>B / Computed torque</th><td>41 [41–41]</td><td>11</td><td>−30 [−30 … −30]</td><td>0 / 10 / 0</td></tr>
+<tr data-result="feasible-worst/pd_v2"><th>C / PD</th><td>65 [65–65]</td><td>65</td><td>0 [0 … 0]</td><td>0 / 0 / 10</td></tr>
+<tr data-result="feasible-worst/computed_torque"><th>C / Computed torque</th><td>65 [65–65]</td><td>59</td><td>−6 [−6 … −6]</td><td>0 / 10 / 0</td></tr>
+<tr data-result="failure-actual-dwell/pd_v2"><th>D / PD</th><td>0 [0–0]</td><td>0</td><td>0 [0 … 0]</td><td>0 / 0 / 10</td></tr>
+<tr data-result="failure-actual-dwell/computed_torque"><th>D / Computed torque</th><td>0 [0–0]</td><td>0</td><td>0 [0 … 0]</td><td>0 / 0 / 10</td></tr>
+<tr data-result="failure-joint-velocity/pd_v2"><th>E / PD</th><td>65 [65–65]</td><td>65</td><td>0 [0 … 0]</td><td>0 / 0 / 10</td></tr>
+<tr data-result="failure-joint-velocity/computed_torque"><th>E / Computed torque</th><td>65 [59–65]</td><td>59</td><td>−6 [−6 … 0]</td><td>0 / 6 / 4</td></tr>
+<tr data-result="failure-generated-dwell/pd_v2"><th>F / PD</th><td>0 [0–30]</td><td>0</td><td>0 [−30 … 0]</td><td>0 / 4 / 6</td></tr>
+<tr data-result="failure-generated-dwell/computed_torque"><th>F / Computed torque</th><td>0 [0–59]</td><td>0</td><td>0 [−59 … 0]</td><td>0 / 4 / 6</td></tr></tbody></table></div>
+<p><strong>B gives the clearest adverse result:</strong> all ten singleton models beat M10 under both trackers. Under PD, M10 solves 14 cases while the singletons solve 59–65. Under computed torque, M10 solves 11 and every singleton solves 41. This is not the effect of choosing one unusually good demonstration as the baseline.</p>
+<p><strong>A shows a real benefit for weak parents:</strong> with PD, M10 improves D01 by 49 successful cases and D10 by six, ties D03, and loses 15 cases to each of seven other singletons. For D01 specifically, 49 scenarios improve, none worsen, one succeeds under both arms, and 15 fail under both. A rescue exists, but it is not typical of the ten paired effects.</p>
+<p><strong>Zero effects need their absolute context:</strong> C/PD and E/PD sit at the success ceiling, whereas D is at the failure floor. F's median zero still contains losses against four parents. These are different scientific outcomes despite the same median difference.</p>
+<figure><img loading="lazy" src="assets/class_comparisons.png" alt="Paired median success-count differences by configuration, tracker and scenario class"><figcaption>Numbers are differences in successful cases, not percentages. Color normalizes by each class's denominator. White zero cells do not establish equal trajectories or identical per-parent effects.</figcaption></figure>
+<p>The nominal case can hide poor robustness. B/PD M10 succeeds nominally, but only in 5/20 small-offset and 2/20 large-offset cases; every singleton solves all 40 posture-only cases. B under computed torque is different again: singleton success comprises all 41 nominal/posture cases, with none of the 24 force/combined cases successful.</p>
+<h3>Exact repetition does not help under matched regularization</h3><p>S and R10 have identical verdicts in all <strong>7,800 matched comparisons</strong> (six configurations × ten parents × 65 cases × two trackers). This agrees with the numerical copy-equivalence checks performed before evaluation. It is not a claim of byte-identical trajectories: numerical differences can remain while verdicts and plotted curves coincide.</p>
+<h3>Synthetic variation is not a dependable substitute for extra teaching</h3><p>For A/PD, C10 raises D01 from 1 to 59 successes but drops D10 from 44 to six. The D10 net loss of 38 contains three improved and 41 worsened cases. The median C10−R10 effect across parents is zero, spanning −38 to +58. A favorable aggregate can therefore coexist with severe harm to individual teachers.</p>
+<p>For B, every C10 model scores zero under both trackers. In C, all singleton, copy and synthetic models solve every case under both trackers. E/PD is also at that ceiling; D stays at zero. There is no universal winner between all ten human recordings and this augmentation recipe: M10's median advantage over C10 is positive only in B, where C10 fails entirely.</p>
+<h3>Replay separates teacher trackability from learned behavior</h3><p>Every parent-matched replay solves 63–65 of the 65 cases. B/PD replay solves them all, while M10 solves 14 and C10 none. The gross losses of these learned arms cannot be explained solely by an untrackable source recording. Replay remains a fixed recorded path with feedback tracking, however; it demonstrates neither generalization to another target nor learning a new task.</p>
+<p>Replay is not an absolute upper bound. At E/PD, all learned models score 65 while each replay scores 63. That two-case advantage also exists for S, so it does not favor ten demonstrations over one.</p></section>
+<section id="gallery"><p class="eyebrow">05 / Visual case studies</p><h2>See the measured motion, its command, and the conditions of failure.</h2>
+<p>These eight cases are a documented subset of the <strong>18 cases selected by the study's frozen representative rule</strong>: nominal, first all-ten win, first singleton win, and first failure, with duplicates removed. Every illustrated parent is D01. The present subset spans successes, losses, aborts and pulse responses; it is an explanatory gallery, not a frequency-weighted sample or a new test set. The full tables in section 4 support the conclusions.</p>
+<p>Animations use original stored states at approximately 10 frames per simulated second, plus activation, pulse boundaries and the final recorded sample. Playback uses the nearest preceding retained sample and does not interpolate dynamics. Angles are rounded to six decimal places for display only. Static plots use all stored samples. Default playback is 2× real task time; you can pause, change speed, or scrub. No animation starts automatically. PASS/FAIL labels show the final whole-run verdict, not an instantaneous judgment. S and R10 often overlap so closely that the green R10 curve hides the blue S curve.</p>
+<p class="legend"><span style="--color:#1f77b4">S</span><span style="--color:#d62728">M10</span><span style="--color:#2ca02c">R10</span><span style="--color:#9467bd">C10</span><span style="--color:#7f7f7f">Replay</span> · Arm coordinates in metres; all animation panels share the same scale.</p>
+<noscript><p class="callout">JavaScript is disabled. All scientific plots and tables remain available below; enable JavaScript for the synchronized animation controls.</p></noscript>
+<article class="case" id="case-rescue"><p class="eyebrow">Matched case · D01 parent</p>
+<h3>A · A weak singleton is rescued</h3><p>At the nominal start, D01&#x27;s singleton and copies miss the target tolerance; all-ten and synthetic training succeed. This is an example of a gain, not the typical paired effect across all ten parents.</p>
+<p class="metadata">feasible-best__pd_v2__nominal · Frozen categories: nominal, all_ten_wins, first_failure</p>
+<div class="player" data-case="rescue"><div class="controls"><button type="button" class="play">Play</button>
+<button type="button" class="reset">Reset</button><label>Speed <select class="speed"><option
+value="1">1×</option><option value="2" selected>2×</option><option
+value="4">4×</option></select></label>
+<label class="scrub">Task time <input class="timeline" type="range" min="0" max="30" step="0.01"
+value="0"></label><output class="clock">0.00 s</output></div>
+<div class="canvases"></div><p class="hint">Five synchronized stored trajectories. Solid arm: measured; dashed arm:
+commanded. A grey pose after a trace ends is only its last stored state. No continuation is simulated.</p></div>
+<figure><a href="assets/rescue-space.png"><img loading="lazy" src="assets/rescue-space.png" alt="Five
+arm-specific task-space paths for A · A weak singleton is rescued"></a><figcaption>Same task-space scale in every panel.
+Click a plot for its full-size image. Differences smaller than the target ring are clearer in the error time
+series.</figcaption></figure>
+<figure><a href="assets/rescue-time.png"><img loading="lazy" src="assets/rescue-time.png" alt="Endpoint
+error, joint speeds, tracking error and torque over time"></a><figcaption>Full stored sampling, including warm-up
+at negative time. Reference/error and speed curves may differ. Torque is normalized per joint before taking the
+maximum; this is not torque RMS. Curves end when their recorded run ends.</figcaption></figure>
+<details><summary>Joint angles and combined endpoint plot</summary><img loading="lazy"
+src="assets/rescue-joints.png" alt="Joint 1 and joint 2 histories, endpoint path and distance, including the
+recorded teacher"><p>The dotted teacher is D01 on its recording clock. All-ten was trained on all ten teachers; D01
+is a comparison reference, not its unique teacher.</p></details>
+<div class="table-scroll"><table><caption>Audited diagnostic values; error is at the last stored sample, including
+early aborts.</caption><thead><tr><th>Arm</th><th>Verdict</th><th>Final error (mm)</th><th>Final hold starts (task
+s)</th><th>Deciding reason</th></tr></thead><tbody><tr><th>S</th><td>Fail</td><td>14.67</td><td>—</td><td>dwell:no_final_dwell</td></tr><tr><th>M10</th><td>Pass</td><td>2.84</td><td>6.12</td><td>All criteria met</td></tr><tr><th>R10</th><td>Fail</td><td>14.67</td><td>—</td><td>dwell:no_final_dwell</td></tr><tr><th>C10</th><td>Pass</td><td>4.01</td><td>6.52</td><td>All criteria met</td></tr><tr><th>replay</th><td>Pass</td><td>1.95</td><td>14.59</td><td>All criteria met</td></tr></tbody></table></div></article>
+<article class="case" id="case-nominal"><p class="eyebrow">Matched case · D01 parent</p>
+<h3>B · Nominal success hides augmentation failure</h3><p>One take and all ten both pass here. The synthetic model does not settle at the target. This nominal result alone does not reveal the all-ten model&#x27;s poor robustness to starting offsets.</p>
+<p class="metadata">feasible-middle__pd_v2__nominal · Frozen categories: nominal, first_failure</p>
+<div class="player" data-case="nominal"><div class="controls"><button type="button" class="play">Play</button>
+<button type="button" class="reset">Reset</button><label>Speed <select class="speed"><option
+value="1">1×</option><option value="2" selected>2×</option><option
+value="4">4×</option></select></label>
+<label class="scrub">Task time <input class="timeline" type="range" min="0" max="30" step="0.01"
+value="0"></label><output class="clock">0.00 s</output></div>
+<div class="canvases"></div><p class="hint">Five synchronized stored trajectories. Solid arm: measured; dashed arm:
+commanded. A grey pose after a trace ends is only its last stored state. No continuation is simulated.</p></div>
+<figure><a href="assets/nominal-space.png"><img loading="lazy" src="assets/nominal-space.png" alt="Five
+arm-specific task-space paths for B · Nominal success hides augmentation failure"></a><figcaption>Same task-space scale in every panel.
+Click a plot for its full-size image. Differences smaller than the target ring are clearer in the error time
+series.</figcaption></figure>
+<figure><a href="assets/nominal-time.png"><img loading="lazy" src="assets/nominal-time.png" alt="Endpoint
+error, joint speeds, tracking error and torque over time"></a><figcaption>Full stored sampling, including warm-up
+at negative time. Reference/error and speed curves may differ. Torque is normalized per joint before taking the
+maximum; this is not torque RMS. Curves end when their recorded run ends.</figcaption></figure>
+<details><summary>Joint angles and combined endpoint plot</summary><img loading="lazy"
+src="assets/nominal-joints.png" alt="Joint 1 and joint 2 histories, endpoint path and distance, including the
+recorded teacher"><p>The dotted teacher is D01 on its recording clock. All-ten was trained on all ten teachers; D01
+is a comparison reference, not its unique teacher.</p></details>
+<div class="table-scroll"><table><caption>Audited diagnostic values; error is at the last stored sample, including
+early aborts.</caption><thead><tr><th>Arm</th><th>Verdict</th><th>Final error (mm)</th><th>Final hold starts (task
+s)</th><th>Deciding reason</th></tr></thead><tbody><tr><th>S</th><td>Pass</td><td>1.13</td><td>7.53</td><td>All criteria met</td></tr><tr><th>M10</th><td>Pass</td><td>3.82</td><td>7.14</td><td>All criteria met</td></tr><tr><th>R10</th><td>Pass</td><td>1.13</td><td>7.53</td><td>All criteria met</td></tr><tr><th>C10</th><td>Fail</td><td>462.17</td><td>—</td><td>dwell:no_final_dwell</td></tr><tr><th>replay</th><td>Pass</td><td>1.95</td><td>14.58</td><td>All criteria met</td></tr></tbody></table></div></article>
+<article class="case" id="case-offset"><p class="eyebrow">Matched case · D01 parent</p>
+<h3>B · A small posture offset reverses the comparison</h3><p>The singleton succeeds, all-ten misses by a large distance, and the synthetic run stops at a joint-speed limit. Compare this with the same configuration&#x27;s nominal case immediately above.</p>
+<p class="metadata">feasible-middle__pd_v2__posture-small-20261201-01 · Frozen categories: singleton_wins</p>
+<div class="player" data-case="offset"><div class="controls"><button type="button" class="play">Play</button>
+<button type="button" class="reset">Reset</button><label>Speed <select class="speed"><option
+value="1">1×</option><option value="2" selected>2×</option><option
+value="4">4×</option></select></label>
+<label class="scrub">Task time <input class="timeline" type="range" min="0" max="30" step="0.01"
+value="0"></label><output class="clock">0.00 s</output></div>
+<div class="canvases"></div><p class="hint">Five synchronized stored trajectories. Solid arm: measured; dashed arm:
+commanded. A grey pose after a trace ends is only its last stored state. No continuation is simulated.</p></div>
+<figure><a href="assets/offset-space.png"><img loading="lazy" src="assets/offset-space.png" alt="Five
+arm-specific task-space paths for B · A small posture offset reverses the comparison"></a><figcaption>Same task-space scale in every panel.
+Click a plot for its full-size image. Differences smaller than the target ring are clearer in the error time
+series.</figcaption></figure>
+<figure><a href="assets/offset-time.png"><img loading="lazy" src="assets/offset-time.png" alt="Endpoint
+error, joint speeds, tracking error and torque over time"></a><figcaption>Full stored sampling, including warm-up
+at negative time. Reference/error and speed curves may differ. Torque is normalized per joint before taking the
+maximum; this is not torque RMS. Curves end when their recorded run ends.</figcaption></figure>
+<details><summary>Joint angles and combined endpoint plot</summary><img loading="lazy"
+src="assets/offset-joints.png" alt="Joint 1 and joint 2 histories, endpoint path and distance, including the
+recorded teacher"><p>The dotted teacher is D01 on its recording clock. All-ten was trained on all ten teachers; D01
+is a comparison reference, not its unique teacher.</p></details>
+<div class="table-scroll"><table><caption>Audited diagnostic values; error is at the last stored sample, including
+early aborts.</caption><thead><tr><th>Arm</th><th>Verdict</th><th>Final error (mm)</th><th>Final hold starts (task
+s)</th><th>Deciding reason</th></tr></thead><tbody><tr><th>S</th><td>Pass</td><td>1.13</td><td>8.16</td><td>All criteria met</td></tr><tr><th>M10</th><td>Fail</td><td>783.39</td><td>—</td><td>dwell:no_final_dwell</td></tr><tr><th>R10</th><td>Pass</td><td>1.13</td><td>8.16</td><td>All criteria met</td></tr><tr><th>C10</th><td>Fail</td><td>300.07</td><td>—</td><td>limit_violation:joint_velocity</td></tr><tr><th>replay</th><td>Pass</td><td>1.95</td><td>14.58</td><td>All criteria met</td></tr></tbody></table></div></article>
+<article class="case" id="case-ceiling"><p class="eyebrow">Matched case · D01 parent</p>
+<h3>C · All five methods succeed</h3><p>All five approaches reach and hold in this nominal case. More broadly, every learned model at C/PD succeeds in all 65 cases: equal scores here are a ceiling, not proof of equal trajectories.</p>
+<p class="metadata">feasible-worst__pd_v2__nominal · Frozen categories: nominal</p>
+<div class="player" data-case="ceiling"><div class="controls"><button type="button" class="play">Play</button>
+<button type="button" class="reset">Reset</button><label>Speed <select class="speed"><option
+value="1">1×</option><option value="2" selected>2×</option><option
+value="4">4×</option></select></label>
+<label class="scrub">Task time <input class="timeline" type="range" min="0" max="30" step="0.01"
+value="0"></label><output class="clock">0.00 s</output></div>
+<div class="canvases"></div><p class="hint">Five synchronized stored trajectories. Solid arm: measured; dashed arm:
+commanded. A grey pose after a trace ends is only its last stored state. No continuation is simulated.</p></div>
+<figure><a href="assets/ceiling-space.png"><img loading="lazy" src="assets/ceiling-space.png" alt="Five
+arm-specific task-space paths for C · All five methods succeed"></a><figcaption>Same task-space scale in every panel.
+Click a plot for its full-size image. Differences smaller than the target ring are clearer in the error time
+series.</figcaption></figure>
+<figure><a href="assets/ceiling-time.png"><img loading="lazy" src="assets/ceiling-time.png" alt="Endpoint
+error, joint speeds, tracking error and torque over time"></a><figcaption>Full stored sampling, including warm-up
+at negative time. Reference/error and speed curves may differ. Torque is normalized per joint before taking the
+maximum; this is not torque RMS. Curves end when their recorded run ends.</figcaption></figure>
+<details><summary>Joint angles and combined endpoint plot</summary><img loading="lazy"
+src="assets/ceiling-joints.png" alt="Joint 1 and joint 2 histories, endpoint path and distance, including the
+recorded teacher"><p>The dotted teacher is D01 on its recording clock. All-ten was trained on all ten teachers; D01
+is a comparison reference, not its unique teacher.</p></details>
+<div class="table-scroll"><table><caption>Audited diagnostic values; error is at the last stored sample, including
+early aborts.</caption><thead><tr><th>Arm</th><th>Verdict</th><th>Final error (mm)</th><th>Final hold starts (task
+s)</th><th>Deciding reason</th></tr></thead><tbody><tr><th>S</th><td>Pass</td><td>1.38</td><td>7.77</td><td>All criteria met</td></tr><tr><th>M10</th><td>Pass</td><td>6.15</td><td>6.86</td><td>All criteria met</td></tr><tr><th>R10</th><td>Pass</td><td>1.38</td><td>7.77</td><td>All criteria met</td></tr><tr><th>C10</th><td>Pass</td><td>6.94</td><td>7.86</td><td>All criteria met</td></tr><tr><th>replay</th><td>Pass</td><td>1.95</td><td>14.59</td><td>All criteria met</td></tr></tbody></table></div></article>
+<article class="case" id="case-force"><p class="eyebrow">Matched case · D01 parent</p>
+<h3>C · Disturbance recovery misses a strict tolerance</h3><p>With computed torque and a positive-x force pulse, the singleton, copies, synthetic model and replay recover. All-ten finishes just outside the target radius. Each arm receives its pulse after its own measured dwell trigger, so pulse times differ.</p>
+<p class="metadata">feasible-worst__computed_torque__force-12N-000deg · Frozen categories: singleton_wins, first_failure</p>
+<div class="player" data-case="force"><div class="controls"><button type="button" class="play">Play</button>
+<button type="button" class="reset">Reset</button><label>Speed <select class="speed"><option
+value="1">1×</option><option value="2" selected>2×</option><option
+value="4">4×</option></select></label>
+<label class="scrub">Task time <input class="timeline" type="range" min="0" max="30" step="0.01"
+value="0"></label><output class="clock">0.00 s</output></div>
+<div class="canvases"></div><p class="hint">Five synchronized stored trajectories. Solid arm: measured; dashed arm:
+commanded. A grey pose after a trace ends is only its last stored state. No continuation is simulated.</p></div>
+<figure><a href="assets/force-space.png"><img loading="lazy" src="assets/force-space.png" alt="Five
+arm-specific task-space paths for C · Disturbance recovery misses a strict tolerance"></a><figcaption>Same task-space scale in every panel.
+Click a plot for its full-size image. Differences smaller than the target ring are clearer in the error time
+series.</figcaption></figure>
+<figure><a href="assets/force-time.png"><img loading="lazy" src="assets/force-time.png" alt="Endpoint
+error, joint speeds, tracking error and torque over time"></a><figcaption>Full stored sampling, including warm-up
+at negative time. Reference/error and speed curves may differ. Torque is normalized per joint before taking the
+maximum; this is not torque RMS. Curves end when their recorded run ends.</figcaption></figure>
+<details><summary>Joint angles and combined endpoint plot</summary><img loading="lazy"
+src="assets/force-joints.png" alt="Joint 1 and joint 2 histories, endpoint path and distance, including the
+recorded teacher"><p>The dotted teacher is D01 on its recording clock. All-ten was trained on all ten teachers; D01
+is a comparison reference, not its unique teacher.</p></details>
+<div class="table-scroll"><table><caption>Audited diagnostic values; error is at the last stored sample, including
+early aborts.</caption><thead><tr><th>Arm</th><th>Verdict</th><th>Final error (mm)</th><th>Final hold starts (task
+s)</th><th>Deciding reason</th></tr></thead><tbody><tr><th>S</th><td>Pass</td><td>1.38</td><td>11.71</td><td>All criteria met</td></tr><tr><th>M10</th><td>Fail</td><td>11.46</td><td>—</td><td>dwell:no_final_dwell</td></tr><tr><th>R10</th><td>Pass</td><td>1.38</td><td>11.71</td><td>All criteria met</td></tr><tr><th>C10</th><td>Pass</td><td>6.90</td><td>13.35</td><td>All criteria met</td></tr><tr><th>replay</th><td>Pass</td><td>1.95</td><td>14.61</td><td>All criteria met</td></tr></tbody></table></div></article>
+<article class="case" id="case-abort"><p class="eyebrow">Matched case · D01 parent</p>
+<h3>D · Learned runs stop at a speed limit</h3><p>All four learned arms stop early, whereas replay completes. The historical label &#x27;failure-actual-dwell&#x27; is not the reason these runs fail. The last stored state can be below the abort threshold: the violating next step is rejected rather than retained as a normal sample.</p>
+<p class="metadata">failure-actual-dwell__pd_v2__nominal · Frozen categories: nominal, first_failure</p>
+<div class="player" data-case="abort"><div class="controls"><button type="button" class="play">Play</button>
+<button type="button" class="reset">Reset</button><label>Speed <select class="speed"><option
+value="1">1×</option><option value="2" selected>2×</option><option
+value="4">4×</option></select></label>
+<label class="scrub">Task time <input class="timeline" type="range" min="0" max="30" step="0.01"
+value="0"></label><output class="clock">0.00 s</output></div>
+<div class="canvases"></div><p class="hint">Five synchronized stored trajectories. Solid arm: measured; dashed arm:
+commanded. A grey pose after a trace ends is only its last stored state. No continuation is simulated.</p></div>
+<figure><a href="assets/abort-space.png"><img loading="lazy" src="assets/abort-space.png" alt="Five
+arm-specific task-space paths for D · Learned runs stop at a speed limit"></a><figcaption>Same task-space scale in every panel.
+Click a plot for its full-size image. Differences smaller than the target ring are clearer in the error time
+series.</figcaption></figure>
+<figure><a href="assets/abort-time.png"><img loading="lazy" src="assets/abort-time.png" alt="Endpoint
+error, joint speeds, tracking error and torque over time"></a><figcaption>Full stored sampling, including warm-up
+at negative time. Reference/error and speed curves may differ. Torque is normalized per joint before taking the
+maximum; this is not torque RMS. Curves end when their recorded run ends.</figcaption></figure>
+<details><summary>Joint angles and combined endpoint plot</summary><img loading="lazy"
+src="assets/abort-joints.png" alt="Joint 1 and joint 2 histories, endpoint path and distance, including the
+recorded teacher"><p>The dotted teacher is D01 on its recording clock. All-ten was trained on all ten teachers; D01
+is a comparison reference, not its unique teacher.</p></details>
+<div class="table-scroll"><table><caption>Audited diagnostic values; error is at the last stored sample, including
+early aborts.</caption><thead><tr><th>Arm</th><th>Verdict</th><th>Final error (mm)</th><th>Final hold starts (task
+s)</th><th>Deciding reason</th></tr></thead><tbody><tr><th>S</th><td>Fail</td><td>286.43</td><td>—</td><td>limit_violation:joint_velocity</td></tr><tr><th>M10</th><td>Fail</td><td>286.43</td><td>—</td><td>limit_violation:joint_velocity</td></tr><tr><th>R10</th><td>Fail</td><td>286.43</td><td>—</td><td>limit_violation:joint_velocity</td></tr><tr><th>C10</th><td>Fail</td><td>286.43</td><td>—</td><td>limit_violation:joint_velocity</td></tr><tr><th>replay</th><td>Pass</td><td>1.95</td><td>14.58</td><td>All criteria met</td></tr></tbody></table></div></article>
+<article class="case" id="case-force_abort"><p class="eyebrow">Matched case · D01 parent</p>
+<h3>E · Reach first, then fail under force</h3><p>The learned arms reach sufficiently well to trigger the pulse, but then encounter joint-speed aborts. Replay succeeds. This distinguishes recovery failure from never reaching the trigger condition.</p>
+<p class="metadata">failure-joint-velocity__computed_torque__force-12N-000deg · Frozen categories: first_failure</p>
+<div class="player" data-case="force_abort"><div class="controls"><button type="button" class="play">Play</button>
+<button type="button" class="reset">Reset</button><label>Speed <select class="speed"><option
+value="1">1×</option><option value="2" selected>2×</option><option
+value="4">4×</option></select></label>
+<label class="scrub">Task time <input class="timeline" type="range" min="0" max="30" step="0.01"
+value="0"></label><output class="clock">0.00 s</output></div>
+<div class="canvases"></div><p class="hint">Five synchronized stored trajectories. Solid arm: measured; dashed arm:
+commanded. A grey pose after a trace ends is only its last stored state. No continuation is simulated.</p></div>
+<figure><a href="assets/force_abort-space.png"><img loading="lazy" src="assets/force_abort-space.png" alt="Five
+arm-specific task-space paths for E · Reach first, then fail under force"></a><figcaption>Same task-space scale in every panel.
+Click a plot for its full-size image. Differences smaller than the target ring are clearer in the error time
+series.</figcaption></figure>
+<figure><a href="assets/force_abort-time.png"><img loading="lazy" src="assets/force_abort-time.png" alt="Endpoint
+error, joint speeds, tracking error and torque over time"></a><figcaption>Full stored sampling, including warm-up
+at negative time. Reference/error and speed curves may differ. Torque is normalized per joint before taking the
+maximum; this is not torque RMS. Curves end when their recorded run ends.</figcaption></figure>
+<details><summary>Joint angles and combined endpoint plot</summary><img loading="lazy"
+src="assets/force_abort-joints.png" alt="Joint 1 and joint 2 histories, endpoint path and distance, including the
+recorded teacher"><p>The dotted teacher is D01 on its recording clock. All-ten was trained on all ten teachers; D01
+is a comparison reference, not its unique teacher.</p></details>
+<div class="table-scroll"><table><caption>Audited diagnostic values; error is at the last stored sample, including
+early aborts.</caption><thead><tr><th>Arm</th><th>Verdict</th><th>Final error (mm)</th><th>Final hold starts (task
+s)</th><th>Deciding reason</th></tr></thead><tbody><tr><th>S</th><td>Fail</td><td>89.43</td><td>—</td><td>limit_violation:joint_velocity</td></tr><tr><th>M10</th><td>Fail</td><td>66.21</td><td>—</td><td>limit_violation:joint_velocity</td></tr><tr><th>R10</th><td>Fail</td><td>89.43</td><td>—</td><td>limit_violation:joint_velocity</td></tr><tr><th>C10</th><td>Fail</td><td>51.22</td><td>—</td><td>limit_violation:joint_velocity</td></tr><tr><th>replay</th><td>Pass</td><td>1.95</td><td>14.60</td><td>All criteria met</td></tr></tbody></table></div></article>
+<article class="case" id="case-slow"><p class="eyebrow">Matched case · D01 parent</p>
+<h3>F · Late recovery is still a valid success</h3><p>The singleton and copies eventually recover and hold, while all-ten and synthetic do not satisfy the final dwell criterion. A slower transient is not itself a failure: the protocol judges the final continuous hold within the common horizon.</p>
+<p class="metadata">failure-generated-dwell__pd_v2__force-12N-000deg · Frozen categories: singleton_wins</p>
+<div class="player" data-case="slow"><div class="controls"><button type="button" class="play">Play</button>
+<button type="button" class="reset">Reset</button><label>Speed <select class="speed"><option
+value="1">1×</option><option value="2" selected>2×</option><option
+value="4">4×</option></select></label>
+<label class="scrub">Task time <input class="timeline" type="range" min="0" max="30" step="0.01"
+value="0"></label><output class="clock">0.00 s</output></div>
+<div class="canvases"></div><p class="hint">Five synchronized stored trajectories. Solid arm: measured; dashed arm:
+commanded. A grey pose after a trace ends is only its last stored state. No continuation is simulated.</p></div>
+<figure><a href="assets/slow-space.png"><img loading="lazy" src="assets/slow-space.png" alt="Five
+arm-specific task-space paths for F · Late recovery is still a valid success"></a><figcaption>Same task-space scale in every panel.
+Click a plot for its full-size image. Differences smaller than the target ring are clearer in the error time
+series.</figcaption></figure>
+<figure><a href="assets/slow-time.png"><img loading="lazy" src="assets/slow-time.png" alt="Endpoint
+error, joint speeds, tracking error and torque over time"></a><figcaption>Full stored sampling, including warm-up
+at negative time. Reference/error and speed curves may differ. Torque is normalized per joint before taking the
+maximum; this is not torque RMS. Curves end when their recorded run ends.</figcaption></figure>
+<details><summary>Joint angles and combined endpoint plot</summary><img loading="lazy"
+src="assets/slow-joints.png" alt="Joint 1 and joint 2 histories, endpoint path and distance, including the
+recorded teacher"><p>The dotted teacher is D01 on its recording clock. All-ten was trained on all ten teachers; D01
+is a comparison reference, not its unique teacher.</p></details>
+<div class="table-scroll"><table><caption>Audited diagnostic values; error is at the last stored sample, including
+early aborts.</caption><thead><tr><th>Arm</th><th>Verdict</th><th>Final error (mm)</th><th>Final hold starts (task
+s)</th><th>Deciding reason</th></tr></thead><tbody><tr><th>S</th><td>Pass</td><td>6.33</td><td>25.15</td><td>All criteria met</td></tr><tr><th>M10</th><td>Fail</td><td>16.69</td><td>—</td><td>dwell:no_final_dwell</td></tr><tr><th>R10</th><td>Pass</td><td>6.33</td><td>25.15</td><td>All criteria met</td></tr><tr><th>C10</th><td>Fail</td><td>15.46</td><td>—</td><td>dwell:no_final_dwell</td></tr><tr><th>replay</th><td>Pass</td><td>1.95</td><td>14.59</td><td>All criteria met</td></tr></tbody></table></div></article>
+</section>
+<section id="discussion"><p class="eyebrow">06 / Discussion</p><h2>What explains the result—and what this experiment cannot decide.</h2>
+<h3>Observed: more training variation does not guarantee robust closed-loop motion</h3><p>The ten teachers meet a common acquisition predicate, and replay usually succeeds. Some fixed configurations also learn excellent singleton behavior. Nevertheless, additional recordings or synthetic transients can worsen the learned reference and its interaction with the tracker. The experiment directly establishes these conditional outcomes; it does not isolate one internal cause.</p>
+<h3>Hypotheses to distinguish, not conclusions to substitute</h3><p>Fitting different transient histories may change the readout in a way that improves average demonstrated prediction yet changes its autonomous trajectories or attracting states. Synthetic variations may alter the learned dynamics even when their starts and final holds are preserved. The causal derivative filters and tracking dynamics may amplify or suppress those changes. These mechanisms are plausible interpretations, not experimentally separated explanations.</p>
+<p>The ESN has memory. Different desired next positions at superficially similar instantaneous postures are therefore not, by themselves, proof of contradictory targets. A mechanistic study would need controlled ablations—for example, fixing a reservoir while varying teacher subsets, inspecting state trajectories, or comparing training loss with closed-loop behavior. None of those analyses is claimed here.</p>
+<h3>The tracker and stopping criteria matter</h3><p>Computed torque is not automatically superior: the same reference generator can show different disturbance outcomes under the two trackers. A force test includes reaching the trigger state and recovering afterwards. A run that never triggers is not evidence of force robustness. A run that aborts has partial telemetry, not an unobserved 30 s continuation. Failure reasons are the deciding criterion recorded by the evaluation; more than one requirement can be violated in the same run.</p>
+<p>The 10 mm and 0.05 rad/s final-hold requirements make near misses meaningful. In the C force example, a small residual endpoint error is enough to fail. In B's offset case the failure is much larger. Both count as one failed scenario, so binary robustness scores intentionally discard severity and trajectory quality. The plots restore that context without changing the predeclared verdict.</p>
+<h3>Limits on the conclusion</h3><ul><li><strong>Small, dependent teacher bank.</strong> One operator and ten similar takes, with the previous trail visible, do not cover the diversity of human teaching strategies.</li><li><strong>One task geometry.</strong> There is one start/target task, with bounded perturbations; no new-target or multi-task claim follows.</li><li><strong>Inherited configurations.</strong> Manual-data-specific tuning was not performed. Across the six configurations, several settings and reservoir seeds vary together.</li><li><strong>Development evaluation.</strong> Disturbance conditions were historically known, not freshly held out from the research process.</li><li><strong>Simulation only.</strong> No sensor noise, unmodelled physical contact, actuator uncertainty or hardware qualification is established by these results.</li><li><strong>Descriptive statistics.</strong> Parent medians and ranges are not inferential intervals; the shared M10 model makes its ten paired comparisons dependent.</li><li><strong>One augmentation construction.</strong> Failure of C10 here does not disprove other augmentation methods or tuned perturbation strengths.</li></ul>
+<h3>Reliability of the evidence</h3><p>The completed audit rechecked all 31,980 run payloads, recomputed their outcomes and metrics, and rebuilt aggregate evidence. A frozen subset of 300 runs was re-simulated: all 300 reproduced the stored arrays bitwise and had identical verdicts. The issued audit v4 reports 39,562 checks with no failures. A superseded audit that failed its own code-quality gate remains retained. These checks establish reproducibility and consistency with the implemented definitions; they do not independently prove that those definitions are the only appropriate scientific choices.</p>
+<p>A storage device failed during the original sweep. The retained data were copied, damaged remnants were quarantined, and the sweep resumed using verified evidence. The final accounting contains every expected run, and the later audit covers the resulting complete store. The interruption is part of the execution record, not a reason to silently omit difficult cases.</p></section>
+<section id="conclusion"><p class="eyebrow">07 / Conclusion</p><h2>Keep the singleton baseline. Test the learned feedback loop.</h2>
+<p>For this simulated reaching task and these six fixed configurations, ten manual demonstrations did not provide a consistent robustness advantage over one. Exact copies were behaviorally neutral under equivalent regularization. Contractive synthetic variation had substantial, configuration- and parent-dependent effects. Replay's high success rate shows that valid teacher trajectories and robust learned behavior are separate questions.</p>
+<p>The practical implication is to evaluate multi-demonstration learning against strong, parent-matched singleton and replay baselines, under both nominal and disturbed conditions. More demonstrations should be treated as a hypothesis about the resulting closed-loop behavior, not as a guaranteed upgrade. The next scientific question is which learning choices make the additional variation useful; that is a separate experiment, not a reinterpretation of the negative result reported here.</p></section>
+<section id="reproduce"><p class="eyebrow">Evidence / Reproduction</p><h2>Every visual comes from retained, verified trajectories.</h2>
+<p>This report can be read offline by opening <code>index.html</code> with its <code>assets/</code> directory alongside it. No CDN, network script, or browser server is required. Use your browser's Print function for a static version. The HTML and animations are presentation artifacts; all numerical verdicts come from the audited study.</p>
+<pre><code>uv run --locked python scripts/render_manual_expert_report.py \
+  --output /tmp/manual-expert-report</code></pre>
+<p>The output directory must be new. The external evidence store must be configured and readable. The renderer loads the audit-bound summaries and figure inputs, verifies every selected run's summary and array fingerprints, and cross-checks each figure binding against the audited run table. It does not train, simulate, open Optuna or write to the store.</p>
+<p><a href="manifest.json">Presentation manifest</a> records exact source/input/output fingerprints, renderer revision and working-tree state. An uncommitted presentation build is explicitly recorded as dirty; it does not change the clean provenance of the experiment. <a href="cases.json">Case metadata</a> retains full run identifiers and fingerprints, pulse times, ending times and the audited diagnostic values. Playback data are rounded and decimated only for display; they must not be used to recalculate scientific metrics.</p>
+<div class="two-col"><div><h3>Study records</h3><ul><li><a href="../plan.md">Experimental protocol and decisions</a></li><li><a href="../study_manifest_v1.json">Frozen models, teachers and configurations</a></li><li><a href="../results/results_v1.md">Derived-evidence index</a></li><li><a href="../results/arm_summary_v1.csv">Arm summaries</a> and <a href="../results/contrast_summary_v1.csv">paired summaries</a></li><li><a href="../results/usage_v1.md">Table definitions and access</a></li></ul></div><div><h3>Verification and context</h3><ul><li><a href="../audit/reproduction_audit_v4.md">Issued reproduction audit v4</a></li><li><a href="../audit/superseded/README.md">Superseded audit record</a></li><li><a href="../execution_account_v1.md">Execution and storage-interruption account</a></li><li><a href="../report/report.md">Earlier concise interpretation</a></li><li><a href="README.md">Build and verification instructions</a></li></ul></div></div>
+<p class="small">Background references: Argall, Chernova, Veloso &amp; Browning (2009), <em>A survey of robot learning from demonstration</em>, Robotics and Autonomous Systems 57, 469–483; Lukoševičius (2012), <em>A practical guide to applying echo state networks</em>. These explain the general methods; the experiment's findings come from the repository evidence linked above.</p></section>
+<footer>Task 1-a manual-demonstration study · Standalone expert report · M3MAN-015<br>Original text and rendering code: GPL-3.0-only. This report makes no hardware deployment recommendation.</footer>
+</main></div><script>window.manualCases=[];</script><script src="assets/rescue.js"></script>
+<script src="assets/nominal.js"></script>
+<script src="assets/offset.js"></script>
+<script src="assets/ceiling.js"></script>
+<script src="assets/force.js"></script>
+<script src="assets/abort.js"></script>
+<script src="assets/force_abort.js"></script>
+<script src="assets/slow.js"></script><script src="assets/player.js"></script></body></html>

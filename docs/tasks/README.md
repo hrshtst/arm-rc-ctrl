@@ -21,7 +21,8 @@ second status database.
 | TOOL-* | [TOOL archive](archive/TOOL.md) |
 | M3R-* | [M3R archive](archive/M3R.md) |
 | M3REP-* | [M3REP archive](archive/M3REP.md) |
-| M3MAN-* | [M3MAN archive](archive/M3MAN.md) |
+| M3MAN-015 | [Active queue](../TASKS.md#additional-manual-study-presentation) |
+| Other M3MAN-* | [M3MAN archive](archive/M3MAN.md) |
 | UP-006 through UP-010 | [Completed upstream archive](archive/UP.md) |
 | M4-* | [M4 backlog](backlog/M4.md) |
 | M5-* | [M5 backlog](backlog/M5.md) |
