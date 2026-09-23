@@ -259,7 +259,14 @@ The record, `ManualSearchFreeze`, refuses to exist when it breaks the rule:
 wrong ranks or order, a repeated point, a score that is not its count, a
 missing configuration without a shortfall, a label other than "highest
 nominal scores", or no stop reason. An edited freeze therefore cannot be
-loaded. `freeze_digest` is what the comparison will bind.
+loaded. That record checks only itself, though: a later trial carrying its
+own genuine bindings is still self-consistent. Anything that acts on a freeze
+therefore loads it through `load_verified_freeze`. That rebuilds the whole
+freeze from the protocol and the retained trial records, verifying the chosen
+evidence again, and requires the stored record and its bytes to equal the
+rebuild. The frozen spend is the trials' recorded outcomes (`recorded_spend`),
+not the live ledger, so bytes a later comparison leaves staged do not change
+it. `freeze_digest` of the verified record is what the comparison will bind.
 
 Tests: `tests/unit/test_manual_search_freeze.py` and, against the fixture
 study's real evidence, `test_a_frozen_trial_is_verified_again_against_its_evidence`

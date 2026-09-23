@@ -230,3 +230,39 @@ committed generator. v1 of the report moved unedited to
 same records and carries identical figures, because neither defect occurred
 in this pilot. The owner recommends finishing the approved 100 trials: stopping
 early would need an explicit amendment.
+
+## M3MS-005, round 1 (2026-09-23): one P2
+
+The owner independently confirmed the search and the committed freeze. There
+are 100 scored trials and 200 nominal runs (144 successful, 56 infeasible),
+with scores 70 × 1.0, 4 × 0.5 and 26 × 0.0. All model bindings, fits and run
+payloads verify under the stated clean revisions. The spend is 1,084.004 s
+and 145.591 MiB. The selection is trials 1, 2 and 4, and the committed digest
+and Markdown match.
+
+1. **P2: a loaded freeze was checked against itself, not against the
+   search.** `read_freeze` enforced internal consistency only. The owner
+   reproduced three self-consistent edits that it accepted:
+   - trial 4 replaced by trial 7, carrying trial 7's genuine bindings;
+   - a chosen point's input scaling changed while its fit identity was kept;
+   - the search's recorded time and storage set to zero.
+
+   `load_verified_freeze` now rebuilds the whole freeze from the protocol and
+   the retained trial records, verifying each chosen trial's evidence again.
+   It requires the stored record to equal the rebuilt one, and its bytes to
+   equal the canonical form that the comparison binds. A digest computed from
+   the edited document would have verified nothing.
+
+   To keep that comparison stable, the frozen spend is now the trials' own
+   recorded outcomes (`recorded_spend`), summed exactly as the ledger sums
+   them. Bytes that an interrupted comparison leaves staged in the shared runs
+   bucket therefore cannot make the frozen search look different. For the
+   committed freeze the two are bitwise equal: 100 trials, 1,084.0039491942152 s
+   and 152,662,951 bytes, with nothing staged. `selection_v1.json` therefore
+   stands unchanged.
+
+   Tests written first: each of the three edits passes `read_freeze` and is
+   refused by the verified load; a re-serialized copy is refused on its bytes;
+   later staging does not unfreeze the search (this test fails if the freeze
+   uses the live ledger); and every verified load re-verifies the chosen
+   evidence.

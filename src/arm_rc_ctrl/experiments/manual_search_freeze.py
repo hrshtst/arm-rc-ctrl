@@ -55,7 +55,6 @@ from arm_rc_ctrl.experiments.manual_search_run import (
     TrialOutcome,
     TrialReservation,
     TrialResult,
-    ledger_of,
     pending_reservations,
     read_record,
     read_result,
@@ -79,7 +78,9 @@ __all__ = [
     "freeze_digest",
     "freeze_mismatches",
     "freeze_search",
+    "load_verified_freeze",
     "read_freeze",
+    "recorded_spend",
     "render_freeze",
     "reverify_outcome",
     "study_mismatches",
@@ -253,13 +254,30 @@ def _study_trials(
         close_study(study)
 
 
+def recorded_spend(store: StorageRoot) -> BudgetLedger:
+    """What the finished search spent, as its trials' outcomes record it.
+
+    For a finished search this is the ledger without the store's staged bytes:
+    those belong to whatever is running now, and bytes an interrupted
+    comparison leaves staged must not make the frozen search look different.
+    Summed in trial order, exactly as the ledger sums outcomes.
+    """
+    trials, seconds, stored = 0, 0.0, 0
+    for directory in trial_directories(store):
+        outcome_file = directory / "outcome.json"
+        if outcome_file.is_file():
+            outcome = read_record(outcome_file, TrialOutcome)
+            trials, seconds, stored = trials + 1, seconds + outcome.seconds, stored + outcome.stored_bytes
+    return BudgetLedger(trials=trials, seconds=seconds, stored_bytes=stored)
+
+
 def freeze_search(protocol: ManualSearchProtocol, store: StorageRoot, *, inputs: SearchInputs) -> ManualSearchFreeze:
     """Freeze the highest nominal scores of a finished, consistent search, verifying each one again."""
     pending = pending_reservations(store)
     if pending:
         msg = f"trials {[r.trial for r in pending]} are still pending: finish the search before freezing it"
         raise ValueError(msg)
-    ledger = ledger_of(store)
+    ledger = recorded_spend(store)
     stopped = search_stopped(ledger, protocol.budget)
     if not stopped:
         msg = (
@@ -349,8 +367,47 @@ def write_freeze(path: Path, freeze: ManualSearchFreeze) -> None:
 
 
 def read_freeze(path: Path) -> ManualSearchFreeze:
-    """Read a freeze strictly: a record that breaks the selection rule is refused where it is loaded."""
+    """Read a freeze strictly: a record that breaks the selection rule is refused where it is loaded.
+
+    This checks the record against itself only. Anything that acts on a freeze
+    loads it through `load_verified_freeze`, which checks it against the search.
+    """
     return from_mapping(cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8"))), ManualSearchFreeze)
+
+
+def _differences(stored: ManualSearchFreeze, rebuilt: ManualSearchFreeze) -> list[str]:
+    stored_map, rebuilt_map = to_mapping(stored), to_mapping(rebuilt)
+    found = [name for name in rebuilt_map if name != "chosen" and stored_map.get(name) != rebuilt_map[name]]
+    found += [
+        f"chosen[{index}]"
+        for index in range(max(len(stored.chosen), len(rebuilt.chosen)))
+        if index >= len(stored.chosen) or index >= len(rebuilt.chosen) or stored.chosen[index] != rebuilt.chosen[index]
+    ]
+    return found
+
+
+def load_verified_freeze(
+    path: Path, protocol: ManualSearchProtocol, store: StorageRoot, *, inputs: SearchInputs
+) -> ManualSearchFreeze:
+    """Load a freeze only if it is, whole and byte for byte, the freeze the trusted search produces.
+
+    A record can be self-consistent and still untrue: a later trial carrying
+    its own genuine bindings, a point that is not the one fitted, or a search
+    made to look free all satisfy the record's own checks. The freeze is
+    therefore rebuilt from the protocol and the retained trial records, with
+    each chosen trial's evidence verified again, and the stored record must
+    equal the rebuilt one. Its bytes must equal the canonical form too, since
+    the comparison binds the digest of those bytes.
+    """
+    stored = read_freeze(path)
+    rebuilt = freeze_search(protocol, store, inputs=inputs)
+    if stored != rebuilt:
+        msg = f"{path} is not the freeze the search produces: it differs in {', '.join(_differences(stored, rebuilt))}"
+        raise ValueError(msg)
+    if path.read_text(encoding="utf-8") != freeze_json(rebuilt):
+        msg = f"{path} holds the right freeze in other bytes than its canonical form, which is what is bound"
+        raise ValueError(msg)
+    return rebuilt
 
 
 def render_freeze(freeze: ManualSearchFreeze) -> str:
@@ -403,8 +460,21 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--protocol", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path, help="the freeze as JSON; never overwritten")
     parser.add_argument("--markdown", required=True, type=Path, help="the freeze rendered for reading")
+    parser.add_argument(
+        "--verify", action="store_true", help="verify existing files against the search instead of writing them"
+    )
     args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
     output, markdown = cast("Path", args.output), cast("Path", args.markdown)
+    if args.verify:
+        protocol = load_manual_search(cast("Path", args.protocol))
+        verified = load_verified_freeze(
+            output, protocol, open_storage(), inputs=SearchInputs(protocol, root=repository_root())
+        )
+        if markdown.read_text(encoding="utf-8") != render_freeze(verified):
+            msg = f"{markdown} is not the rendering of the verified freeze"
+            raise ValueError(msg)
+        print(f"verified: {output} is the search's freeze, digest {freeze_digest(verified)}")
+        return 0
     for path in (output, markdown):
         if path.exists():
             msg = f"{path} already exists; a frozen selection is never rewritten"

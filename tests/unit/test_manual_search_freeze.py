@@ -16,7 +16,7 @@ import re
 import subprocess
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -25,6 +25,7 @@ from arm_rc_ctrl.experiments import manual_search_freeze, manual_search_run
 from arm_rc_ctrl.experiments.manual_search import load_manual_search
 from arm_rc_ctrl.experiments.manual_search_freeze import (
     freeze_search,
+    load_verified_freeze,
     read_freeze,
     render_freeze,
     write_freeze,
@@ -44,7 +45,7 @@ from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.storage import ENV_VAR, StorageRoot
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
     from arm_rc_ctrl.experiments.manual_search import ManualSearchProtocol
 
@@ -325,3 +326,107 @@ def test_the_ledger_is_carried_into_the_freeze(frozen_file: Path) -> None:
     assert isinstance(frozen.ledger, BudgetLedger)
     assert frozen.ledger.trials == frozen.finalized == 4
     assert to_mapping(frozen)["study"] == manual_search_run.STUDY_NAME
+
+
+# --- the owner's review of M3MS-005: a loaded freeze must be the search's freeze -----------------
+
+
+@pytest.fixture
+def searched_freeze(
+    protocol: ManualSearchProtocol, store: StorageRoot, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> tuple[ManualSearchProtocol, Path]:
+    """A finished search whose freeze is written, with trials 0, 1 and 3 chosen and trial 4 eligible too."""
+    monkeypatch.setattr(manual_search_freeze, "reverify_outcome", _trusted)
+    searched = _search(protocol, monkeypatch, [2, 2, 1, 2, 2])
+    path = tmp_path / "selection_v1.json"
+    write_freeze(path, freeze_search(searched, store, inputs=NO_INPUTS))
+    assert [item.trial for item in read_freeze(path).chosen] == [0, 1, 3]
+    return searched, path
+
+
+def _rewrite(path: Path, edit: Callable[[dict[str, Any]], None]) -> None:
+    data = cast("dict[str, Any]", json.loads(path.read_text(encoding="utf-8")))
+    edit(data)
+    path.write_text(json.dumps(data, sort_keys=True, separators=(",", ":")) + "\n", encoding="utf-8")
+
+
+def _later_trial(store: StorageRoot) -> Callable[[dict[str, Any]], None]:
+    """Replace the third choice with trial 4, carrying trial 4's own genuine bindings."""
+    reservation = read_record(trial_directory(store, 4) / "reservation.json", TrialReservation)
+    outcome = read_record(trial_directory(store, 4) / "outcome.json", TrialOutcome)
+
+    def edit(data: dict[str, Any]) -> None:
+        data["chosen"][2].update(
+            trial=4,
+            configuration=reservation.configuration,
+            point=to_mapping(reservation.point),
+            fit_identity=reservation.fit_identity,
+            evidence_identity=reservation.evidence_identity,
+            evidence=outcome.evidence,
+        )
+
+    return edit
+
+
+def _moved_point(data: dict[str, Any]) -> None:
+    point = data["chosen"][0]["point"]
+    point["input_scaling"] = 0.02 if point["input_scaling"] != 0.02 else 1.5
+
+
+def _free_search(data: dict[str, Any]) -> None:
+    data["ledger"]["seconds"] = 0.0
+    data["ledger"]["stored_bytes"] = 0
+
+
+@pytest.mark.parametrize("edit", ["later trial", "moved point", "free search"])
+def test_a_consistent_but_untrue_freeze_is_refused_by_the_verified_load(
+    searched_freeze: tuple[ManualSearchProtocol, Path], store: StorageRoot, edit: str
+) -> None:
+    """Each edit keeps the record self-consistent, so only a comparison with the search itself can refuse it."""
+    searched, path = searched_freeze
+    edits = {"later trial": _later_trial(store), "moved point": _moved_point, "free search": _free_search}
+    _rewrite(path, edits[edit])
+    read_freeze(path)  # internally consistent: the record alone cannot tell
+    with pytest.raises(ValueError, match="is not the freeze the search produces"):
+        load_verified_freeze(path, searched, store, inputs=NO_INPUTS)
+
+
+def test_the_committed_form_is_what_is_verified(
+    searched_freeze: tuple[ManualSearchProtocol, Path], store: StorageRoot
+) -> None:
+    """The unedited freeze loads; a re-serialized copy does not, because the comparison binds these bytes."""
+    searched, path = searched_freeze
+    assert load_verified_freeze(path, searched, store, inputs=NO_INPUTS) == read_freeze(path)
+    path.write_text(json.dumps(json.loads(path.read_text(encoding="utf-8")), indent=2) + "\n", encoding="utf-8")
+    assert read_freeze(path).chosen, "the indented copy is still a well-formed freeze"
+    with pytest.raises(ValueError, match="bytes"):
+        load_verified_freeze(path, searched, store, inputs=NO_INPUTS)
+
+
+def test_later_staging_does_not_unfreeze_the_search(
+    searched_freeze: tuple[ManualSearchProtocol, Path], store: StorageRoot
+) -> None:
+    """Bytes an interrupted comparison leaves staged are the comparison's, not a change to the frozen search."""
+    searched, path = searched_freeze
+    staged = store.root / "runs" / "staging-left-by-a-comparison"
+    staged.mkdir(parents=True)
+    (staged / "payload.npz").write_bytes(b"x" * 4096)
+    assert load_verified_freeze(path, searched, store, inputs=NO_INPUTS) == read_freeze(path)
+
+
+def test_the_verified_load_verifies_the_evidence_again(
+    searched_freeze: tuple[ManualSearchProtocol, Path],
+    store: StorageRoot,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Loading is not trusting: the chosen trials' evidence is re-verified every time a freeze is loaded."""
+    searched, path = searched_freeze
+    calls: list[int] = []
+
+    def record(store: StorageRoot, reservation: TrialReservation, *args: object, **kwargs: object) -> None:
+        del store, args, kwargs
+        calls.append(reservation.trial)
+
+    monkeypatch.setattr(manual_search_freeze, "reverify_outcome", record)
+    load_verified_freeze(path, searched, store, inputs=NO_INPUTS)
+    assert calls == [0, 1, 3]

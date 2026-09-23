@@ -353,6 +353,11 @@ uv run python -m arm_rc_ctrl.execution run --policy p-cores -- \
   --markdown docs/experiments/task_1a_manual_esn_search/freeze/selection_v1.md
 ```
 
+Add `--verify` to check committed files instead of writing them. The freeze is
+rebuilt from the retained trial records, with the chosen evidence verified
+again, and must equal the stored record byte for byte. Anything that acts on a
+freeze loads it through that same verified path.
+
 ## Requirements
 
 - Linux (x86_64 tested), Git.
