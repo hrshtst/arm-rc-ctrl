@@ -1,0 +1,61 @@
+{
+  "configurations": [
+    {
+      "complete": 41,
+      "configuration": "search-t0001",
+      "failed": 0,
+      "finished": true,
+      "not_started": 0,
+      "pending": 0,
+      "rank": 1,
+      "rc_pairs": 4030,
+      "replay_pairs": 1300,
+      "trial": 1,
+      "unavailable": 0,
+      "units": 41
+    },
+    {
+      "complete": 41,
+      "configuration": "search-t0002",
+      "failed": 0,
+      "finished": true,
+      "not_started": 0,
+      "pending": 0,
+      "rank": 2,
+      "rc_pairs": 4030,
+      "replay_pairs": 1300,
+      "trial": 2,
+      "unavailable": 0,
+      "units": 41
+    },
+    {
+      "complete": 41,
+      "configuration": "search-t0004",
+      "failed": 0,
+      "finished": true,
+      "not_started": 0,
+      "pending": 0,
+      "rank": 3,
+      "rc_pairs": 4030,
+      "replay_pairs": 1300,
+      "trial": 4,
+      "unavailable": 0,
+      "units": 41
+    }
+  ],
+  "finished_configurations": 3,
+  "freeze_sha256": "7e97649720f2555e797d3238dc190a24786f305499e7ce114583cb70129e581a",
+  "ledger": {
+    "search": {
+      "seconds": 1084.0039491942152,
+      "stored_bytes": 152662951,
+      "trials": 100
+    },
+    "seconds": 20680.97260003182,
+    "stored_bytes": 11109856990,
+    "units": 123
+  },
+  "planned_runs": 15990,
+  "planned_units": 123,
+  "stopped": []
+}

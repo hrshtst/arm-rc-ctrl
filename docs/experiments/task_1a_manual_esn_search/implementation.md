@@ -337,3 +337,27 @@ Against the fixture study's real evidence, a worker builds a bank and a paired
 model and the parent verifies both, refusing a miscounted report and a pointer
 that is not the installed manifest. The module was written before its tests,
 so each guard was then broken on purpose to confirm a test fails.
+
+### The comparison (2026-09-23)
+
+The comparison ran from clean `741be60`, pinned, in two invocations.
+Configuration 1 (trial 1) finished all 41 units in the first. The first unit
+of configuration 2 was then interrupted: another session left an untracked file
+in the checkout, and the worker refused the dirty worktree. The unit was
+retained with its 7 s attempt charged. Once the owner stashed that work, the
+resume finished it first and completed the rest in 3 h 59 min.
+
+All 123 units are complete, with none failed or unavailable. That is 12,090 RC
+pairs and 3,900 replay pairs, the planned 15,990. The comparison charged
+20,681 s (5.74 h) and 10.35 GiB: 1.75 h, 1.66 h and 2.33 h for configurations
+1, 2 and 3. With the search's 0.30 h and 0.14 GiB, the shared ceiling stands
+at 6.05 h and 10.49 GiB of 10 h and 20 GiB.
+
+Configuration 1's ten replay banks were served from the M3MAN-010 sweep of
+2026-09-19. Their conditions (1 s warm-up, v4 filters) are identical, so the
+bank identities are the same, and each was served only after its manifest and
+every run were verified. They are charged to this comparison again, which
+overstates its storage on the safe side. Configurations 2 and 3 (0.25 s and
+0.5 s warm-up) built their own banks. The [status](comparison/status_v1.md)
+records each configuration. `publish` served and verified every unit once
+more and wrote the 123 Git pointers under `comparison/evidence/`.

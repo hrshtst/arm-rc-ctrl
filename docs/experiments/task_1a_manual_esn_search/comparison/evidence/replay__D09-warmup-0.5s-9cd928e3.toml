@@ -1,0 +1,14 @@
+schema = "task-1a-manual-evidence"
+experiment = "task_1a_manual_v1"
+kind = "replay"
+identity = "9cd928e3b5a3949ea66829b741c21d98c73dbe5620971e512277caca7edddd86"
+label = "D09-warmup-0.5s-9cd928e3"
+status = "infeasible"
+n_pairs = 130
+n_completed = 127
+n_infeasible = 3
+
+[payload]
+uri = "armrc://reports/task_1a_manual_v1/replay/9cd928e3b5a3949ea66829b741c21d98c73dbe5620971e512277caca7edddd86/manifest-d2efa6d10a05.json"
+sha256 = "d2efa6d10a053281a61370c5bcb06b4677304a73e63e85f8c4815534c77072a4"
+size = 131496
