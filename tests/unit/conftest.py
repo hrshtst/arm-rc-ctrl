@@ -22,12 +22,16 @@ from arm_rc_ctrl.experiments.manual_fixture import (
     manual_four_arms,
     manual_narrowed,
 )
+from arm_rc_ctrl.experiments.manual_search import load_manual_search
 from arm_rc_ctrl.experiments.repetition_fixture import NOW, PlanarFixture, build_planar_fixture
+from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.storage import ENV_VAR
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
     from pathlib import Path
+
+    from arm_rc_ctrl.experiments.manual_search import ManualSearchProtocol
 
 
 @pytest.fixture(scope="module")
@@ -119,3 +123,53 @@ def derived(
     capsys.readouterr()
     yield output
     shutil.rmtree(output)  # one derivation per test: the command refuses to overwrite its own outputs
+
+
+# --- the manual ESN search over the fixture study (M3MS) -------------------------------------------
+
+SEARCH_PROTOCOL_FILE = repository_root() / "configs/studies/manual_esn_search_v1.toml"
+
+
+def _fixture_protocol(f: ManualFixture, evaluation: Path) -> Path:
+    """A search protocol over the fixture study, written where the fixture root is the repository."""
+    filters = f.root / "configs" / "evaluations" / "fixture_filters.toml"
+    filters.parent.mkdir(parents=True, exist_ok=True)
+    filters.write_text(
+        'name = "fixture-filters"\ntracker = "../controllers/task_1a_pd_v2.toml"\n\n'
+        "[estimator]\nvelocity_cutoff_hz = 20.0\nacceleration_cutoff_hz = 8.0\nmax_dt_ratio = 3.0\n",
+        encoding="utf-8",
+    )
+    body = SEARCH_PROTOCOL_FILE.read_text(encoding="utf-8")
+    replacements = {
+        'study = "../../docs/experiments/task_1a_manual_demonstration/study_manifest_v1.json"': (
+            f'study = "{f.manifest_file}"'
+        ),
+        'model = "../models/esn_task_1a_v4.toml"': f'model = "{f.root / f.manifest.model.path}"',
+        'scenario = "../tasks/task_1a_manual_v2.toml"': f'scenario = "{f.scenario_file}"',
+        'filters = "../evaluations/task_1a_nominal_v4.toml"': f'filters = "{filters}"',
+        "velocity_cutoff_hz = 29.980411525699598": "velocity_cutoff_hz = 20.0",
+        "acceleration_cutoff_hz = 10.938122239871603": "acceleration_cutoff_hz = 8.0",
+        'evaluation = "../evaluations/task_1a_manual_dev_v1.toml"': f'evaluation = "{evaluation}"',
+    }
+    for old, new in replacements.items():
+        assert old in body, old
+        body = body.replace(old, new, 1)
+    target = f.root / "configs" / "studies" / "fixture_search.toml"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(body, encoding="utf-8")
+    return target
+
+
+@pytest.fixture
+def fixture_search(
+    manual_fixture: ManualFixture, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> ManualSearchProtocol:
+    """The committed protocol, re-pointed at the fixture study, with that root as the repository."""
+    base = tmp_path / "study"
+    base.mkdir(parents=True, exist_ok=True)
+    evidence = ManualStudyEvidence(manual_fixture, base)
+    target = _fixture_protocol(manual_fixture, evidence.evaluation)
+    # Only the protocol's own view of the repository moves: provenance keeps the real checkout, which
+    # is what the fixture study's own evidence was recorded under.
+    monkeypatch.setattr("arm_rc_ctrl.experiments.manual_search.repository_root", lambda: manual_fixture.root)
+    return load_manual_search(target)

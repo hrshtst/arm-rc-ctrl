@@ -358,6 +358,18 @@ rebuilt from the retained trial records, with the chosen evidence verified
 again, and must equal the stored record byte for byte. Anything that acts on a
 freeze loads it through that same verified path.
 
+The five-arm comparison at the frozen configurations (M3MS-006) runs and
+resumes through one command, pinned, under the ceiling it shares with the
+search. `status` records its progress in new files, and `publish` verifies
+every complete unit again and writes the Git pointers once it has stopped:
+
+```sh
+uv run python -m arm_rc_ctrl.execution run --policy p-cores -- \
+  uv run python -m arm_rc_ctrl.experiments.manual_comparison_run run \
+  --protocol configs/studies/manual_esn_search_v1.toml \
+  --freeze docs/experiments/task_1a_manual_esn_search/freeze/selection_v1.json
+```
+
 ## Requirements
 
 - Linux (x86_64 tested), Git.

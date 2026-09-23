@@ -147,6 +147,8 @@ __all__ = [
     "read_run_claims",
     "replay_bank_uri",
     "spawn_worker",
+    "stored_manifest",
+    "stored_reference",
     "trigger_outcome",
     "verify_model_evidence",
 ]
@@ -956,6 +958,16 @@ def _existing_manifest(store: StorageRoot, directory_uri: str) -> Path | None:
         msg = f"{found.name} does not match its content digest; a manifest is named by what it holds"
         raise ValueError(msg)
     return found
+
+
+def stored_manifest(store: StorageRoot, directory_uri: str) -> Path | None:
+    """The manifest installed under ``directory_uri``, checked against its name, or ``None`` when there is none."""
+    return _existing_manifest(store, directory_uri)
+
+
+def stored_reference(path: Path, store: StorageRoot) -> ArtifactReference:
+    """The store reference of an installed manifest: its URI, content digest and size."""
+    return _reference_of(path, store)
 
 
 def model_uri(identity: str) -> str:

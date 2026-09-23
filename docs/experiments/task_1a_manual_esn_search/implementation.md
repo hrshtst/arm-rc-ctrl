@@ -283,3 +283,57 @@ candidates were fitted and scored: 70 at 1.0, 4 at 0.5 and 26 at 0.0. The
 the pilot anticipated, with no shortfall, and each was verified again against
 its evidence. The three configurations use different warm-ups (1, 0.25 and
 0.5 s), so the comparison cannot reuse a replay bank across them.
+
+## M3MS-006 — the comparison at the frozen configurations
+
+`arm_rc_ctrl.experiments.manual_comparison_run` divides the comparison into
+**units**, each run by its own worker process. Per configuration there are ten
+replay banks (D01 to D10) and then the 31 learned models in the closed study's
+arm order: 41 units per configuration and 123 in all. Configurations are
+completed in selection order. Banks come first because every S, R10 and C10
+model is paired against its parent's bank, and building a bank once, in its
+own unit, keeps two workers from ever building it together.
+
+The resume protocol is the search's. A unit is reserved with the identity its
+evidence will be stored under, derived from the verified freeze before its
+worker starts; on a resume, a recorded reservation must equal the one derived
+now. Each attempt is opened on disk before its worker starts and is charged by
+the wall clock if the parent is killed. A worker that writes no report has been
+interrupted, and the resume finishes that unit before any other. Bytes are
+discovered from the unit's directories (fit cache and evidence directory, or
+bank directory, plus every run their claims and progress name), never
+reported.
+
+The search and the comparison share one ceiling: the search's verified spend
+(`recorded_spend`, carried in the verified freeze) plus the comparison's units
+plus bytes staged but not yet claimed. No unit starts once the time or storage
+cap is spent or the allowance is inside the persistence headroom, and each
+worker's timeout is what remains. A configuration the ceiling stops is retained
+as it stands and reported as not finished.
+
+The parent loads the freeze only through `load_verified_freeze`; each worker
+checks the freeze file's bytes against the digest its parent verified, rebuilds
+the configuration from the frozen point, and refuses any scope but every locked
+case under both fixed trackers. A report is not evidence. The parent requires
+the reported pointer to be the manifest installed under the reserved identity,
+then serves the unit back through the evaluation's own resume path, which
+checks manifests, fits, runs and replay pairing against inputs the parent
+reconstructs. It recounts the verdicts over the complete scope and charges its
+verification to the unit. It never computes a unit itself: the fit and the
+parent's bank must already be installed. A model whose parent bank did not
+complete is recorded as unavailable without running.
+
+Git pointers are published once the comparison has stopped (`publish`), by
+serving every complete unit again; a worker refuses a dirty worktree, so they
+cannot be written while units still run. `status` records how far each
+configuration came.
+
+Tests: `tests/unit/test_manual_comparison_run.py` covers the schedule, the
+scope against the real 65 locked cases, the records, the shared ceiling, the
+ledger derivation, and the parent loop with fake workers (order, an
+unavailable bank, the ceiling before and midway, the remaining allowance, an
+interruption, a killed parent, a drifted reservation, invocation records).
+Against the fixture study's real evidence, a worker builds a bank and a paired
+model and the parent verifies both, refusing a miscounted report and a pointer
+that is not the installed manifest. The module was written before its tests,
+so each guard was then broken on purpose to confirm a test fails.
