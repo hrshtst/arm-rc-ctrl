@@ -46,7 +46,7 @@ from arm_rc_ctrl.data.manual_scenario import load_manual_scenario, manual_endpoi
 from arm_rc_ctrl.data.records import load_record, write_record
 from arm_rc_ctrl.execution import collect_execution, require_canonical
 from arm_rc_ctrl.experiments.baselines import frozen_baseline_digest, load_frozen_baseline
-from arm_rc_ctrl.experiments.manual_fits import ManualFitStore, recipe_mismatches
+from arm_rc_ctrl.experiments.manual_fits import EvidenceIntegrityError, ManualFitStore, recipe_mismatches
 from arm_rc_ctrl.experiments.manual_numerics import ManualStudyContext
 from arm_rc_ctrl.experiments.manual_recipes import ASSIGNMENTS
 from arm_rc_ctrl.experiments.manual_study import EXPERIMENT_LABEL
@@ -95,7 +95,9 @@ __all__ = [
     "GRID_TOLERANCE_S",
     "POINTER_SCHEMA",
     "PROGRESS_FILE",
+    "RUN_CLAIMS_FILE",
     "CausalReplayReference",
+    "EvidenceIntegrityError",
     "GeneratedReferenceReport",
     "ManualDwellReport",
     "ManualEvaluationConfig",
@@ -112,6 +114,7 @@ __all__ = [
     "ManualRunTiming",
     "ManualSimulationLimits",
     "ManualTriggerRule",
+    "RunClaims",
     "SimulateFn",
     "TriggerOutcome",
     "WorkerSpawn",
@@ -140,9 +143,12 @@ __all__ = [
     "manual_trigger",
     "model_uri",
     "prepare_runner",
+    "read_progress_runs",
+    "read_run_claims",
     "replay_bank_uri",
     "spawn_worker",
     "trigger_outcome",
+    "verify_model_evidence",
 ]
 
 _SHA256_HEX: Final = 64
@@ -156,6 +162,8 @@ REPORTS_PREFIX: Final = "armrc://reports/task_1a_manual_v1"
 
 EVALUATION_SCHEMA_VERSION: Final = 1
 PROGRESS_FILE: Final = "progress.json"
+RUN_CLAIMS_FILE: Final = "runs.json"
+"""Every run an evidence directory owns, claimed before its payload is published."""
 POINTER_SCHEMA: Final = "task-1a-manual-evidence"
 POINTER_KINDS: Final = ("model", "replay")
 """Run-granular progress beside a manifest, so an interrupted sweep keeps the runs it paid for."""
@@ -976,10 +984,10 @@ def _verify_run_summary(where: str, summary: Path, run: ManualRunArtifact) -> Ru
     """The stored summary a record cites, checked against the digest that record kept for it."""
     if not summary.is_file():
         msg = f"{where}: {RUN_SUMMARY_FILE} is missing from the store"
-        raise ValueError(msg)
+        raise EvidenceIntegrityError(msg)
     if summary.stat().st_size != run.size or sha256_file(summary) != run.sha256:
         msg = f"{where}: {RUN_SUMMARY_FILE} no longer matches its record"
-        raise ValueError(msg)
+        raise EvidenceIntegrityError(msg)
     return RunSummary.from_json(summary.read_text(encoding="utf-8"))
 
 
@@ -992,7 +1000,7 @@ def _verify_run_arrays(where: str, arrays: Path, run: ManualRunArtifact, stored:
     """
     if not arrays.is_file():
         msg = f"{where}: {RUN_ARRAYS_FILE} is missing from the store"
-        raise ValueError(msg)
+        raise EvidenceIntegrityError(msg)
     _check_arrays_digest(where, sha256_file(arrays), run, stored)
 
 
@@ -1000,10 +1008,10 @@ def _check_arrays_digest(where: str, digest: str, run: ManualRunArtifact, stored
     """One arrays digest, against the record's copy and the summary's own reference."""
     if digest != run.arrays_sha256:
         msg = f"{where}: {RUN_ARRAYS_FILE} no longer matches its record"
-        raise ValueError(msg)
+        raise EvidenceIntegrityError(msg)
     if digest != stored.arrays_sha256:
         msg = f"{where}: {RUN_ARRAYS_FILE} no longer matches its run summary"
-        raise ValueError(msg)
+        raise EvidenceIntegrityError(msg)
 
 
 def _verify_run_verdict(where: str, pair: ManualPairRecord, stored: RunSummary) -> None:
@@ -1020,18 +1028,18 @@ def _verify_run_verdict(where: str, pair: ManualPairRecord, stored: RunSummary) 
     expected_status = "completed" if outcome.success else "infeasible"
     if pair.status != expected_status:
         msg = f"{where}: recorded status {pair.status!r}, but its own outcome gives the verdict {expected_status!r}"
-        raise ValueError(msg)
+        raise EvidenceIntegrityError(msg)
     if outcome.success != stored.outcome.success:
         msg = (
             f"{where}: the pair records success {outcome.success}, but the verdict its run summary "
             f"computes is {stored.outcome.success}"
         )
-        raise ValueError(msg)
+        raise EvidenceIntegrityError(msg)
     recorded = _outcome_criteria(outcome)
     criteria = dict(stored.outcome.criteria)
     if criteria != recorded:
         msg = f"{where}: the recorded verdict {recorded} is not the run's own stored verdict {criteria}"
-        raise ValueError(msg)
+        raise EvidenceIntegrityError(msg)
 
 
 def _verify_run_payload(store: StorageRoot, pair: ManualPairRecord) -> None:
@@ -1053,7 +1061,7 @@ def _verify_run_payload(store: StorageRoot, pair: ManualPairRecord) -> None:
         summary = store.path(run.uri, mode="read")
     except FileNotFoundError as error:
         msg = f"{where}: {RUN_SUMMARY_FILE} is missing from the store"
-        raise ValueError(msg) from error
+        raise EvidenceIntegrityError(msg) from error
     stored = _verify_run_summary(where, summary, run)
     _verify_run_arrays(where, summary.parent / RUN_ARRAYS_FILE, run, stored)
     _verify_run_verdict(where, pair, stored)
@@ -1105,6 +1113,67 @@ def _verify_stored_runs(store: StorageRoot, pairs: Sequence[ManualPairRecord]) -
     """Every run behind a set of pairs, before they are served as completed evidence."""
     for pair in pairs:
         _verify_run_payload(store, pair)
+
+
+class RunClaims:
+    """Every run one evidence directory owns, recorded before each payload is published.
+
+    A run payload becomes visible by renaming a staging directory into the
+    runs bucket, and the progress record names it only once its pair is
+    complete. An owner that reads progress alone therefore cannot discover a
+    run whose process died between the two, which is how stored bytes escape
+    a resource ceiling. The claim is written first, so ownership of a payload
+    exists before the payload does.
+    """
+
+    def __init__(self, store: StorageRoot, directory_uri: str, identity: str) -> None:
+        """Load any claims already recorded here, refusing a record that belongs elsewhere."""
+        self.path = store.path(f"{directory_uri}/{RUN_CLAIMS_FILE}", mode="write")
+        self.identity = identity
+        self.runs: list[str] = list(read_run_claims(self.path, identity=identity)) if self.path.is_file() else []
+
+    def add(self, artifact_id: str) -> None:
+        """Record one run before its payload is published; claims accumulate and are never dropped."""
+        if artifact_id in self.runs:
+            return
+        self.runs.append(artifact_id)
+        mapping = {"schema_version": EVALUATION_SCHEMA_VERSION, "identity": self.identity, "runs": self.runs}
+        _write_atomic(self.path, json.dumps(mapping, indent=1, sort_keys=True))
+
+
+def read_run_claims(path: Path, *, identity: str | None = None) -> tuple[str, ...]:
+    """The runs one evidence directory claimed, refusing a record that cannot be read whole.
+
+    An unreadable inventory is never an empty one: a caller that charges
+    stored bytes must refuse a truncated record rather than read no runs from
+    it and spend a ceiling on work it cannot see.
+    """
+    try:
+        mapping = cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
+        claimed = tuple(cast("list[object]", mapping["runs"]))
+        recorded = cast("str | None", mapping.get("identity"))
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        msg = f"{path} cannot be read, so the runs it claims cannot be counted: {error}"
+        raise ValueError(msg) from error
+    if identity is not None and recorded != identity:
+        msg = f"{path} claims runs for {recorded}, not for {identity}"
+        raise ValueError(msg)
+    if not all(isinstance(run, str) and run.strip() for run in claimed):
+        msg = f"{path} claims something that is not a run identity"
+        raise ValueError(msg)
+    return cast("tuple[str, ...]", claimed)
+
+
+def read_progress_runs(path: Path) -> tuple[str, ...]:
+    """Every run URI the run-granular progress record names, refusing one that cannot be read whole."""
+    try:
+        mapping = cast("dict[str, object]", json.loads(path.read_text(encoding="utf-8")))
+        pairs = cast("list[dict[str, object]]", mapping["pairs"])
+        runs = [cast("dict[str, object]", pair["run"]) for pair in pairs if pair.get("run") is not None]
+        return tuple(cast("str", run["uri"]) for run in runs)
+    except (OSError, ValueError, KeyError, TypeError) as error:
+        msg = f"{path} cannot be read, so the runs it records cannot be counted: {error}"
+        raise ValueError(msg) from error
 
 
 class _ManualProgress:
@@ -1540,6 +1609,54 @@ def fit_binding(entry: StudyModel, record: ManualFitRecord, recipe: ModelRecipe)
     )
 
 
+def verify_model_evidence(
+    store: StorageRoot,
+    inputs: ManualFitInputs,
+    entry: StudyModel,
+    evidence: ManualModelEvidence,
+    *,
+    conditions: ManualRunConditions,
+    where: str,
+) -> None:
+    """Check one stored model manifest against the study's trusted inputs, without refitting the model.
+
+    A resume refits a served model before trusting it; a reader of finished
+    evidence need not. The binding is read instead from the fit cache under the
+    study's own fit identity, with its recipe's and weights' digests verified
+    and the recipe's construction compared with the one the entry demands, and
+    the manifest is then checked whole. The runs themselves are verified
+    separately, when read.
+
+    This is the one implementation: the sweep's resume, the audit and the
+    search's parent all call it, so no reader of this evidence checks less than
+    another.
+    """
+    fits = ManualFitStore(store)
+    record = fits.read_record(entry.fit_identity)
+    recipe = fits.read_recipe(record)
+    fits.read_weights(record)
+    mismatches = recipe_mismatches(entry, recipe, inputs)
+    if mismatches:
+        msg = f"{entry.label}: the cached recipe is not the construction the study froze: {'; '.join(mismatches)}"
+        raise ValueError(msg)
+    check_model_manifest(
+        evidence,
+        entry=entry,
+        fit=fit_binding(entry, record, recipe),
+        conditions=conditions,
+        sources=tuple(
+            inputs.sources[name].artifact_id
+            for name in (ASSIGNMENTS if entry.arm.assignment is None else (entry.arm.assignment,))
+        ),
+        where=where,
+    )
+    parent = entry.arm.assignment
+    expected = None if parent is None else _bank_identity(conditions, parent)
+    if evidence.replay_bank != expected:
+        msg = f"{where} cites another replay bank than its parent and protocol produce"
+        raise ValueError(msg)
+
+
 def check_training_sources(pairs: Sequence[ManualPairRecord], expected: tuple[str, ...], described: str) -> None:
     """Check every run names the demonstrations its arm trained on, as the study demands them.
 
@@ -1707,6 +1824,7 @@ class ManualEvaluationRunner:
         assignment: str,
         warmup_s: float,
         replay_cutoffs: tuple[float, float],
+        claims: RunClaims,
     ) -> ManualPairRecord:
         """Replay one demonstration through one tracker under one scenario, from a fresh reset."""
         start = self._start(case)
@@ -1767,6 +1885,7 @@ class ManualEvaluationRunner:
             warmup_s=warmup_s,
             pulse=pulse,
             simulate_seconds=simulated,
+            claims=claims,
         )
         return ManualPairRecord(
             index=index,
@@ -1794,6 +1913,7 @@ class ManualEvaluationRunner:
         warmup_s: float,
         pulse: ForcePulse | None,
         simulate_seconds: float,
+        claims: RunClaims,
     ) -> ManualRunArtifact:
         """Store the run with the disturbance that actually fired, not the one the levels prescribed."""
         # The stored verdict must be the pair record's verdict: every criterion the outcome judges
@@ -1823,6 +1943,7 @@ class ManualEvaluationRunner:
             activation_s=warmup_s,
             reuse_identical=True,
             notes=f"{self.config.name} {arm} arm: {case.scenario_id} [{tracker}] of {described}.",
+            claim=claims.add,
         )
         persisted = time.perf_counter() - persist_started
         del directory
@@ -1927,38 +2048,16 @@ class ManualEvaluationRunner:
         check_training_sources(pairs, self._sources(assignment), described)
 
     def verify_stored_model(self, entry: StudyModel, evidence: ManualModelEvidence, *, where: str) -> None:
-        """Apply a resume's checks to one stored model manifest, without refitting the model.
-
-        A resume refits a served model before trusting it; a reader of finished
-        evidence need not. The binding is read instead from the fit cache under
-        the study's own fit identity, with its recipe's and weights' digests
-        verified and the recipe's construction compared with the one the entry
-        demands, and the manifest is then checked by exactly the function a
-        resume uses. The runs themselves are verified separately, when read.
-        """
-        fits = ManualFitStore(self.store)
-        record = fits.read_record(entry.fit_identity)
-        recipe = fits.read_recipe(record)
-        fits.read_weights(record)
-        mismatches = recipe_mismatches(entry, recipe, self.inputs)
-        if mismatches:
-            msg = f"{entry.label}: the cached recipe is not the construction the study froze: {'; '.join(mismatches)}"
-            raise ValueError(msg)
+        """Apply a resume's checks to one stored model manifest, without refitting the model."""
         warmup_s = self.inputs.configuration(entry).warmup_s
-        conditions = self.conditions(warmup_s, self.replay_cutoffs(entry))
-        check_model_manifest(
+        verify_model_evidence(
+            self.store,
+            self.inputs,
+            entry,
             evidence,
-            entry=entry,
-            fit=fit_binding(entry, record, recipe),
-            conditions=conditions,
-            sources=self._sources(entry.arm.assignment),
+            conditions=self.conditions(warmup_s, self.replay_cutoffs(entry)),
             where=where,
         )
-        parent = entry.arm.assignment
-        expected = None if parent is None else _bank_identity(conditions, parent)
-        if evidence.replay_bank != expected:
-            msg = f"{where} cites another replay bank than its parent and protocol produce"
-            raise ValueError(msg)
 
     def verify_stored_bank(
         self,
@@ -2021,6 +2120,7 @@ class ManualEvaluationRunner:
         cached: CachedFit,
         assignment: str | None,
         warmup_s: float,
+        claims: RunClaims,
     ) -> ManualPairRecord:
         """Run one scenario under one tracker from a fresh reset, whatever earlier scenarios did."""
         start = self._start(case)
@@ -2064,6 +2164,7 @@ class ManualEvaluationRunner:
             warmup_s=warmup_s,
             pulse=pulse,
             simulate_seconds=simulated,
+            claims=claims,
         )
         return ManualPairRecord(
             index=index,
@@ -2156,6 +2257,7 @@ class ManualEvaluationRunner:
         bank = None if assignment is None else self.replay_bank(assignment, warmup_s=warmup_s, replay_cutoffs=cutoffs)
         controllers = self._controllers(entry, cached, warmup_s)
         progress = _ManualProgress(self.store, uri, identity)
+        claims = RunClaims(self.store, uri, identity)
         pairs: list[ManualPairRecord] = []
         for index, case in enumerate(self.scenarios):
             for tracker in conditions.tracker_order:
@@ -2172,6 +2274,7 @@ class ManualEvaluationRunner:
                     cached=cached,
                     assignment=assignment,
                     warmup_s=warmup_s,
+                    claims=claims,
                 )
                 progress.add(pair)
                 pairs.append(pair)
@@ -2239,6 +2342,7 @@ class ManualEvaluationRunner:
             return bank
         build_started = time.perf_counter()
         progress = _ManualProgress(self.store, uri, identity)
+        claims = RunClaims(self.store, uri, identity)
         pairs: list[ManualPairRecord] = []
         for index, case in enumerate(self.scenarios):
             for tracker in conditions.tracker_order:
@@ -2248,7 +2352,13 @@ class ManualEvaluationRunner:
                     continue
                 self.log(f"replay {identity[:_SHORT]}: {case.scenario_id} [{tracker}] of {assignment}")
                 pair = self._replay_pair(
-                    index, case, tracker, assignment=assignment, warmup_s=warmup_s, replay_cutoffs=replay_cutoffs
+                    index,
+                    case,
+                    tracker,
+                    assignment=assignment,
+                    warmup_s=warmup_s,
+                    replay_cutoffs=replay_cutoffs,
+                    claims=claims,
                 )
                 progress.add(pair)
                 pairs.append(pair)

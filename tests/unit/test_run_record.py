@@ -203,6 +203,32 @@ def test_runs_are_immutable_and_failures_leave_no_staging(store: StorageRoot) ->
     assert not any(p.name.startswith("staging-") for p in (store.root / "runs").iterdir())
 
 
+def test_a_run_is_claimed_before_its_payload_is_published(store: StorageRoot) -> None:
+    """An owner that has to charge a run cannot learn of it only after the payload exists.
+
+    The payload is published by renaming a staging directory into the runs
+    bucket, so a process killed at that moment leaves bytes nothing points at.
+    The claim runs first, with the identity the payload is about to take.
+    """
+    seen: list[tuple[str, bool]] = []
+
+    def claim(artifact_id: str) -> None:
+        seen.append((artifact_id, (store.root / "runs" / artifact_id).exists()))
+
+    pointer, _summary, _directory = _write(store, claim=claim)
+    assert seen == [(pointer.artifact.artifact_id, False)], "claimed, then published"
+    assert (store.root / "runs" / pointer.artifact.artifact_id).is_dir()
+
+
+def test_a_refused_run_is_never_claimed(store: StorageRoot) -> None:
+    """A claim names a run that is about to be published, not one that was rejected."""
+    _write(store)
+    claimed: list[str] = []
+    with pytest.raises(FileExistsError, match="runs are immutable"):
+        _write(store, claim=claimed.append)
+    assert claimed == []
+
+
 @pytest.mark.parametrize(
     ("overrides", "message"),
     [

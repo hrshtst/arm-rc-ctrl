@@ -78,18 +78,43 @@ A worker that reports a fit failure has failed a trial and consumed its slot; a
 worker that writes no report has been interrupted, which leaves its reservation
 pending for recovery. The remaining elapsed allowance, less the headroom kept
 to persist an in-flight result, is the worker's timeout, so the ceiling
-constrains a running worker and not only the gap between trials.
+constrains a running worker and not only the gap between trials. Each attempt
+is opened on disk before its worker starts: the parent is the only thing
+measuring it, so an attempt whose parent is killed is charged on the next
+resume by the wall clock it was in flight rather than given away. A trial drawn
+but lost before any parameter reached the study is abandoned explicitly, with a
+retained failed outcome, because the cap counts the trials that were spent.
+
+Stored bytes are discovered, never reported. Ownership of a run is recorded
+before its payload is published: `write_run` takes a `claim`, called with the
+run's identity once the run is accepted and before the staging directory is
+renamed into the runs bucket, and the evaluation keeps those claims beside its
+progress record. The parent therefore charges the fit cache, the evidence
+directory and every run that directory owns — including a payload whose
+progress entry never landed — plus the bytes staged before any claim, which
+belong to the one worker the serial protocol allows. A progress or claims
+record that cannot be read is refused rather than counted as no runs.
 
 A report is not evidence. The parent refuses one that names another trial, and
 a scored candidate must point at a model evidence manifest that verifies
-against its digest and belongs to this trial's configuration; the successes are
-recounted from that manifest's own runs. Stored bytes are measured from the
-directories the worker actually wrote — each run's payloads, the evidence
-manifest and the fit — including for a candidate that failed.
+against its digest, carries the reserved identities, and satisfies
+`verify_model_evidence` — the one implementation the sweep's resume and the
+audit also use — against inputs the parent reconstructs from the protocol and
+the study. Recorded identities cannot vouch for the bindings beside them, so
+the cached recipe and weights are re-read and the manifest is checked whole;
+every run is then loaded through the reader a resume uses, and the successes
+are recounted from those runs. A scored candidate cannot be finalized without
+the protocol and those inputs at all.
+
+A fault in the store is not a verdict on a candidate.
+`EvidenceIntegrityError` lives with the fit cache, the lowest layer that serves
+stored evidence, and both the fit readers and the run readers raise it, so
+corrupted evidence propagates out of the worker, leaves no report and keeps
+the trial recoverable; only a numerical refusal is a failed candidate.
 
 ### What the tests hold
 
-`tests/unit/test_manual_search_run.py` (33 cases): the nominal scope is refused
+`tests/unit/test_manual_search_run.py` (45 cases): the nominal scope is refused
 when widened, replaced, emptied or repeated — in the module, in `evaluate_trial`
 and at the real worker entry point, through a subprocess that writes no report;
 a worker report that cannot be true is refused; the ledger accumulates, refuses
@@ -101,4 +126,12 @@ protocol is held to the same standard: a failed fit consumes its trial and is
 charged, an interruption — a crash or a reached deadline — leaves the trial
 pending and resumes under its own number, the ledger follows the records rather
 than a stored total, a spent cap schedules no worker at all, and the worker is
-given the remaining allowance as its timeout.
+given the remaining allowance as its timeout. The third round's findings are
+held the same way: a parent killed mid-attempt is charged the wall clock its
+attempt ran, a run published before its progress record is still charged, an
+unreadable inventory is refused rather than read as empty, an abandoned trial
+spends the slot it took, a real trial's evidence is refused once its cached
+weights no longer match their digest, and a corrupted cache propagates instead
+of being scored as a failed candidate. `tests/unit/test_run_record.py` holds
+the claim itself: a run is claimed before its payload is published, and a
+refused run is never claimed.

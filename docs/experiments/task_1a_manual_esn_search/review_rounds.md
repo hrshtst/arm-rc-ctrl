@@ -128,3 +128,45 @@ resource path needed to be examined one interruption at a time.
    evidence to carry the reserved evidence and fit identities, and loads every
    run through the reader a resume uses, so a corrupted archive or a different
    input scaling is refused before the candidate is scored.
+
+## M3MS-003, round 3 (2026-09-23): five findings, two P1
+
+Reconciliation and per-attempt accounting held. What remained were the moments
+nobody was left to measure or to name what had been written.
+
+1. **P1 — a parent interruption still lost elapsed time.** The attempt's cost
+   was measured by the parent and written only when the attempt ended, so a
+   parent killed while its worker ran charged nothing for the time it ran. The
+   attempt is now opened on disk *before* the worker starts, and an attempt
+   with no measured cost is closed on the next resume by the wall clock it was
+   in flight: five minutes lost to a killed parent are five minutes charged.
+2. **P1 — runs published before their progress record were uncharged.** A run
+   payload becomes visible when its staging directory is renamed into the runs
+   bucket; the progress record names it only once its pair is complete. Between
+   the two, nothing pointed at it. `write_run` now takes a `claim`, called with
+   the run's identity after the run is accepted and before its payload is
+   published, and the evaluation records those claims beside the progress file,
+   so ownership exists before the payload does. Bytes staged before any claim
+   belong to the one worker the serial protocol allows and are charged to the
+   search. An unreadable progress or claims record is refused rather than read
+   as an empty inventory: bytes that cannot be counted are not bytes that are
+   not there.
+3. **P2 — partially sampled trials became free replacements.** A trial drawn
+   but lost before a single parameter was recorded was failed in the study and
+   charged nothing, so an interruption mid-draw bought a replacement outside
+   the approved count. Abandoning it now writes a retained failed outcome, so
+   the ledger charges the slot it took.
+4. **P2 — stored identities still substituted for evidence verification.** The
+   parent checked the reserved fit and evidence identities, which are recorded
+   fields and cannot vouch for the bindings beside them. It now rebuilds the
+   study's own fit inputs and runs `verify_model_evidence` — the one
+   implementation the sweep's resume and the audit also use — against them, so
+   a candidate whose cached weights no longer match their digest is refused
+   instead of scored. A scored candidate cannot be finalized at all without
+   the protocol and those inputs.
+5. **P2 — corrupt cached evidence was classified as a failed candidate.**
+   `EvidenceIntegrityError` covered run payloads but not the fit cache, whose
+   digest and shape checks raised a plain `ValueError` — the worker's failed-
+   candidate branch. The error now lives with the fit cache, the lowest layer
+   that serves stored evidence, and the fit readers raise it, so a corrupted
+   cache propagates, leaves no report and stays recoverable.

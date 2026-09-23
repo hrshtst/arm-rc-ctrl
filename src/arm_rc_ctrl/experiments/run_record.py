@@ -25,7 +25,7 @@ import shutil
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Final, Literal, cast
+from typing import TYPE_CHECKING, Any, Final, Literal, cast
 
 import numpy as np
 from numpy.typing import NDArray
@@ -44,6 +44,9 @@ from arm_rc_ctrl.experiments.termination import Outcome, Termination
 from arm_rc_ctrl.provenance import ProvenanceRecord, canonical_json, sha256_file
 from arm_rc_ctrl.storage import ArtifactUri, StorageRoot
 from arm_rc_ctrl.validation import require_finite
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 __all__ = [
     "OPTIONAL_ARRAYS",
@@ -394,6 +397,7 @@ def write_run(
     notes: str = "",
     activation_s: float | None = None,
     reuse_identical: bool = False,
+    claim: Callable[[str], None] | None = None,
 ) -> tuple[RunPointerRecord, RunSummary, Path]:
     """Persist a run transactionally and return its pointer, summary, and directory.
 
@@ -402,6 +406,12 @@ def write_run(
     (runs are immutable); with ``reuse_identical`` the existing run is
     verified byte for byte and returned instead, which lets two evaluations
     that produced the same run share one immutable artifact.
+
+    ``claim`` is called with the artifact identity once the run is accepted
+    and **before** its payload is published, so a caller that has to account
+    for stored bytes can record what it owns first. Publication is a rename
+    of the staging directory; a process killed at that moment would otherwise
+    leave a payload that no record points at.
     """
     staging = store.root / "runs" / f"staging-{uuid.uuid4().hex}"
     staging.mkdir(parents=True)
@@ -434,6 +444,9 @@ def write_run(
         reused = reuse_identical and _identical_existing(final_dir, summary_file, arrays_file)
         if not reused:
             _require_unused(final_dir, artifact_id)
+        if claim is not None:
+            # Ownership before payload: the run is accepted here and published below.
+            claim(artifact_id)
         pointer = RunPointerRecord(
             artifact=ArtifactRecord(
                 artifact_id=artifact_id,

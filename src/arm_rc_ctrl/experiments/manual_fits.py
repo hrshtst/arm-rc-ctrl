@@ -79,6 +79,7 @@ __all__ = [
     "WEIGHTS_FILE",
     "CachedFit",
     "EpisodeIdentity",
+    "EvidenceIntegrityError",
     "ManualFitInputs",
     "ManualFitRecord",
     "ManualFitStore",
@@ -90,6 +91,22 @@ __all__ = [
     "recipe_text_of",
     "states_witness",
 ]
+
+
+class EvidenceIntegrityError(ValueError):
+    """Stored evidence does not match what its own records say it is.
+
+    A distinct type because the difference matters to a caller: a candidate the
+    learner refuses is a result, while a payload that no longer matches the
+    digest its record kept for it is a fault in the store. The first is a
+    failed trial; the second has to stay recoverable, and a search that read it
+    as a verdict would score a corrupted cache. It subclasses ``ValueError`` so
+    every existing handler of evidence failures keeps working.
+
+    It lives here, with the fit cache, because the cache is the lowest layer
+    that serves stored evidence; the evaluation re-exports it for the runs.
+    """
+
 
 FIT_SCHEMA_VERSION: Final = 1
 CACHE_BUCKET: Final = "models"
@@ -493,7 +510,7 @@ class ManualFitStore:
         record = from_mapping(cast("dict[str, object]", json.loads(text)), ManualFitRecord)
         if record.identity != identity:
             msg = f"cached fit {identity[:12]} carries the identity {record.identity[:12]}"
-            raise ValueError(msg)
+            raise EvidenceIntegrityError(msg)
         return record
 
     def read_weights(self, record: ManualFitRecord) -> NDArray[np.float64]:
@@ -503,7 +520,7 @@ class ManualFitStore:
         )
         if array_digest(weights) != record.weights_sha256 or weights.shape != record.weights_shape:
             msg = f"cached weights of {record.identity[:12]} do not match their recorded digest or shape"
-            raise ValueError(msg)
+            raise EvidenceIntegrityError(msg)
         return weights
 
     def read_recipe(self, record: ManualFitRecord) -> ModelRecipe:
@@ -511,7 +528,7 @@ class ManualFitStore:
         path = self.directory(record.identity) / RECIPE_FILE
         if sha256_file(path) != record.recipe_sha256:
             msg = f"cached recipe of {record.identity[:12]} does not match its recorded digest"
-            raise ValueError(msg)
+            raise EvidenceIntegrityError(msg)
         return load_recipe(path)
 
     def write(self, record: ManualFitRecord, recipe_text: str, weights: NDArray[np.float64]) -> Path:

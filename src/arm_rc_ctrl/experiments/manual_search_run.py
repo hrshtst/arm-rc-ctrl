@@ -32,21 +32,29 @@ import json
 import subprocess
 import sys
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Final, Literal, cast
 
 from optuna.trial import TrialState
 
 from arm_rc_ctrl.config import from_mapping, to_mapping
+from arm_rc_ctrl.execution import collect_execution
 from arm_rc_ctrl.experiments.manual_evaluation import (
     PROGRESS_FILE,
+    RUN_CLAIMS_FILE,
+    EvidenceIntegrityError,
+    ManualStudyContext,
     load_manual_evaluation_config,
     load_manual_model_evidence,
     load_verified_run,
     manual_conditions,
     model_uri,
     prepare_runner,
+    read_progress_runs,
+    read_run_claims,
+    verify_model_evidence,
 )
 from arm_rc_ctrl.experiments.manual_fits import cache_uri
 from arm_rc_ctrl.experiments.manual_sampled import (
@@ -63,19 +71,21 @@ from arm_rc_ctrl.experiments.manual_search import (
     nominal_success_fraction,
     protocol_digest,
 )
-from arm_rc_ctrl.experiments.manual_study import StudyManifest, load_study
+from arm_rc_ctrl.experiments.manual_study import load_study
 from arm_rc_ctrl.experiments.studies import PrunerSpec, close_study, open_study
 from arm_rc_ctrl.provenance import ArtifactReference, canonical_json, sha256_bytes, verify_artifact
 from arm_rc_ctrl.repo import repository_root
-from arm_rc_ctrl.storage import StorageRoot, open_storage
+from arm_rc_ctrl.storage import ArtifactUri, StorageRoot, open_storage
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     import optuna
 
-    from arm_rc_ctrl.experiments.manual_evaluation import ManualEvaluationConfig
+    from arm_rc_ctrl.experiments.manual_evaluation import ManualRunConditions
+    from arm_rc_ctrl.experiments.manual_fits import ManualFitInputs
     from arm_rc_ctrl.experiments.manual_search import ManualSearchBudget, ManualSearchProtocol, ManualSearchSpace
+    from arm_rc_ctrl.experiments.manual_study import StudyConfiguration
 
 __all__ = [
     "HEADROOM_S",
@@ -106,6 +116,7 @@ STUDY_NAME: Final = "manual-esn-search-v1"
 _MODULE: Final = "arm_rc_ctrl.experiments.manual_search_run"
 _GIB: Final = 1024**3
 _SHA256_HEX: Final = 64
+_RUNS_BUCKET: Final = "runs"
 TRIALS_PREFIX: Final = "armrc://reports/task_1a_manual_search/trials"
 """Where each trial's reservation, report and outcome are retained, outside the closed study's prefix."""
 HEADROOM_S: Final = 60.0
@@ -276,21 +287,57 @@ class TrialOutcome:
 
 @dataclass(frozen=True)
 class TrialSpend:
-    """What a trial has cost so far, accumulated over every attempt, including interrupted ones."""
+    """What a trial has cost so far, accumulated over every attempt, including interrupted ones.
+
+    An attempt is opened on disk *before* its worker starts. The parent that
+    launched it is the only thing measuring it, so a parent that is killed
+    would otherwise leave the time it ran uncharged and let a retry have it
+    for free; ``started_at`` is what a resume charges that attempt by.
+    """
 
     trial: int
     seconds: float
-    attempts: int = 1
+    attempts: int = 0
+    started_at: str | None = None
+    """When the attempt now in flight began, in UTC; ``None`` once every attempt has been charged."""
 
     def __post_init__(self) -> None:
-        """Spend only grows, and an attempt that happened is never unattempted."""
-        if self.seconds < 0.0 or self.attempts < 1:
+        """Spend only grows, an attempt that happened is never unattempted, and an instant is an instant."""
+        if self.seconds < 0.0 or self.attempts < 0:
             msg = f"trial {self.trial}: {self.attempts} attempts costing {self.seconds} s is not a spend"
             raise ValueError(msg)
+        if self.started_at is not None and _instant(self.started_at) is None:
+            msg = f"trial {self.trial}: {self.started_at!r} is not a UTC instant an attempt could start at"
+            raise ValueError(msg)
 
-    def plus(self, seconds: float) -> TrialSpend:
-        """The spend after one more attempt's cost is added."""
-        return TrialSpend(trial=self.trial, seconds=self.seconds + seconds, attempts=self.attempts + 1)
+    def opening(self, *, at: datetime) -> TrialSpend:
+        """The spend with one more attempt in flight, to be written before that attempt starts."""
+        return TrialSpend(trial=self.trial, seconds=self.seconds, attempts=self.attempts + 1, started_at=at.isoformat())
+
+    def closing(self, seconds: float) -> TrialSpend:
+        """The spend with the in-flight attempt's measured cost added."""
+        return TrialSpend(trial=self.trial, seconds=self.seconds + seconds, attempts=self.attempts, started_at=None)
+
+    def recovered(self, *, at: datetime) -> TrialSpend:
+        """The spend with an attempt nobody measured charged by the wall clock it was in flight."""
+        started = None if self.started_at is None else _instant(self.started_at)
+        if started is None:
+            return self
+        return self.closing(max(0.0, (at - started).total_seconds()))
+
+
+def _instant(recorded: str) -> datetime | None:
+    """One recorded UTC instant, or ``None`` when it is not one."""
+    try:
+        parsed = datetime.fromisoformat(recorded)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else None
+
+
+def _now() -> datetime:
+    """The wall clock an attempt's start is recorded against; the tests replace it."""
+    return datetime.now(tz=UTC)
 
 
 def trial_directory(store: StorageRoot, trial: int) -> Path:
@@ -323,7 +370,7 @@ def ledger_of(store: StorageRoot) -> BudgetLedger:
     between finalizing a trial and recording its spend cannot lose the spend,
     because there is no separate place for it to be lost from.
     """
-    trials, seconds, stored = 0, 0.0, 0
+    trials, seconds, stored, pending = 0, 0.0, 0, False
     for directory in trial_directories(store):
         outcome_file, spend_file, reservation_file = (
             directory / "outcome.json",
@@ -339,7 +386,10 @@ def ledger_of(store: StorageRoot) -> BudgetLedger:
         if reservation_file.is_file():
             # An unfinished trial has still written whatever it wrote, and the ceiling counts it.
             stored += retained_bytes(store, read_record(reservation_file, TrialReservation))
-    return BudgetLedger(trials=trials, seconds=seconds, stored_bytes=stored)
+            pending = True
+    return BudgetLedger(
+        trials=trials, seconds=seconds, stored_bytes=stored + (unpublished_bytes(store) if pending else 0)
+    )
 
 
 def trial_directories(store: StorageRoot) -> list[Path]:
@@ -353,29 +403,47 @@ def retained_bytes(store: StorageRoot, reservation: TrialReservation) -> int:
 
     The reservation names where the work will live before it runs, so partial
     work is discoverable without a completed evidence object: the fit cache,
-    the evidence directory, and each run the run-granular progress record
-    names. A candidate that failed or was interrupted mid-evaluation is
-    therefore charged for what it actually retained.
+    the evidence directory, and every run that directory owns. Ownership of a
+    run is recorded before its payload is published, so a payload whose
+    progress entry never landed is charged too, and a record that cannot be
+    read is refused rather than counted as no runs at all.
     """
-    directories = [
-        store.root / cache_uri(reservation.fit_identity).relative_path,
-        store.path(f"{model_uri(reservation.evidence_identity)}/{PROGRESS_FILE}", mode="write").parent,
-    ]
-    progress = directories[1] / PROGRESS_FILE
+    evidence = store.path(f"{model_uri(reservation.evidence_identity)}/{PROGRESS_FILE}", mode="write").parent
+    directories = [store.root / cache_uri(reservation.fit_identity).relative_path, evidence]
+    claims, progress = evidence / RUN_CLAIMS_FILE, evidence / PROGRESS_FILE
+    # Resolved without asking the store to open them: a claimed run whose payload was never
+    # published has no directory, and creating one would put litter in the store to count.
+    if claims.is_file():
+        directories += [
+            store.root / _RUNS_BUCKET / run for run in read_run_claims(claims, identity=reservation.evidence_identity)
+        ]
     if progress.is_file():
-        try:
-            pairs = cast("list[dict[str, object]]", json.loads(progress.read_text(encoding="utf-8"))["pairs"])
-        except (OSError, ValueError, KeyError):
-            pairs = []
-        for pair in pairs:
-            run = cast("dict[str, object] | None", pair.get("run"))
-            if run is not None:
-                directories.append(store.path(cast("str", run["uri"]), mode="write").parent)
+        directories += [
+            (store.root / ArtifactUri.parse(uri).relative_path).parent for uri in read_progress_runs(progress)
+        ]
+    return _bytes_of(directories)
+
+
+def _bytes_of(directories: Sequence[Path]) -> int:
+    """The bytes those directories hold, counting each one once however it was discovered."""
     total = 0
     for directory in {path.resolve() for path in directories}:
         if directory.is_dir():
             total += sum(item.stat().st_size for item in directory.rglob("*") if item.is_file())
     return total
+
+
+def unpublished_bytes(store: StorageRoot) -> int:
+    """The bytes of run payloads staged but not yet published, which no record can name yet.
+
+    A run payload is written into a staging directory and published by
+    renaming it, and its owner claims it between the two. A process killed
+    before that claim leaves bytes with no owner at all; the protocol runs one
+    worker at a time, so they belong to the trial in flight and are counted
+    once for the search rather than per trial.
+    """
+    runs = store.root / _RUNS_BUCKET
+    return _bytes_of(sorted(runs.glob("staging-*"))) if runs.is_dir() else 0
 
 
 def pending_reservations(store: StorageRoot) -> tuple[TrialReservation, ...]:
@@ -390,14 +458,23 @@ def pending_reservations(store: StorageRoot) -> tuple[TrialReservation, ...]:
 
 
 def verified_outcome(
-    store: StorageRoot, reservation: TrialReservation, result: TrialResult, *, seconds: float
+    store: StorageRoot,
+    reservation: TrialReservation,
+    result: TrialResult,
+    *,
+    seconds: float,
+    protocol: ManualSearchProtocol | None = None,
+    inputs: SearchInputs | None = None,
 ) -> TrialOutcome:
     """Turn a worker's report into a finalized trial, deriving the score from verified evidence.
 
     A report is not evidence. It must name the trial that was scheduled, and a
     scored candidate must point at a model evidence manifest that verifies
-    against its digest, belongs to the configuration this trial reserved, and
-    carries the nominal runs whose verdicts are recounted here.
+    against its digest, carries the identities this trial reserved, satisfies
+    the study's own complete model-binding checks against independently
+    reconstructed inputs, and holds the nominal runs whose verdicts are
+    recounted here. ``protocol`` and ``inputs`` are what those inputs are
+    reconstructed from; a scored candidate cannot be finalized without them.
     """
     if result.trial != reservation.trial:
         msg = f"the report names trial {result.trial}, but trial {reservation.trial} was scheduled"
@@ -415,6 +492,12 @@ def verified_outcome(
             evidence=None,
             failure=result.failure,
         )
+    if protocol is None or inputs is None:
+        msg = f"trial {reservation.trial}: a scored candidate is verified against the study, not on its own word"
+        raise ValueError(msg)
+    configuration = sampled_configuration(protocol, reservation.point, trial=reservation.trial)
+    entry = sampled_entry(inputs.manifest, configuration, arm_of("M10"))
+    conditions = trial_conditions(inputs, configuration)
     payload = cast("ArtifactReference", result.evidence)
     evidence = load_manual_model_evidence(verify_artifact(store, payload))
     expected = f"{reservation.configuration}/M10"
@@ -442,6 +525,17 @@ def verified_outcome(
     if reported:
         msg = f"trial {reservation.trial}: {'; '.join(reported)}"
         raise ValueError(msg)
+    # The identities are recorded fields and cannot vouch for the bindings beside them, so the
+    # manifest is checked whole against independently reconstructed inputs, by the same function the
+    # sweep's resume and the audit use.
+    verify_model_evidence(
+        store,
+        replace(inputs.fit_inputs(), sampled=(configuration,)),
+        entry,
+        evidence,
+        conditions=conditions,
+        where=f"trial {reservation.trial}'s evidence",
+    )
     # Every run is loaded through the reader a resume uses, so a corrupted archive or a verdict the
     # payload does not support is refused before the candidate is scored.
     for pair in evidence.pairs:
@@ -461,23 +555,44 @@ def verified_outcome(
     )
 
 
-@dataclass(frozen=True)
 class SearchInputs:
-    """What the parent must load to reserve a trial: the frozen study and the bound evaluation."""
+    """What the parent reads: the frozen study and the bound evaluation, plus the study's own fit inputs.
 
-    manifest: StudyManifest
-    config: ManualEvaluationConfig
-    evaluation_file: Path
-    root: Path
+    The manifest and the configuration are cheap and always needed. The fit
+    inputs carry the ten demonstrations' payloads, which only a candidate that
+    actually produced evidence has to be verified against, so they are loaded
+    once and only when that happens.
+    """
+
+    def __init__(self, protocol: ManualSearchProtocol, *, root: Path, store: StorageRoot) -> None:
+        """Read the frozen study and the evaluation this search inherits."""
+        self.manifest = load_study(protocol.study)
+        self.config = load_manual_evaluation_config(protocol.comparison.evaluation)
+        self.evaluation_file = protocol.comparison.evaluation
+        self.root = root
+        self._store = store
+        self._study_file = protocol.study
+        self._fits: ManualFitInputs | None = None
+
+    def fit_inputs(self) -> ManualFitInputs:
+        """The study's own fit inputs, loaded once: the samples a manifest check compares against."""
+        if self._fits is None:
+            execution = collect_execution(command=f"python -m {_MODULE}", role="main", now=datetime.now(tz=UTC))
+            context = ManualStudyContext.load(self._study_file, store=self._store, root=self.root, execution=execution)
+            self._fits = context.inputs
+        return self._fits
 
 
-def search_inputs(protocol: ManualSearchProtocol, *, root: Path) -> SearchInputs:
-    """Load what the parent needs to derive a trial's identities before it runs."""
-    return SearchInputs(
-        manifest=load_study(protocol.study),
-        config=load_manual_evaluation_config(protocol.comparison.evaluation),
-        evaluation_file=protocol.comparison.evaluation,
-        root=root,
+def trial_conditions(inputs: SearchInputs, configuration: StudyConfiguration) -> ManualRunConditions:
+    """The conditions one sampled configuration's nominal runs are keyed by."""
+    return manual_conditions(
+        inputs.config,
+        inputs.evaluation_file,
+        scenario_ids=NOMINAL_SCENARIOS,
+        warmup_s=configuration.warmup_s,
+        replay_cutoffs=(configuration.velocity_cutoff_hz, configuration.acceleration_cutoff_hz),
+        execution_identity=inputs.manifest.execution.identity,
+        root=inputs.root,
     )
 
 
@@ -492,15 +607,7 @@ def reserve_trial(
     """
     configuration = sampled_configuration(protocol, point, trial=trial)
     entry = sampled_entry(inputs.manifest, configuration, arm_of("M10"))
-    conditions = manual_conditions(
-        inputs.config,
-        inputs.evaluation_file,
-        scenario_ids=NOMINAL_SCENARIOS,
-        warmup_s=configuration.warmup_s,
-        replay_cutoffs=(configuration.velocity_cutoff_hz, configuration.acceleration_cutoff_hz),
-        execution_identity=inputs.manifest.execution.identity,
-        root=inputs.root,
-    )
+    conditions = trial_conditions(inputs, configuration)
     return TrialReservation(
         trial=trial,
         configuration=configuration.label,
@@ -570,6 +677,10 @@ def evaluate_trial(
     started = time.perf_counter()
     try:
         evidence = prepared.runner.evaluate(entry, warmup_s=configuration.warmup_s)
+    except EvidenceIntegrityError:
+        # Stored evidence that no longer matches its records is a fault in the store, not a verdict
+        # on this candidate: it propagates, leaving no report, so the trial stays recoverable.
+        raise
     except ValueError as error:
         # A candidate the learner or the protocol refuses is a failed trial. An infrastructure
         # failure -- a storage error, a missing device, a mismatched artifact -- is not: it
@@ -635,6 +746,8 @@ def _finalize(
     store: StorageRoot,
     reservation: TrialReservation,
     *,
+    protocol: ManualSearchProtocol,
+    inputs: SearchInputs,
     protocol_file: Path,
     root: Path,
     allowance: float,
@@ -647,6 +760,10 @@ def _finalize(
     written, and every attempt's measured cost is kept, so a resume finishes
     this trial under its own number instead of buying a replacement and the
     ledger charges what the retries actually cost.
+
+    The attempt is opened on disk before the worker starts. This process is
+    the only thing measuring it, so an attempt whose parent is killed is
+    charged by the wall clock it was in flight rather than given away.
     """
     directory = trial_directory(store, reservation.trial)
     output = directory / "result.json"
@@ -659,7 +776,14 @@ def _finalize(
         exploratory=exploratory,
     )
     spend_file = directory / "spend.json"
-    spent = read_record(spend_file, TrialSpend) if spend_file.is_file() else None
+    spent = (
+        read_record(spend_file, TrialSpend)
+        if spend_file.is_file()
+        else TrialSpend(trial=reservation.trial, seconds=0.0)
+    )
+    now = _now()
+    opened = spent.recovered(at=now).opening(at=now)
+    write_record(spend_file, opened)
     started = time.perf_counter()
     try:
         completed = spawn_trial(command, timeout=allowance)
@@ -668,12 +792,14 @@ def _finalize(
         interrupted = f"the worker exceeded the remaining allowance of {allowance:.0f} s"
     elapsed = time.perf_counter() - started
     # Every attempt's cost is kept: a retry adds to the charge rather than replacing it.
-    charged = TrialSpend(trial=reservation.trial, seconds=elapsed) if spent is None else spent.plus(elapsed)
+    charged = opened.closing(elapsed)
     if interrupted is not None and not output.is_file():
         # Infrastructure, not a fit: no outcome, so the trial stays pending and is resumed.
         write_record(spend_file, charged)
         return None
-    outcome = verified_outcome(store, reservation, read_result(output), seconds=charged.seconds)
+    outcome = verified_outcome(
+        store, reservation, read_result(output), seconds=charged.seconds, protocol=protocol, inputs=inputs
+    )
     write_record(directory / "outcome.json", outcome)
     spend_file.unlink(missing_ok=True)
     study.tell(
@@ -698,6 +824,8 @@ def reconcile(
     Three interruption points leave them disagreeing, and each is repaired
     here rather than worked around later:
 
+    * an attempt was opened but its parent never returned to measure it, so
+      the time it ran is charged here by the wall clock instead of being lost;
     * an outcome was written but the study never heard of it, which would leave
       its trial running for ever while the ledger counts it finished;
     * a trial was asked for but its reservation was never published, which
@@ -705,6 +833,16 @@ def reconcile(
     * a reservation has no outcome, which is ordinary pending work.
     """
     repaired: list[dict[str, object]] = []
+    for directory in trial_directories(store):
+        spend_file = directory / "spend.json"
+        if not spend_file.is_file():
+            continue
+        spend = read_record(spend_file, TrialSpend)
+        if spend.started_at is None:
+            continue
+        closed = spend.recovered(at=_now())
+        write_record(spend_file, closed)
+        repaired.append({"charged": closed.trial, "seconds": closed.seconds - spend.seconds})
     finalized = {t.number for t in study.trials if t.state != TrialState.RUNNING}
     for directory in trial_directories(store):
         outcome_file = directory / "outcome.json"
@@ -733,7 +871,9 @@ def reconcile(
         try:
             point = sampled_point(protocol.space, cast("dict[str, float]", frozen.params))
         except (ValueError, KeyError):
-            study.tell(frozen.number, None, state=TrialState.FAIL, skip_if_finished=True)
+            # Abandoning it is explicit and charged: a trial the cap allowed was drawn and spent, and
+            # a free replacement would let a search interrupted mid-draw exceed the approved count.
+            _abandon(study, store, frozen.number, reason="no usable parameters were recorded")
             repaired.append({"abandoned": frozen.number, "reason": "no usable parameters were recorded"})
             continue
         write_record(
@@ -742,6 +882,28 @@ def reconcile(
         )
         repaired.append({"adopted": frozen.number})
     return repaired
+
+
+def _abandon(study: optuna.Study, store: StorageRoot, trial: int, *, reason: str) -> None:
+    """Retain an explicitly abandoned trial as a failed outcome, charged for the slot it took."""
+    directory = trial_directory(store, trial)
+    spend_file = directory / "spend.json"
+    spent = read_record(spend_file, TrialSpend) if spend_file.is_file() else None
+    write_record(
+        directory / "outcome.json",
+        TrialOutcome(
+            trial=trial,
+            state="failed",
+            score=None,
+            successes=0,
+            runs=0,
+            seconds=0.0 if spent is None else spent.seconds,
+            stored_bytes=0,
+            failure=f"abandoned: {reason}",
+        ),
+    )
+    spend_file.unlink(missing_ok=True)
+    study.tell(trial, None, state=TrialState.FAIL, skip_if_finished=True)
 
 
 def run_search(
@@ -756,7 +918,7 @@ def run_search(
     is gone, scheduling stops and the work that exists is retained.
     """
     store = open_storage()
-    inputs = search_inputs(protocol, root=root)
+    inputs = SearchInputs(protocol, root=root, store=store)
     study = open_study(
         store,
         STUDY_NAME,
@@ -790,6 +952,8 @@ def run_search(
                 study,
                 store,
                 reservation,
+                protocol=protocol,
+                inputs=inputs,
                 protocol_file=protocol_file,
                 root=root,
                 allowance=allowance,

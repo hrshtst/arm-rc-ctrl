@@ -17,8 +17,10 @@ import json
 import subprocess
 import sys
 import time
-from collections.abc import Sequence
+from collections.abc import Generator, Sequence
+from contextlib import contextmanager
 from dataclasses import replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, cast
 
@@ -26,7 +28,7 @@ import pytest
 
 from arm_rc_ctrl.config import to_mapping
 from arm_rc_ctrl.experiments import manual_evaluation, manual_search_run
-from arm_rc_ctrl.experiments.manual_fits import ManualFitStore
+from arm_rc_ctrl.experiments.manual_fits import WEIGHTS_FILE, ManualFitStore, cache_uri
 from arm_rc_ctrl.experiments.manual_fixture import ManualFixture, ManualStudyEvidence, manual_narrowed
 from arm_rc_ctrl.experiments.manual_numerics import refit_in_subprocess
 from arm_rc_ctrl.experiments.manual_sampled import SampledPoint, arm_of, sampled_configuration, sampled_entry
@@ -36,6 +38,7 @@ from arm_rc_ctrl.experiments.manual_search_run import (
     TrialOutcome,
     TrialReservation,
     TrialResult,
+    TrialSpend,
     budget_complaints,
     evaluate_trial,
     ledger_of,
@@ -48,6 +51,7 @@ from arm_rc_ctrl.experiments.manual_search_run import (
     verified_outcome,
     write_record,
 )
+from arm_rc_ctrl.experiments.run_record import RUN_SUMMARY_FILE
 from arm_rc_ctrl.provenance import ArtifactReference
 from arm_rc_ctrl.repo import repository_root
 from arm_rc_ctrl.storage import ENV_VAR, StorageRoot
@@ -219,6 +223,22 @@ def test_a_tightened_cap_binds_earlier() -> None:
     assert budget_complaints(BudgetLedger(trials=9, seconds=0.0, stored_bytes=0), budget) == []
 
 
+@contextmanager
+def _corrupted(path: Path) -> Generator[None]:
+    """Rewrite one stored payload for the length of a check, then restore it.
+
+    The demonstration fixture and its store are built once for the module, so
+    a check that a corrupted payload is refused has to leave the store exactly
+    as it found it.
+    """
+    original = path.read_bytes()
+    path.write_bytes(original[:-8] + bytes(8))
+    try:
+        yield
+    finally:
+        path.write_bytes(original)
+
+
 # --- the worker against a real study ------------------------------------------------------------
 
 
@@ -288,7 +308,71 @@ def test_the_worker_evaluates_the_nominal_case_under_both_trackers(
     assert result.scenarios == ("nominal",)
     assert result.successes <= result.runs
     assert result.evidence is not None, "a scored candidate reports where its evidence was installed"
-    assert result.evidence is not None
+    directory = manual_fixture.store.path(result.evidence.uri, mode="read").parent
+    claimed = manual_evaluation.read_run_claims(directory / manual_evaluation.RUN_CLAIMS_FILE)
+    recorded = manual_evaluation.read_progress_runs(directory / manual_evaluation.PROGRESS_FILE)
+    assert len(claimed) == 2, "each run was claimed before its payload was published"
+    assert {f"armrc://runs/{run}/{RUN_SUMMARY_FILE}" for run in claimed} == set(recorded), (
+        "and the claims are the runs the progress record ended up naming"
+    )
+
+
+def test_a_scored_candidate_is_checked_against_reconstructed_inputs(
+    fixture_search: ManualSearchProtocol, manual_fixture: ManualFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A reservation's identities are recorded fields; the model behind them is verified whole.
+
+    The parent rebuilds the study's own fit inputs and runs the same
+    model-binding checks a resume and the audit run, so evidence that carries
+    the reserved identities but not the construction they name is refused
+    instead of scored.
+    """
+    for name, value in manual_fixture.env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(manual_evaluation, "repository_root", lambda: manual_fixture.root)
+    monkeypatch.setattr(manual_evaluation, "evaluation_scenarios", manual_narrowed)
+    result = evaluate_trial(
+        fixture_search,
+        trial=0,
+        point=POINT,
+        scenarios=("nominal",),
+        root=manual_fixture.root,
+        argv=["evaluate-trial"],
+        exploratory=True,
+    )
+    inputs = manual_search_run.SearchInputs(fixture_search, root=manual_fixture.root, store=manual_fixture.store)
+    reservation = manual_search_run.reserve_trial(fixture_search, inputs, POINT, trial=0)
+    scored = verified_outcome(
+        manual_fixture.store, reservation, result, seconds=1.0, protocol=fixture_search, inputs=inputs
+    )
+    assert (scored.state, scored.runs) == ("scored", 2)
+    weights = manual_fixture.store.root / cache_uri(reservation.fit_identity).relative_path / WEIGHTS_FILE
+    with _corrupted(weights), pytest.raises(ValueError, match="recorded digest"):
+        verified_outcome(manual_fixture.store, reservation, result, seconds=1.0, protocol=fixture_search, inputs=inputs)
+
+
+def test_corrupt_cached_evidence_is_not_a_failed_candidate(
+    fixture_search: ManualSearchProtocol, manual_fixture: ManualFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A fault in the store is not a verdict on a candidate: it propagates and the trial stays recoverable."""
+    for name, value in manual_fixture.env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(manual_evaluation, "repository_root", lambda: manual_fixture.root)
+    monkeypatch.setattr(manual_evaluation, "evaluation_scenarios", manual_narrowed)
+    kwargs: dict[str, Any] = {
+        "trial": 0,
+        "point": POINT,
+        "scenarios": ("nominal",),
+        "root": manual_fixture.root,
+        "argv": ["evaluate-trial"],
+        "exploratory": True,
+    }
+    evaluate_trial(fixture_search, **kwargs)
+    configuration = sampled_configuration(fixture_search, POINT, trial=0)
+    entry = sampled_entry(manual_fixture.manifest, configuration, arm_of("M10"))
+    weights = manual_fixture.store.root / cache_uri(entry.fit_identity).relative_path / WEIGHTS_FILE
+    with _corrupted(weights), pytest.raises(manual_evaluation.EvidenceIntegrityError, match="recorded digest"):
+        evaluate_trial(fixture_search, **kwargs)
 
 
 def test_a_sampled_fit_reproduces_in_a_fresh_interpreter(
@@ -587,3 +671,119 @@ def test_an_outcome_the_study_never_heard_of_is_finalized_on_resume(
     finally:
         manual_search_run.close_study(study)
     assert states[lost.number] == "FAIL", "the study was reconciled with the retained record"
+
+
+# --- what the owner's third review of M3MS-003 found --------------------------------------------
+
+
+class _Clock:
+    """A wall clock the test advances by hand, so a lost attempt's charge is exact."""
+
+    def __init__(self, instants: Sequence[datetime]) -> None:
+        self.instants = list(instants)
+        self.calls = 0
+
+    def __call__(self) -> datetime:
+        instant = self.instants[min(self.calls, len(self.instants) - 1)]
+        self.calls += 1
+        return instant
+
+
+def _killed_parent(command: Sequence[str], *, timeout: float) -> subprocess.CompletedProcess[bytes]:
+    """A worker whose parent dies before it can measure the attempt it launched."""
+    del command, timeout
+    raise KeyboardInterrupt
+
+
+def test_a_parent_killed_mid_attempt_still_charges_the_time_it_ran(
+    protocol: ManualSearchProtocol, search_store: StorageRoot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A parent that never returns cannot measure its own attempt, so the start is persisted first."""
+    tightened = replace(protocol, budget=replace(protocol.budget, trials=1))
+    opened = datetime(2026, 9, 23, 12, 0, tzinfo=UTC)
+    monkeypatch.setattr(manual_search_run, "_now", _Clock([opened, opened + timedelta(minutes=5)]))
+    monkeypatch.setattr(manual_search_run, "spawn_trial", _killed_parent)
+    with pytest.raises(KeyboardInterrupt):
+        manual_search_run.run_search(tightened, PROTOCOL_FILE, root=ROOT, exploratory=True)
+    spend = read_record(trial_directory(search_store, 0) / "spend.json", TrialSpend)
+    assert spend.started_at == opened.isoformat(), "the attempt start is on disk before the worker runs"
+    monkeypatch.setattr(manual_search_run, "spawn_trial", _FakeWorker([_failed_report()]))
+    resumed = manual_search_run.run_search(tightened, PROTOCOL_FILE, root=ROOT, exploratory=True)
+    assert resumed.seconds >= 300.0, "the five minutes the lost attempt was in flight are charged"
+
+
+def _reservation(trial: int = 0) -> TrialReservation:
+    return TrialReservation(
+        trial=trial,
+        configuration=f"search-t{trial:04d}",
+        point=POINT,
+        protocol_sha256="a" * 64,
+        fit_identity="c" * 64,
+        evidence_identity="d" * 64,
+    )
+
+
+def _evidence_directory(store: StorageRoot, reservation: TrialReservation) -> Path:
+    uri = manual_evaluation.model_uri(reservation.evidence_identity)
+    directory = store.path(f"{uri}/{manual_evaluation.PROGRESS_FILE}", mode="write").parent
+    directory.mkdir(parents=True, exist_ok=True)
+    return directory
+
+
+def _stored_run(store: StorageRoot, artifact_id: str, *, size: int) -> None:
+    payload = store.path(f"armrc://runs/{artifact_id}/{RUN_SUMMARY_FILE}", mode="write")
+    payload.parent.mkdir(parents=True, exist_ok=True)
+    payload.write_bytes(b"x" * size)
+
+
+def test_a_run_published_before_its_progress_record_is_still_charged(search_store: StorageRoot) -> None:
+    """Ownership is discoverable before publication, so a payload cannot land outside the ceiling."""
+    reservation = _reservation()
+    directory = _evidence_directory(search_store, reservation)
+    artifact_id = "run-20260923-abcdefabcdef"
+    _stored_run(search_store, artifact_id, size=4096)
+    claims = manual_evaluation.RunClaims(
+        search_store, manual_evaluation.model_uri(reservation.evidence_identity), reservation.evidence_identity
+    )
+    claims.add(artifact_id)
+    assert (directory / manual_evaluation.RUN_CLAIMS_FILE).is_file(), "the claim is what makes it discoverable"
+    assert manual_search_run.retained_bytes(search_store, reservation) >= 4096
+
+
+@pytest.mark.parametrize("name", [manual_evaluation.PROGRESS_FILE, manual_evaluation.RUN_CLAIMS_FILE])
+def test_an_unreadable_inventory_is_not_an_empty_one(search_store: StorageRoot, name: str) -> None:
+    """Bytes that cannot be counted are not bytes that are not there."""
+    reservation = _reservation()
+    (_evidence_directory(search_store, reservation) / name).write_text("{ truncated", encoding="utf-8")
+    with pytest.raises(ValueError, match="cannot be read"):
+        manual_search_run.retained_bytes(search_store, reservation)
+
+
+def test_a_trial_abandoned_for_unusable_parameters_still_spends_its_slot(
+    protocol: ManualSearchProtocol, search_store: StorageRoot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A trial lost while it was being sampled is charged, not handed back as a free replacement."""
+    tightened = replace(protocol, budget=replace(protocol.budget, trials=1))
+    study = cast("Any", _open(tightened, search_store))
+    lost = study.ask()  # drawn, then lost before a single parameter was recorded
+    manual_search_run.close_study(study)
+    worker = _FakeWorker([_failed_report()])
+    monkeypatch.setattr(manual_search_run, "spawn_trial", worker)
+    ledger = manual_search_run.run_search(tightened, PROTOCOL_FILE, root=ROOT, exploratory=True)
+    assert lost.number in _outcomes(search_store), "the abandonment is a retained record, not a silent skip"
+    assert ledger.trials == 1, "it consumed the trial it was given"
+    assert worker.calls == [], "so the one-trial cap scheduled nothing after it"
+
+
+def test_bytes_staged_before_any_claim_are_charged_to_the_work_in_flight(search_store: StorageRoot) -> None:
+    """A payload killed between staging and its claim has no owner; the serial protocol has only one."""
+    reservation = _reservation()
+    reservation_file = trial_directory(search_store, reservation.trial) / "reservation.json"
+    write_record(reservation_file, reservation)
+    staging = search_store.root / "runs" / "staging-0123456789abcdef"
+    staging.mkdir(parents=True)
+    (staging / "arrays.npz").write_bytes(b"x" * 2048)
+    assert manual_search_run.unpublished_bytes(search_store) == 2048
+    assert ledger_of(search_store).stored_bytes >= 2048, "the trial in flight is charged for it"
+    reservation_file.unlink()
+    assert ledger_of(search_store).stored_bytes == 0, "with nothing in flight there is nothing to charge it to"
