@@ -110,6 +110,7 @@ __all__ = [
     "pilot_bound_mismatches",
     "read_result",
     "run_search",
+    "search_stopped",
     "spawn_trial",
     "suggest_sampled_point",
     "trial_command",
@@ -182,6 +183,18 @@ def budget_complaints(ledger: BudgetLedger, budget: ManualSearchBudget) -> list[
         complaints.append(f"the {budget.hours:g} h cap is spent ({ledger.seconds / 3600.0:.2f} h)")
     if ledger.stored_bytes >= budget.gib * _GIB:
         complaints.append(f"the {budget.gib:g} GiB cap is spent ({ledger.stored_bytes / _GIB:.2f} GiB)")
+    return complaints
+
+
+def search_stopped(ledger: BudgetLedger, budget: ManualSearchBudget) -> list[str]:
+    """Why the search schedules nothing more, if it does not: a spent cap, or no allowance beyond the headroom.
+
+    This is the one statement of when the search has ended; `run_search` stops
+    on it, and a freeze is taken only once it holds.
+    """
+    complaints = budget_complaints(ledger, budget)
+    if not complaints and _remaining_seconds(ledger, budget) <= 0.0:
+        complaints = [f"the {budget.hours:g} h cap leaves no allowance beyond the persistence headroom"]
     return complaints
 
 
@@ -1129,13 +1142,10 @@ def _run_search(
         reported: list[dict[str, object]] = list(reconcile(study, store, inputs, protocol))
         while True:
             ledger = ledger_of(store)
-            complaints = budget_complaints(ledger, protocol.budget)
-            if complaints:
-                return _report(ledger, reported, stopped=complaints)
-            allowance = _remaining_seconds(ledger, protocol.budget)
-            if allowance <= 0.0:
-                stopped = [f"the {protocol.budget.hours:g} h cap leaves no allowance beyond the persistence headroom"]
+            stopped = search_stopped(ledger, protocol.budget)
+            if stopped:
                 return _report(ledger, reported, stopped=stopped)
+            allowance = _remaining_seconds(ledger, protocol.budget)
             pending = pending_reservations(store)
             recovering = bool(pending)
             if not recovering and stop_at_trials is not None and ledger.trials >= stop_at_trials:

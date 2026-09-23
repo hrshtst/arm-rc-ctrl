@@ -339,6 +339,20 @@ uv run python -m arm_rc_ctrl.experiments.manual_search_pilot report \
   --markdown docs/experiments/task_1a_manual_esn_search/pilot/timing_pilot_v2.md
 ```
 
+Once the search has stopped, the three highest nominal scores are frozen
+(M3MS-005), pinned, from a clean checkout. The freeze refuses pending trials,
+a search with no spent cap, and a study that disagrees with the retained
+records. It verifies each chosen trial's evidence again and never overwrites
+a frozen selection:
+
+```sh
+uv run python -m arm_rc_ctrl.execution run --policy p-cores -- \
+  uv run python -m arm_rc_ctrl.experiments.manual_search_freeze \
+  --protocol configs/studies/manual_esn_search_v1.toml \
+  --output docs/experiments/task_1a_manual_esn_search/freeze/selection_v1.json \
+  --markdown docs/experiments/task_1a_manual_esn_search/freeze/selection_v1.md
+```
+
 ## Requirements
 
 - Linux (x86_64 tested), Git.

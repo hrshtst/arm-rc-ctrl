@@ -33,6 +33,7 @@ from arm_rc_ctrl.experiments.manual_fixture import ManualFixture, ManualStudyEvi
 from arm_rc_ctrl.experiments.manual_numerics import refit_in_subprocess
 from arm_rc_ctrl.experiments.manual_sampled import SampledPoint, arm_of, sampled_configuration, sampled_entry
 from arm_rc_ctrl.experiments.manual_search import ManualSearchBudget, load_manual_search
+from arm_rc_ctrl.experiments.manual_search_freeze import reverify_outcome
 from arm_rc_ctrl.experiments.manual_search_run import (
     BudgetLedger,
     TrialOutcome,
@@ -919,3 +920,53 @@ def test_bytes_staged_before_any_claim_stay_charged_across_finalization(search_s
     finalized = ledger_of(search_store)
     assert finalized.trials == 1
     assert finalized.stored_bytes >= 1_000_000, "and it is still charged once the trial is finalized"
+
+
+# --- M3MS-005: one statement of when the search has stopped -------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("ledger", "expected"),
+    [
+        (BudgetLedger(trials=99, seconds=0.0, stored_bytes=0), []),
+        (BudgetLedger(trials=100, seconds=0.0, stored_bytes=0), ["100-trial cap"]),
+        (BudgetLedger(trials=10, seconds=10 * 3600.0 - 30.0, stored_bytes=0), ["headroom"]),
+    ],
+)
+def test_the_search_stops_where_scheduling_stops(
+    protocol: ManualSearchProtocol, ledger: BudgetLedger, expected: list[str]
+) -> None:
+    """A spent cap, or an allowance inside the persistence headroom, is a search that schedules nothing more."""
+    stopped = manual_search_run.search_stopped(ledger, protocol.budget)
+    assert len(stopped) == len(expected)
+    for reason, fragment in zip(stopped, expected, strict=True):
+        assert fragment in reason
+
+
+def test_a_frozen_trial_is_verified_again_against_its_evidence(
+    fixture_search: ManualSearchProtocol, manual_fixture: ManualFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The freeze does not take a recorded verdict on trust: scored afresh, the evidence must agree with it."""
+    for name, value in manual_fixture.env.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(manual_evaluation, "repository_root", lambda: manual_fixture.root)
+    monkeypatch.setattr(manual_evaluation, "evaluation_scenarios", manual_narrowed)
+    result = evaluate_trial(
+        fixture_search,
+        trial=0,
+        point=POINT,
+        scenarios=("nominal",),
+        root=manual_fixture.root,
+        argv=["evaluate-trial"],
+        exploratory=True,
+    )
+    inputs = manual_search_run.SearchInputs(fixture_search, root=manual_fixture.root, exploratory=True)
+    reservation = manual_search_run.reserve_trial(fixture_search, inputs, POINT, trial=0)
+    outcome = verified_outcome(
+        manual_fixture.store, reservation, result, seconds=1.0, protocol=fixture_search, inputs=inputs
+    )
+    reverify_outcome(manual_fixture.store, reservation, outcome, result, protocol=fixture_search, inputs=inputs)
+    flipped = 1 if outcome.successes != 1 else 2
+    claimed = replace(outcome, successes=flipped, score=flipped / 2)
+    with pytest.raises(ValueError, match="re-verification disagrees"):
+        reverify_outcome(manual_fixture.store, reservation, claimed, result, protocol=fixture_search, inputs=inputs)

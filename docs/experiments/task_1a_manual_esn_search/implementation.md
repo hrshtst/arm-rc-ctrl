@@ -238,3 +238,29 @@ actually simulated: runs served from the store are recorded but not measured.
 A trial abandoned before any parameter was recorded is reported with its
 parameters unavailable. The first report is kept in
 [`pilot/superseded/`](pilot/superseded/README.md).
+
+## M3MS-005 — the finished search and the freeze
+
+`search_stopped` is the one statement of when the search has ended: a spent
+cap, or no allowance beyond the persistence headroom. `run_search` stops on
+it, and `arm_rc_ctrl.experiments.manual_search_freeze` refuses to freeze
+until it holds and no reservation is pending.
+
+The freeze also refuses a study that disagrees with the retained records:
+different trial numbers, a state or value the records do not give, a trial
+still running, or parameters that are not the reserved point. It ranks with
+the protocol's own `select_configurations`, so the order is descending nominal
+score, then the earliest trial, one per distinct point, and a shortfall is
+reported rather than filled. It then verifies each chosen trial's evidence
+again against reconstructed inputs, and the recounted verdict must equal the
+recorded one.
+
+The record, `ManualSearchFreeze`, refuses to exist when it breaks the rule:
+wrong ranks or order, a repeated point, a score that is not its count, a
+missing configuration without a shortfall, a label other than "highest
+nominal scores", or no stop reason. An edited freeze therefore cannot be
+loaded. `freeze_digest` is what the comparison will bind.
+
+Tests: `tests/unit/test_manual_search_freeze.py` and, against the fixture
+study's real evidence, `test_a_frozen_trial_is_verified_again_against_its_evidence`
+in `tests/unit/test_manual_search_run.py`.
