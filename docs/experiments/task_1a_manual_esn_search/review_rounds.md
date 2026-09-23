@@ -92,3 +92,39 @@ not.
    only checked between trials. The remaining allowance, less the headroom kept
    to persist an in-flight result, is now the worker's timeout, and a worker
    that reaches it is an interruption whose work is retained for recovery.
+
+## M3MS-003, round 2 (2026-09-23): six findings, four P1
+
+The reservation protocol held its shape, but every write boundary and every
+resource path needed to be examined one interruption at a time.
+
+1. **P1 — retries erased earlier elapsed time.** `spend.json` was overwritten
+   per attempt and finalization charged only the last one. Spend now
+   accumulates over attempts and the outcome charges the total, so three
+   attempts of 10 s, 20 s and 1 s cost 31 s rather than 1 s.
+2. **P1 — near the deadline the timeout was disabled.** A non-positive
+   allowance became an unbounded worker. A non-positive allowance now stops
+   scheduling, for pending retries as well as new trials, and `spawn_trial`
+   itself refuses to start a worker without a real deadline.
+3. **P1 — recovery did not reconcile the two stores.** A trial lost between
+   being drawn and having its reservation published was orphaned, and an
+   outcome published before the study was told left a trial running for ever.
+   A reconciliation pass now runs before anything is scheduled: an outcome the
+   study has not heard of is finalized from the record, a drawn-but-unreserved
+   trial is adopted under its own number from its recorded parameters, and one
+   with no usable parameters is abandoned explicitly and charged nothing.
+4. **P1 — partial-run storage was uncharged.** Bytes were measured only from a
+   completed evidence object. The reservation now records the fit and evidence
+   identities *before* the work runs, so the parent discovers retained work
+   from the fit cache, the evidence directory and the run-granular progress
+   record — for failed and interrupted attempts alike — and the worker no
+   longer reports a storage figure at all.
+5. **P2 — storage failures were finalized as failed candidates.** Only a
+   `ValueError` — the learner or the protocol refusing a candidate — is a
+   failed trial now. An infrastructure error propagates, leaves no report, and
+   the trial is retained for a retry.
+6. **P2 — evidence verification checked a label.** The parent now rebuilds the
+   expected entry from the protocol and the reserved point, requires the
+   evidence to carry the reserved evidence and fit identities, and loads every
+   run through the reader a resume uses, so a corrupted archive or a different
+   input scaling is refused before the candidate is scored.

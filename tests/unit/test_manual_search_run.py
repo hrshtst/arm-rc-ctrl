@@ -16,10 +16,11 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import time
 from collections.abc import Sequence
 from dataclasses import replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, cast
 
 import pytest
 
@@ -146,7 +147,6 @@ def _result(**changes: object) -> TrialResult:
         statuses=("completed", "infeasible"),
         scenarios=("nominal",),
         seconds=3.0,
-        stored_bytes=2048,
         evidence=EVIDENCE,
     )
     return replace(base, **changes)
@@ -288,7 +288,7 @@ def test_the_worker_evaluates_the_nominal_case_under_both_trackers(
     assert result.scenarios == ("nominal",)
     assert result.successes <= result.runs
     assert result.evidence is not None, "a scored candidate reports where its evidence was installed"
-    assert result.stored_bytes > 0, "the candidate's runs and fit are retained and charged"
+    assert result.evidence is not None
 
 
 def test_a_sampled_fit_reproduces_in_a_fresh_interpreter(
@@ -358,7 +358,6 @@ def _failed_report() -> TrialResult:
         statuses=(),
         scenarios=("nominal",),
         seconds=0.5,
-        stored_bytes=4096,
         failure="the fit did not converge",
     )
 
@@ -369,7 +368,7 @@ def test_a_failed_fit_consumes_its_trial_and_is_charged(
     """A candidate that could not be fitted is a failed trial, and what it stored is still charged."""
     tightened = replace(protocol, budget=replace(protocol.budget, trials=1))
     ledger = _search(tightened, _FakeWorker([_failed_report()]), monkeypatch)
-    assert (ledger.trials, ledger.stored_bytes) == (1, 4096)
+    assert ledger.trials == 1
     outcome = read_record(trial_directory(search_store, 0) / "outcome.json", TrialOutcome)
     assert (outcome.state, outcome.score, outcome.failure) == ("failed", None, "the fit did not converge")
 
@@ -398,7 +397,7 @@ def test_the_ledger_is_derived_from_the_retained_records(
     tightened = replace(protocol, budget=replace(protocol.budget, trials=2))
     _search(tightened, _FakeWorker([_failed_report(), _failed_report()]), monkeypatch)
     derived = ledger_of(search_store)
-    assert (derived.trials, derived.stored_bytes) == (2, 8192)
+    assert derived.trials == 2
     (trial_directory(search_store, 1) / "outcome.json").unlink()
     assert ledger_of(search_store).trials == 1, "the ledger follows the records, not a stored total"
 
@@ -432,7 +431,14 @@ def test_a_worker_is_given_the_remaining_allowance_as_its_timeout(
 
 def test_a_report_for_another_trial_is_refused(search_store: StorageRoot) -> None:
     """A report is not evidence: it must answer for the trial that was scheduled."""
-    reservation = TrialReservation(trial=0, configuration="search-t0000", point=POINT, protocol_sha256="a" * 64)
+    reservation = TrialReservation(
+        trial=0,
+        configuration="search-t0000",
+        point=POINT,
+        protocol_sha256="a" * 64,
+        fit_identity="c" * 64,
+        evidence_identity="d" * 64,
+    )
     with pytest.raises(ValueError, match="names trial 999"):
         verified_outcome(search_store, reservation, replace(_failed_report(), trial=999), seconds=1.0)
 
@@ -447,5 +453,137 @@ def test_a_scored_report_must_point_at_evidence() -> None:
             statuses=("completed", "completed"),
             scenarios=("nominal",),
             seconds=1.0,
-            stored_bytes=10,
         )
+
+
+# --- what the owner's second review of M3MS-003 found -------------------------------------------
+
+
+class _SlowWorker:
+    """A worker that takes a known time and then reports what the test wants."""
+
+    def __init__(self, durations: list[float], report: TrialResult | None) -> None:
+        self.durations = durations
+        self.report = report
+        self.calls = 0
+        self.timeouts: list[float] = []
+
+    def __call__(self, command: Sequence[str], *, timeout: float) -> subprocess.CompletedProcess[bytes]:
+        command = list(command)
+        self.timeouts.append(timeout)
+        duration = self.durations[min(self.calls, len(self.durations) - 1)]
+        self.calls += 1
+        monotonic = time.monotonic
+        # Charge the attempt without actually sleeping: the parent measures elapsed wall clock.
+        start = monotonic()
+        while monotonic() - start < duration:
+            pass
+        if self.report is None or self.calls < len(self.durations):
+            return subprocess.CompletedProcess(command, returncode=1, stdout=b"", stderr=b"interrupted")
+        write_record(
+            Path(command[command.index("--output") + 1]),
+            replace(self.report, trial=int(command[command.index("--trial") + 1])),
+        )
+        return subprocess.CompletedProcess(command, returncode=0, stdout=b"", stderr=b"")
+
+
+@pytest.mark.usefixtures("search_store")
+def test_every_attempt_of_a_retried_trial_is_charged(
+    protocol: ManualSearchProtocol, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A retry adds to the charge; replacing it would give interrupted work away for free."""
+    tightened = replace(protocol, budget=replace(protocol.budget, trials=1))
+    worker = _SlowWorker([0.05, 0.05, 0.05], _failed_report())
+    monkeypatch.setattr(manual_search_run, "spawn_trial", worker)
+    first = manual_search_run.run_search(tightened, PROTOCOL_FILE, root=ROOT, exploratory=True)
+    second = manual_search_run.run_search(tightened, PROTOCOL_FILE, root=ROOT, exploratory=True)
+    third = manual_search_run.run_search(tightened, PROTOCOL_FILE, root=ROOT, exploratory=True)
+    assert second.seconds > first.seconds, "the second attempt added its cost"
+    assert third.seconds > second.seconds, "and so did the third, which finalized the trial"
+    assert third.trials == 1
+
+
+@pytest.mark.usefixtures("search_store")
+def test_no_worker_starts_without_a_real_deadline(
+    protocol: ManualSearchProtocol, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With the allowance inside the persistence headroom, scheduling stops instead of running unbounded."""
+    tightened = replace(protocol, budget=replace(protocol.budget, trials=1, hours=0.01))
+    worker = _FakeWorker([_failed_report()])
+    monkeypatch.setattr(manual_search_run, "spawn_trial", worker)
+    ledger = manual_search_run.run_search(tightened, PROTOCOL_FILE, root=ROOT, exploratory=True)
+    assert worker.calls == [], "a worker with no allowance is never started"
+    assert ledger.trials == 0
+
+
+def test_a_worker_is_never_spawned_with_a_nonpositive_timeout() -> None:
+    """The guard is in the spawn itself, not only in the caller that computes the allowance."""
+    with pytest.raises(ValueError, match="deadline"):
+        manual_search_run.spawn_trial([sys.executable, "-c", "pass"], timeout=0.0)
+
+
+def _open(protocol: ManualSearchProtocol, store: StorageRoot) -> object:
+    return manual_search_run.open_study(
+        store,
+        manual_search_run.STUDY_NAME,
+        protocol_sha256=manual_search_run.protocol_digest(protocol),
+        sampler=protocol.sampler,
+        pruner=manual_search_run.PrunerSpec(kind="none"),
+        direction="maximize",
+    )
+
+
+def _outcomes(store: StorageRoot) -> set[int]:
+    return {
+        read_record(directory / "outcome.json", TrialOutcome).trial
+        for directory in manual_search_run.trial_directories(store)
+        if (directory / "outcome.json").is_file()
+    }
+
+
+def test_a_trial_lost_before_its_reservation_is_adopted_under_its_own_number(
+    protocol: ManualSearchProtocol, search_store: StorageRoot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An interruption between drawing a point and publishing its reservation must not orphan the trial."""
+    tightened = replace(protocol, budget=replace(protocol.budget, trials=2))
+    study = cast("Any", _open(tightened, search_store))
+    trial = study.ask()
+    manual_search_run.suggest_sampled_point(tightened.space, trial)  # drawn, then lost
+    manual_search_run.close_study(study)
+    monkeypatch.setattr(manual_search_run, "spawn_trial", _FakeWorker([_failed_report()]))
+    manual_search_run.run_search(tightened, PROTOCOL_FILE, root=ROOT, exploratory=True)
+    assert trial.number in _outcomes(search_store), "the lost trial was finished under its own number"
+
+
+def test_an_outcome_the_study_never_heard_of_is_finalized_on_resume(
+    protocol: ManualSearchProtocol, search_store: StorageRoot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """An interruption between publishing an outcome and telling the study leaves no trial running."""
+    tightened = replace(protocol, budget=replace(protocol.budget, trials=2))
+    monkeypatch.setattr(manual_search_run, "spawn_trial", _FakeWorker([_failed_report()]))
+    manual_search_run.run_search(tightened, PROTOCOL_FILE, root=ROOT, exploratory=True)
+    study = cast("Any", _open(tightened, search_store))
+    lost = study.ask()
+    manual_search_run.suggest_sampled_point(tightened.space, lost)
+    write_record(
+        trial_directory(search_store, lost.number) / "outcome.json",
+        TrialOutcome(
+            trial=lost.number,
+            state="failed",
+            score=None,
+            successes=0,
+            runs=0,
+            seconds=1.0,
+            stored_bytes=0,
+            failure="written before the study was told",
+        ),
+    )
+    manual_search_run.close_study(study)
+    monkeypatch.setattr(manual_search_run, "spawn_trial", _FakeWorker([]))
+    manual_search_run.run_search(tightened, PROTOCOL_FILE, root=ROOT, exploratory=True)
+    study = cast("Any", _open(tightened, search_store))
+    try:
+        states = {t.number: t.state.name for t in study.trials}
+    finally:
+        manual_search_run.close_study(study)
+    assert states[lost.number] == "FAIL", "the study was reconciled with the retained record"
