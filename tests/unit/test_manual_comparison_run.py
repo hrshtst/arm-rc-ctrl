@@ -307,8 +307,10 @@ class _Context(ComparisonContext):
         *,
         root: Path,
         exploratory: bool = False,
+        module: str = "",
+        argv: Sequence[str] = (),
     ) -> None:
-        del root, exploratory
+        del root, exploratory, module, argv
         self.protocol = protocol
         self.protocol_file = protocol_file
         self.freeze_file = freeze_file
@@ -920,3 +922,38 @@ def test_finalized_counts_must_be_the_installed_manifests(
             check_finalized(context, unit)
     finally:
         shutil.rmtree(directory)
+
+
+# --- M3MS-007: a context records the command that actually ran -----------------------------------
+
+
+def test_a_context_records_the_invoking_command(
+    protocol: ManualSearchProtocol, store: StorageRoot, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Provenance names the command that was invoked, not the comparison runner's placeholder."""
+    del store
+    seen: list[tuple[str, list[str]]] = []
+
+    def prepared(args: argparse.Namespace, **kwargs: object) -> object:
+        seen.append((cast("str", kwargs["module"]), list(cast("list[str]", args.argv))))
+        return argparse.Namespace(context=argparse.Namespace(manifest=None), runner=None)
+
+    def verified(*args: object, **kwargs: object) -> ManualSearchFreeze:
+        del args, kwargs
+        return _freeze(protocol)
+
+    def no_inputs(*args: object, **kwargs: object) -> None:
+        del args, kwargs
+
+    monkeypatch.setattr(manual_comparison_run, "load_verified_freeze", verified)
+    monkeypatch.setattr(manual_comparison_run, "SearchInputs", no_inputs)
+    monkeypatch.setattr(manual_comparison_run, "prepare_runner", prepared)
+    ComparisonContext(
+        protocol,
+        PROTOCOL_FILE,
+        Path("freeze.json"),
+        root=ROOT,
+        module="arm_rc_ctrl.experiments.manual_search_results",
+        argv=["derive", "--output", "results"],
+    )
+    assert seen == [("arm_rc_ctrl.experiments.manual_search_results", ["derive", "--output", "results"])]

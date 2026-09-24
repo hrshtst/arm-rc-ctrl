@@ -418,7 +418,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--output", required=True, type=Path, help="the audit JSON; its Markdown is written beside it")
     parser.add_argument("--workers", type=int, default=1)
     parser.add_argument("--exploratory", action="store_true", help="tolerate a dirty worktree (fixtures)")
-    args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
+    argv = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(argv)
     output = cast("Path", args.output)
     markdown = output.with_suffix(".md")
     for path in (output, markdown):
@@ -433,6 +434,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         cast("Path", args.freeze),
         root=root,
         exploratory=bool(args.exploratory),
+        module="arm_rc_ctrl.experiments.manual_search_audit",
+        argv=argv,
     )
     audit = audit_search_comparison(
         context,

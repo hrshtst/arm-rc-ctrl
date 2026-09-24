@@ -590,7 +590,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     derive.add_argument("--output", required=True, type=Path)
     derive.add_argument("--workers", type=int, default=1)
     derive.add_argument("--exploratory", action="store_true", help="tolerate a dirty worktree (fixtures)")
-    args = parser.parse_args(list(sys.argv[1:] if argv is None else argv))
+    argv = list(sys.argv[1:] if argv is None else argv)
+    args = parser.parse_args(argv)
     protocol_file = cast("Path", args.protocol)
     root = repository_root()
     context = ComparisonContext(
@@ -599,6 +600,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         cast("Path", args.freeze),
         root=root,
         exploratory=bool(args.exploratory),
+        module="arm_rc_ctrl.experiments.manual_search_results",
+        argv=argv,
     )
     results = derive_search_results(
         context,

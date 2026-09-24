@@ -572,8 +572,15 @@ class ComparisonContext:
         *,
         root: Path,
         exploratory: bool = False,
+        module: str = _MODULE,
+        argv: Sequence[str] = ("compare",),
     ) -> None:
-        """Verify the freeze against the search, then bind a runner to its configurations."""
+        """Verify the freeze against the search, then bind a runner to its configurations.
+
+        ``module`` and ``argv`` name the command actually invoked, which the
+        runner's provenance and every record derived through it cite: a
+        derivation or an audit is not the comparison run.
+        """
         self.protocol = protocol
         self.protocol_file = protocol_file
         self.freeze_file = freeze_file
@@ -587,10 +594,10 @@ class ComparisonContext:
             study=str(protocol.study),
             evaluation=str(protocol.comparison.evaluation),
             exploratory=exploratory,
-            argv=["compare"],
+            argv=list(argv),
         )
         prepared = prepare_runner(
-            args, role="main", root=root, module=_MODULE, sampled=tuple(self.configurations.values())
+            args, role="main", root=root, module=module, sampled=tuple(self.configurations.values())
         )
         self.manifest = prepared.context.manifest
         self.runner = prepared.runner
@@ -949,11 +956,17 @@ def _unavailable(
 
 
 def run_comparison(
-    protocol: ManualSearchProtocol, protocol_file: Path, freeze_file: Path, *, root: Path, exploratory: bool = False
+    protocol: ManualSearchProtocol,
+    protocol_file: Path,
+    freeze_file: Path,
+    *,
+    root: Path,
+    exploratory: bool = False,
+    argv: Sequence[str] = ("compare",),
 ) -> SharedLedger:
     """Run or resume the comparison, unit by unit in order, until it is complete or the ceiling stops it."""
     started_at, started = datetime.now(tz=UTC), time.perf_counter()
-    context = ComparisonContext(protocol, protocol_file, freeze_file, root=root, exploratory=exploratory)
+    context = ComparisonContext(protocol, protocol_file, freeze_file, root=root, exploratory=exploratory, argv=argv)
     before = shared_ledger(context.store, context.freeze, context.units).seconds
     touched: list[int] = []
     completed = False
@@ -1216,9 +1229,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         write_record(cast("Path", args.output), result)
         return 0
     if args.subcommand == "run":
-        run_comparison(protocol, protocol_file, freeze_file, root=repository_root(), exploratory=exploratory)
+        run_comparison(protocol, protocol_file, freeze_file, root=repository_root(), exploratory=exploratory, argv=argv)
         return 0
-    context = ComparisonContext(protocol, protocol_file, freeze_file, root=repository_root(), exploratory=exploratory)
+    context = ComparisonContext(
+        protocol, protocol_file, freeze_file, root=repository_root(), exploratory=exploratory, argv=argv
+    )
     if args.subcommand == "status":
         status = comparison_status(context)
         _write_new(cast("Path", args.output), json.dumps(to_mapping(status), sort_keys=True, indent=2) + "\n")
