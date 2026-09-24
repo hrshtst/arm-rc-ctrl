@@ -369,3 +369,61 @@ overstates its storage on the safe side. Configurations 2 and 3 (0.25 s and
 0.5 s warm-up) built their own banks. The [status](comparison/status_v1.md)
 records each configuration. `publish` served and verified every unit once
 more and wrote the 123 Git pointers under `comparison/evidence/`.
+
+## M3MS-007 — derived evidence and its audit
+
+The derivation is the closed experiment's own, run over another scope. The
+closed experiment's `manual_results` read its models from the frozen manifest
+and its banks from the frozen run ordering. It now takes an explicit scope
+instead: the model entries plus the replay-bank keys (`load_scoped_evidence`,
+`derive_rows`). The closed experiment passes exactly what it passed before,
+and its regression locks confirm its evidence is unchanged.
+`manual_audit`'s manifest check and row rebuild are shared the same way
+(`verify_manifests`, `rebuild_rows`).
+
+`arm_rc_ctrl.experiments.manual_search_results` builds the scope from the
+verified freeze: the 93 models at the three frozen configurations and the 30
+banks their conditions key. It derives the per-run table and the contrasts
+into the store, and the arm and contrast summaries with the contrasts' own
+functions. Its accounting records:
+
+- **Completeness** against the plan, including every comparison unit's
+  recorded counts beside the rows derived from its evidence.
+- **Reuse**:
+  - banks the closed experiment's pointers name under identical conditions;
+  - fits served from the search's cache;
+  - nominal search runs reused, which is none: the search keyed its runs by
+    its nominal-only scope.
+
+The owner decided (2026-09-24) that this task derives no example cases,
+leaving any illustration to the reporting assistant, labelled post-hoc, and
+that the audit re-simulates no run. `manual_search_audit` runs the seven
+steps:
+
+- `sources`, `selection` and `units`: the freeze rebuilt from the trial
+  records, every unit's records, and the status re-rendered;
+- `manifests`;
+- `payloads_and_metrics`: every stored run judged again from its own arrays,
+  and its row rebuilt whole;
+- `aggregates` and `completeness`.
+
+Each step retains every failure, and a step that cannot read its evidence is
+recorded as unavailable rather than ending the audit.
+
+**Withheld from the search, not unseen.** The optimizer saw only the nominal
+case. The 64 perturbed cases were withheld from its objective, pruning and
+selection, and evaluated only after the freeze. They are the same 64 cases the
+closed experiment evaluated, and their results there were already known to
+the research process when this search was planned. The comparison therefore
+shows how configurations chosen on nominal success alone behave on
+perturbations the optimizer never scored. It does not validate on newly drawn
+cases, which the owner excluded from this scope.
+
+Tests: `tests/unit/test_manual_search_results.py` builds a small comparison
+over the fixture study. It uses a real search trial, a freeze of it, one bank
+and the four arms paired against it, each evaluated by the real worker and
+verified by the real parent. The derivation must account for it completely,
+including the fit reuse and the absence of nominal reuse, and must find a bank
+the closed experiment's pointers name. The audit must pass untouched, and must
+fail in the owning step on an edited summary, unit outcome, status, run array,
+model manifest or freeze binding.

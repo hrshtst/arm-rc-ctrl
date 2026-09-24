@@ -370,6 +370,28 @@ uv run python -m arm_rc_ctrl.execution run --policy p-cores -- \
   --freeze docs/experiments/task_1a_manual_esn_search/freeze/selection_v1.json
 ```
 
+Its evidence is derived and audited (M3MS-007), pinned, from a clean checkout,
+into new files only; both commands exit non-zero when the comparison is
+incomplete or a step fails:
+
+```sh
+uv run python -m arm_rc_ctrl.execution run --policy p-cores -- \
+  uv run python -m arm_rc_ctrl.experiments.manual_search_results derive \
+  --protocol configs/studies/manual_esn_search_v1.toml \
+  --freeze docs/experiments/task_1a_manual_esn_search/freeze/selection_v1.json \
+  --evidence-dir docs/experiments/task_1a_manual_esn_search/comparison/evidence \
+  --status docs/experiments/task_1a_manual_esn_search/comparison/status_v1.json \
+  --output docs/experiments/task_1a_manual_esn_search/results
+uv run python -m arm_rc_ctrl.execution run --policy p-cores -- \
+  uv run python -m arm_rc_ctrl.experiments.manual_search_audit \
+  --protocol configs/studies/manual_esn_search_v1.toml \
+  --freeze docs/experiments/task_1a_manual_esn_search/freeze/selection_v1.json \
+  --results docs/experiments/task_1a_manual_esn_search/results \
+  --evidence-dir docs/experiments/task_1a_manual_esn_search/comparison/evidence \
+  --status docs/experiments/task_1a_manual_esn_search/comparison/status_v1.json \
+  --output docs/experiments/task_1a_manual_esn_search/audit/audit_v1.json --workers 8
+```
+
 ## Requirements
 
 - Linux (x86_64 tested), Git.

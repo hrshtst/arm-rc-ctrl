@@ -118,7 +118,8 @@ if TYPE_CHECKING:
     from numpy.typing import NDArray
 
     from arm_rc_ctrl.experiments.manual_evaluation import ManualEvaluationRunner, ManualPairRecord
-    from arm_rc_ctrl.experiments.manual_study import StudyManifest
+    from arm_rc_ctrl.experiments.manual_handoff import ReplayBankKey
+    from arm_rc_ctrl.experiments.manual_study import StudyManifest, StudyModel
     from arm_rc_ctrl.experiments.perturbations import RobustnessScenario
     from arm_rc_ctrl.experiments.run_record import RunSummary
 
@@ -136,7 +137,9 @@ __all__ = [
     "audit_to_json",
     "load_audit",
     "main",
+    "rebuild_rows",
     "render_audit_markdown",
+    "verify_manifests",
 ]
 
 AUDIT_VERSION: Final = 4
@@ -526,28 +529,44 @@ def _raw_failures(inputs: _Inputs, assignment: str, source: str) -> list[str]:
 def check_manifests(inputs: _Inputs) -> AuditStep:
     """Every model and replay-bank manifest, checked against the study's trusted inputs as a resume checks it."""
     started = time.perf_counter()
+    checked, failures = verify_manifests(inputs.store, inputs.runner, inputs.evidence_dir, *_scope(inputs))
+    return _step("manifests", "every model and replay bank the study names", checked, failures, started)
+
+
+def _scope(inputs: _Inputs) -> tuple[tuple[StudyModel, ...], tuple[ReplayBankKey, ...]]:
+    """The frozen study's models and the run ordering's replay banks: what this audit's rows belong to."""
+    return tuple(inputs.manifest.entries), tuple(inputs.ordering.replay_banks)
+
+
+def verify_manifests(
+    store: StorageRoot,
+    runner: ManualEvaluationRunner,
+    evidence_dir: Path,
+    entries: Sequence[StudyModel],
+    keys: Sequence[ReplayBankKey],
+) -> tuple[int, list[str]]:
+    """Every model and bank manifest a pointer names, checked as a resume checks it; failures are kept."""
     failures: list[str] = []
     checked = 0
-    runner = inputs.runner
-    for entry in inputs.manifest.entries:
-        path = inputs.evidence_dir / manual_pointer_name("model", entry.label)
+    for entry in entries:
+        path = evidence_dir / manual_pointer_name("model", entry.label)
         if not path.exists():
             continue
         checked += 1
         try:
             pointer = load_manual_pointer(path)
-            evidence = load_manual_model_evidence(verify_artifact(inputs.store, pointer.payload))
+            evidence = load_manual_model_evidence(verify_artifact(store, pointer.payload))
             runner.verify_stored_model(entry, evidence, where=path.name)
         except EVIDENCE_ERRORS as error:
             failures.append(f"{entry.label}: {type(error).__name__}: {str(error)[:200]}")
-    banks = {(key.configuration, key.assignment): key for key in inputs.ordering.replay_banks}
+    banks = {(key.configuration, key.assignment): key for key in keys}
     for (configuration, parent), key in banks.items():
         try:
-            path = _bank_pointer(inputs, configuration, parent)
+            path = _bank_pointer(runner, evidence_dir, keys, configuration, parent)
             if path is None:
                 continue
             checked += 1
-            bank = load_manual_replay_bank(verify_artifact(inputs.store, load_manual_pointer(path).payload))
+            bank = load_manual_replay_bank(verify_artifact(store, load_manual_pointer(path).payload))
             runner.verify_stored_bank(
                 bank,
                 assignment=parent,
@@ -558,20 +577,24 @@ def check_manifests(inputs: _Inputs) -> AuditStep:
         except EVIDENCE_ERRORS as error:
             # A pointer that cannot even be read is a failure of this step, not the end of the audit.
             failures.append(f"{configuration}/{parent}: {type(error).__name__}: {str(error)[:200]}")
-    return _step("manifests", "every model and replay bank the study names", checked, failures, started)
+    return checked, failures
 
 
-def _bank_pointer(inputs: _Inputs, configuration: str, parent: str) -> Path | None:
-    """The pointer of the bank the run ordering keys at (configuration, parent), by its trusted identity."""
-    key = next(
-        (k for k in inputs.ordering.replay_banks if (k.configuration, k.assignment) == (configuration, parent)), None
-    )
+def _bank_pointer(
+    runner: ManualEvaluationRunner,
+    evidence_dir: Path,
+    keys: Sequence[ReplayBankKey],
+    configuration: str,
+    parent: str,
+) -> Path | None:
+    """The pointer of the bank ``keys`` place at (configuration, parent), by its trusted identity."""
+    key = next((k for k in keys if (k.configuration, k.assignment) == (configuration, parent)), None)
     if key is None:
         msg = f"the run ordering names no replay bank for {configuration}/{parent}"
         raise ValueError(msg)
-    conditions = inputs.runner.conditions(key.warmup_s, (key.velocity_cutoff_hz, key.acceleration_cutoff_hz))
+    conditions = runner.conditions(key.warmup_s, (key.velocity_cutoff_hz, key.acceleration_cutoff_hz))
     wanted = sha256_bytes(f"{conditions.identity}:{parent}".encode("ascii"))
-    for path in sorted(inputs.evidence_dir.glob("replay__*.toml")):
+    for path in sorted(evidence_dir.glob("replay__*.toml")):
         if load_manual_pointer(path).identity == wanted:
             return path
     return None
@@ -636,7 +659,7 @@ def _outcome_differences(
 
 
 def _recomputed_outcome(
-    inputs: _Inputs,
+    runner: ManualEvaluationRunner,
     protocol: _RunProtocol,
     case: RobustnessScenario,
     loaded: tuple[RunSummary, dict[str, NDArray[Any]]],
@@ -658,9 +681,9 @@ def _recomputed_outcome(
     outcome = manual_run_outcome(
         RunArrays(dict(arrays)),
         summary.termination,
-        scenario=inputs.runner.scenario,
+        scenario=runner.scenario,
         activation_s=protocol.warmup_s,
-        horizon_s=inputs.runner.config.horizon_s,
+        horizon_s=runner.config.horizon_s,
         pulse=pulse,
         force_case=case.pulse is not None,
     )
@@ -669,7 +692,7 @@ def _recomputed_outcome(
 
 def _recomputed_pair(
     store: StorageRoot,
-    inputs: _Inputs,
+    runner: ManualEvaluationRunner,
     protocol: _RunProtocol,
     case: RobustnessScenario,
     pair: ManualPairRecord,
@@ -677,7 +700,7 @@ def _recomputed_pair(
 ) -> tuple[ManualPairRecord, tuple[RunSummary, dict[str, NDArray[Any]]], list[str]]:
     """One simulated pair as its own arrays judge it, and every measurement its manifest got wrong."""
     loaded = load_verified_run(store, pair)
-    outcome, pulse = _recomputed_outcome(inputs, protocol, case, loaded)
+    outcome, pulse = _recomputed_outcome(runner, protocol, case, loaded)
     failures = [] if pair.outcome is None else _outcome_differences(key, pair.outcome, outcome)
     started = None if pulse is None else pulse.start_s
     if pair.pulse_start_s != started:
@@ -694,7 +717,7 @@ def _rebuild_row(
     grid: dict[str, tuple[int, RobustnessScenario]],
     radius_m: float,
     row: ManualRunRow,
-    inputs: _Inputs,
+    runner: ManualEvaluationRunner,
 ) -> list[str]:
     """Rebuild one committed row from the study's trusted inputs and its own payload, and compare it whole.
 
@@ -726,7 +749,7 @@ def _rebuild_row(
     loaded: tuple[RunSummary, dict[str, NDArray[Any]]] | None = None
     if pair.status in _SIMULATED:
         try:
-            judged, loaded, failures = _recomputed_pair(store, inputs, protocol, case, pair, key)
+            judged, loaded, failures = _recomputed_pair(store, runner, protocol, case, pair, key)
         except EVIDENCE_ERRORS as error:
             return [f"{key}: {type(error).__name__}: {str(error)[:200]}"]
     try:
@@ -742,13 +765,17 @@ def _rebuild_row(
     return failures
 
 
-def _protocols(inputs: _Inputs) -> tuple[dict[str, _RunProtocol], list[str]]:
-    """What every run of each model and bank was produced under, taken from the frozen study, not the table."""
+def _protocols(
+    runner: ManualEvaluationRunner,
+    evidence_dir: Path,
+    entries: Sequence[StudyModel],
+    keys: Sequence[ReplayBankKey],
+) -> tuple[dict[str, _RunProtocol], list[str]]:
+    """What every run of each model and bank was produced under, taken from the trusted scope, not the table."""
     protocols: dict[str, _RunProtocol] = {}
     failures: list[str] = []
-    runner = inputs.runner
-    for entry in inputs.manifest.entries:
-        present = (inputs.evidence_dir / manual_pointer_name("model", entry.label)).exists()
+    for entry in entries:
+        present = (evidence_dir / manual_pointer_name("model", entry.label)).exists()
         try:
             warmup_s = runner.inputs.configuration(entry).warmup_s
             identity = runner.model_identity(entry, warmup_s=warmup_s) if present else None
@@ -766,7 +793,7 @@ def _protocols(inputs: _Inputs) -> tuple[dict[str, _RunProtocol], list[str]]:
             fit_identity=entry.fit_identity if present else None,
         )
         protocols[entry.label] = _RunProtocol(origin=origin, warmup_s=warmup_s)
-    for key in inputs.ordering.replay_banks:
+    for key in keys:
         label = f"{key.configuration}/replay/{key.assignment}"
         try:
             conditions = runner.conditions(key.warmup_s, (key.velocity_cutoff_hz, key.acceleration_cutoff_hz))
@@ -790,23 +817,16 @@ def _protocols(inputs: _Inputs) -> tuple[dict[str, _RunProtocol], list[str]]:
 def check_payloads_and_metrics(inputs: _Inputs) -> AuditStep:
     """Every run's payload, its outcome judged again from its arrays, and every column of its row."""
     started = time.perf_counter()
-    protocols, failures = _protocols(inputs)
-    pairs, pair_failures = _pairs_by_run(inputs)
-    failures += pair_failures
     radius = inputs.runner.conditions(0.0, (1.0, 1.0)).dwell_tolerance_m
+    failures: list[str] = []
     if inputs.results.departure_radius_m != radius:
         failures.append(
             f"the results index records a departure radius of {inputs.results.departure_radius_m}, not the "
             f"evaluation configuration's dwell radius {radius}"
         )
-    grid = {case.scenario_id: (index, case) for index, case in enumerate(inputs.runner.scenarios)}
-    work = partial(_rebuild_row, inputs.store, protocols, pairs, grid, radius, inputs=inputs)
-    if inputs.workers == 1:
-        rebuilt = [work(row) for row in inputs.rows]
-    else:
-        with ThreadPoolExecutor(max_workers=inputs.workers) as pool:
-            rebuilt = list(pool.map(work, inputs.rows))
-    failures += [failure for group in rebuilt for failure in group]
+    failures += rebuild_rows(
+        inputs.store, inputs.runner, inputs.evidence_dir, *_scope(inputs), inputs.rows, workers=inputs.workers
+    )
     return _step(
         "payloads_and_metrics",
         "every stored run verified, judged again from its own arrays, and its row rebuilt from that judgement",
@@ -816,8 +836,42 @@ def check_payloads_and_metrics(inputs: _Inputs) -> AuditStep:
     )
 
 
+def rebuild_rows(
+    store: StorageRoot,
+    runner: ManualEvaluationRunner,
+    evidence_dir: Path,
+    entries: Sequence[StudyModel],
+    keys: Sequence[ReplayBankKey],
+    rows: Sequence[ManualRunRow],
+    *,
+    workers: int = 1,
+) -> list[str]:
+    """Rebuild every row from its trusted scope and its own verified payload, judged again; return every difference.
+
+    The origin comes from ``entries`` and ``keys``, the verdict and references
+    from the verified manifest's own pair record, and the measurements from the
+    run's verified arrays, judged again with the evaluation's own judgement.
+    """
+    protocols, failures = _protocols(runner, evidence_dir, entries, keys)
+    pairs, pair_failures = _pairs_by_run(store, runner, evidence_dir, entries, keys)
+    failures += pair_failures
+    radius = runner.conditions(0.0, (1.0, 1.0)).dwell_tolerance_m
+    grid = {case.scenario_id: (index, case) for index, case in enumerate(runner.scenarios)}
+    work = partial(_rebuild_row, store, protocols, pairs, grid, radius, runner=runner)
+    if workers == 1:
+        rebuilt = [work(row) for row in rows]
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            rebuilt = list(pool.map(work, rows))
+    return failures + [failure for group in rebuilt for failure in group]
+
+
 def _pairs_by_run(
-    inputs: _Inputs,
+    store: StorageRoot,
+    runner: ManualEvaluationRunner,
+    evidence_dir: Path,
+    entries: Sequence[StudyModel],
+    keys: Sequence[ReplayBankKey],
 ) -> tuple[dict[tuple[str, str, str], ManualPairRecord], list[str]]:
     """Every recorded pair by (model label, scenario, tracker), read from the verified manifests.
 
@@ -827,24 +881,24 @@ def _pairs_by_run(
     """
     pairs: dict[tuple[str, str, str], ManualPairRecord] = {}
     failures: list[str] = []
-    for entry in inputs.manifest.entries:
-        path = inputs.evidence_dir / manual_pointer_name("model", entry.label)
+    for entry in entries:
+        path = evidence_dir / manual_pointer_name("model", entry.label)
         if not path.exists():
             continue
         try:
-            evidence = load_manual_model_evidence(verify_artifact(inputs.store, load_manual_pointer(path).payload))
+            evidence = load_manual_model_evidence(verify_artifact(store, load_manual_pointer(path).payload))
         except EVIDENCE_ERRORS as error:
             failures.append(f"{entry.label}: its manifest cannot be read: {type(error).__name__}: {str(error)[:160]}")
             continue
         for pair in evidence.pairs:
             pairs[entry.label, pair.scenario_id, pair.tracker] = pair
-    for key in inputs.ordering.replay_banks:
+    for key in keys:
         label = f"{key.configuration}/replay/{key.assignment}"
         try:
-            path = _bank_pointer(inputs, key.configuration, key.assignment)
+            path = _bank_pointer(runner, evidence_dir, keys, key.configuration, key.assignment)
             if path is None:
                 continue
-            bank = load_manual_replay_bank(verify_artifact(inputs.store, load_manual_pointer(path).payload))
+            bank = load_manual_replay_bank(verify_artifact(store, load_manual_pointer(path).payload))
         except EVIDENCE_ERRORS as error:
             failures.append(f"{label}: its manifest cannot be read: {type(error).__name__}: {str(error)[:160]}")
             continue
@@ -1052,7 +1106,7 @@ def check_resimulation(
             "resimulation", "the frozen subset re-simulated", 0, [f"{type(error).__name__}: {error}"], started
         ), ()
     rebuilt = StorageRoot(store_root)
-    committed, pair_failures = _pairs_by_run(inputs)
+    committed, pair_failures = _pairs_by_run(inputs.store, inputs.runner, inputs.evidence_dir, *_scope(inputs))
     failures += pair_failures
     rebuilt_pairs = _index_rebuilt(inputs, rebuilt)
     for label, scenario_id, tracker in subset.run_identities():

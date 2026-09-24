@@ -34,7 +34,7 @@ pilot, the completed search with its freeze, and the five-arm comparison. Their 
 
 | ID | Status | Task | Depends on | Acceptance/evidence |
 | --- | --- | --- | --- | --- |
-| M3MS-007 | `TODO` | Derive and audit machine-readable comparison evidence | M3MS-006 | Verify sources, selection, payloads, completeness and derived metrics/contrasts; retain failure records and reproducible figure inputs. Account actual replay/nominal reuse and explain withheld-from-search versus historically known perturbations. |
+| M3MS-007 | `IN PROGRESS` | Derive and audit machine-readable comparison evidence | M3MS-006 | Verify sources, selection, payloads, completeness and derived metrics/contrasts; retain failure records and reproducible figure inputs. Account actual replay/nominal reuse and explain withheld-from-search versus historically known perturbations. |
 | M3MS-008 | `TODO` | Interpret and report the tuned comparison — reporting assistant | M3MS-007 | Human-readable paired S/M10/R10/C10/replay findings, failure examples, limitations and reproducible plots. Explain conditioning on M10-selected parameters; no claim of separate singleton tuning or fresh-scenario/multiple-seed validation. Call the frozen configurations the highest nominal scores, never "the three best", and keep nominal feasibility separate from robustness and trajectory quality. |
 | M3MS-GATE | `TODO` | Review and close the follow-up — owner | M3MS-008 | Owner accepts positive/negative/inconclusive findings and records any next decision. No further study, deployment or hardware action is implied. |
 

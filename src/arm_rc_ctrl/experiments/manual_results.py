@@ -99,7 +99,8 @@ if TYPE_CHECKING:
         ManualPairRecord,
         ManualReplayBank,
     )
-    from arm_rc_ctrl.experiments.manual_study import StudyManifest
+    from arm_rc_ctrl.experiments.manual_handoff import ReplayBankKey
+    from arm_rc_ctrl.experiments.manual_study import StudyManifest, StudyModel
     from arm_rc_ctrl.experiments.run_record import RunSummary
 
 __all__ = [
@@ -109,6 +110,7 @@ __all__ = [
     "RESULTS_VERSION",
     "RESULT_DOCUMENTS",
     "RUN_STATUSES",
+    "LoadedEvidence",
     "ManualResultDocument",
     "ManualResultInputs",
     "ManualResultTable",
@@ -118,14 +120,18 @@ __all__ = [
     "ManualSelection",
     "ManualSelections",
     "RunOrigin",
+    "bank_key_mismatches",
+    "derive_rows",
     "evidence_digest",
     "load_results",
+    "load_scoped_evidence",
     "main",
     "render_results_markdown",
     "results_to_json",
     "run_metrics",
     "run_row",
     "selections_of",
+    "store_table",
     "table_columns",
     "table_from_csv",
     "table_to_csv",
@@ -830,8 +836,8 @@ def render_results_markdown(results: ManualResults) -> str:
 
 
 @dataclass(frozen=True)
-class _Loaded:
-    """The study's evidence, read through its pointers and verified by digest."""
+class LoadedEvidence:
+    """A comparison's evidence, read through its pointers and verified by digest."""
 
     models: dict[str, ManualModelEvidence]
     banks: dict[str, ManualReplayBank]
@@ -840,11 +846,11 @@ class _Loaded:
 
 
 def _load_models(
-    evidence_dir: Path, store: StorageRoot, manifest: StudyManifest, runner: ManualEvaluationRunner
+    evidence_dir: Path, store: StorageRoot, entries: Sequence[StudyModel], runner: ManualEvaluationRunner
 ) -> dict[str, ManualModelEvidence]:
-    """Every study model a pointer names, verified by digest and then checked the way a resume checks it."""
+    """Every model of ``entries`` a pointer names, verified by digest and then checked the way a resume checks it."""
     models: dict[str, ManualModelEvidence] = {}
-    for entry in manifest.entries:
+    for entry in entries:
         path = evidence_dir / manual_pointer_name("model", entry.label)
         if not path.exists():
             continue
@@ -858,30 +864,40 @@ def _load_models(
     return models
 
 
-def _key_banks(
-    banks: Mapping[str, tuple[str, ManualReplayBank]],
-    ordering: RunOrdering,
-    manifest: StudyManifest,
-    runner: ManualEvaluationRunner,
-) -> dict[tuple[str, str], str]:
-    """Map each (configuration, parent) the run ordering keys to the bank its trusted conditions identify.
-
-    The expected identity is derived from the evaluation configuration and the
-    study's configuration, never from a stored bank, and a bank found under it
-    is checked the way a resume checks it. A pointer naming a bank that no
-    configuration's protocol produces is refused rather than left unused.
-    """
-    bank_of: dict[tuple[str, str], str] = {}
-    for key in ordering.replay_banks:
+def bank_key_mismatches(keys: Sequence[ReplayBankKey], manifest: StudyManifest) -> list[str]:
+    """Why the frozen run ordering's bank keys are not the study's own protocol, if they are not."""
+    found: list[str] = []
+    for key in keys:
         configuration = manifest.configuration(key.configuration)
-        cutoffs = (key.velocity_cutoff_hz, key.acceleration_cutoff_hz)
-        if (key.warmup_s, *cutoffs) != (
+        if (key.warmup_s, key.velocity_cutoff_hz, key.acceleration_cutoff_hz) != (
             configuration.warmup_s,
             configuration.velocity_cutoff_hz,
             configuration.acceleration_cutoff_hz,
         ):
-            msg = f"the run ordering keys {key.configuration}/{key.assignment} under another protocol than the study's"
-            raise ValueError(msg)
+            found.append(
+                f"the run ordering keys {key.configuration}/{key.assignment} under another protocol than the study's"
+            )
+    return found
+
+
+def _key_banks(
+    banks: Mapping[str, tuple[str, ManualReplayBank]],
+    keys: Sequence[ReplayBankKey],
+    runner: ManualEvaluationRunner,
+) -> dict[tuple[str, str], str]:
+    """Map each (configuration, parent) of ``keys`` to the bank its trusted conditions identify.
+
+    The expected identity is derived from the evaluation configuration and the
+    key's protocol, never from a stored bank, and a bank found under it is
+    checked the way a resume checks it. A pointer naming a bank that no key's
+    protocol produces is refused rather than left unused. The keys themselves
+    are the caller's to trust: the frozen study checks them against its own
+    configurations (`bank_key_mismatches`), the search against its verified
+    freeze.
+    """
+    bank_of: dict[tuple[str, str], str] = {}
+    for key in keys:
+        cutoffs = (key.velocity_cutoff_hz, key.acceleration_cutoff_hz)
         identity = bank_identity(runner.conditions(key.warmup_s, cutoffs), key.assignment)
         found = banks.get(identity)
         if found is None:
@@ -904,15 +920,15 @@ def _key_banks(
     return bank_of
 
 
-def _load_evidence(
+def load_scoped_evidence(
     evidence_dir: Path,
     store: StorageRoot,
-    manifest: StudyManifest,
-    ordering: RunOrdering,
+    entries: Sequence[StudyModel],
+    keys: Sequence[ReplayBankKey],
     runner: ManualEvaluationRunner,
-) -> _Loaded:
-    """Every model and bank the pointers name, each checked against the study's trusted inputs and keyed."""
-    models = _load_models(evidence_dir, store, manifest, runner)
+) -> LoadedEvidence:
+    """Every model and bank the pointers name, each checked against trusted inputs and keyed by ``keys``."""
+    models = _load_models(evidence_dir, store, entries, runner)
     banks: dict[str, tuple[str, ManualReplayBank]] = {}
     for path in sorted(evidence_dir.glob("replay__*.toml")):
         bank = load_manual_replay_bank(verify_artifact(store, load_manual_pointer(path).payload))
@@ -920,17 +936,22 @@ def _load_evidence(
             msg = f"{path.name} and {banks[bank.identity][0]} point at the same replay bank"
             raise ValueError(msg)
         banks[bank.identity] = (path.name, bank)
-    bank_of = _key_banks(banks, ordering, manifest, runner)
-    return _Loaded(models=models, banks={identity: bank for identity, (_, bank) in banks.items()}, bank_of=bank_of)
+    bank_of = _key_banks(banks, keys, runner)
+    return LoadedEvidence(
+        models=models, banks={identity: bank for identity, (_, bank) in banks.items()}, bank_of=bank_of
+    )
 
 
 def _jobs(
-    loaded: _Loaded, manifest: StudyManifest, scenarios: Sequence[tuple[str, str]], trackers: Sequence[str]
+    loaded: LoadedEvidence,
+    entries: Sequence[StudyModel],
+    scenarios: Sequence[tuple[str, str]],
+    trackers: Sequence[str],
 ) -> tuple[list[_Job], list[ManualRunRow]]:
     """One job per model and bank with evidence; unavailable rows for every model without it."""
     jobs: list[_Job] = []
     missing: list[ManualRunRow] = []
-    for entry in manifest.entries:
+    for entry in entries:
         parent = entry.arm.assignment
         evidence = loaded.models.get(entry.label)
         origin = RunOrigin(
@@ -967,6 +988,30 @@ def _jobs(
     return jobs, missing
 
 
+def derive_rows(
+    store: StorageRoot,
+    loaded: LoadedEvidence,
+    entries: Sequence[StudyModel],
+    scenarios: Sequence[tuple[str, str]],
+    trackers: Sequence[str],
+    *,
+    workers: int = 1,
+) -> tuple[tuple[ManualRunRow, ...], float]:
+    """Every run of ``entries`` and the keyed banks as a measured row, and the one dwell radius they share."""
+    jobs, missing = _jobs(loaded, entries, scenarios, trackers)
+    radii = {job.radius_m for job in jobs}
+    if len(radii) > 1:
+        msg = f"the evidence was judged under several dwell radii {sorted(radii)}"
+        raise ValueError(msg)
+    if workers == 1:
+        measured = [_rows_of(store, job) for job in jobs]
+    else:
+        with ThreadPoolExecutor(max_workers=workers) as pool:
+            measured = list(pool.map(partial(_rows_of, store), jobs))
+    rows = (*[row for rows in measured for row in rows], *missing)
+    return rows, radii.pop() if radii else DEPARTURE_RADIUS_M
+
+
 def verdicts_of(rows: Sequence[ManualRunRow]) -> list[ScenarioVerdict]:
     """One verdict per row for the comparisons: a run that was not simulated has none, never a failure."""
     return [
@@ -983,13 +1028,20 @@ def verdicts_of(rows: Sequence[ManualRunRow]) -> list[ScenarioVerdict]:
     ]
 
 
-def _store_table(
-    store: StorageRoot, name: str, record: str, text: str, n_rows: int, columns: Sequence[str]
+def store_table(
+    store: StorageRoot,
+    name: str,
+    record: str,
+    text: str,
+    n_rows: int,
+    columns: Sequence[str],
+    *,
+    prefix: str = RESULTS_PREFIX,
 ) -> ManualResultTable:
     """Write one table to the store under a content-addressed name, or verify the identical one already there."""
     data = text.encode("utf-8")
     digest = sha256_bytes(data)
-    uri = ArtifactUri.parse(f"{RESULTS_PREFIX}/{name}-{digest[:12]}.csv")
+    uri = ArtifactUri.parse(f"{prefix}/{name}-{digest[:12]}.csv")
     target = store.path(uri, mode="write")
     if target.exists():
         if sha256_file(target) != digest:
@@ -1023,7 +1075,7 @@ def _derive(
     *,
     store: StorageRoot,
     manifest: StudyManifest,
-    loaded: _Loaded,
+    loaded: LoadedEvidence,
     scenarios: Sequence[tuple[str, str]],
     trackers: Sequence[str],
     rule: RepresentativeRule,
@@ -1034,18 +1086,7 @@ def _derive(
     workers: int,
 ) -> _Derived:
     """Read and measure every run, then compute the comparisons, summaries, selections and figure inputs."""
-    jobs, missing = _jobs(loaded, manifest, scenarios, trackers)
-    radii = {job.radius_m for job in jobs}
-    if len(radii) > 1:
-        msg = f"the evidence was judged under several dwell radii {sorted(radii)}"
-        raise ValueError(msg)
-
-    if workers == 1:
-        measured = [_rows_of(store, job) for job in jobs]
-    else:
-        with ThreadPoolExecutor(max_workers=workers) as pool:
-            measured = list(pool.map(partial(_rows_of, store), jobs))
-    rows = (*[row for rows in measured for row in rows], *missing)
+    rows, radius_m = derive_rows(store, loaded, manifest.entries, scenarios, trackers, workers=workers)
     verdicts = verdicts_of(rows)
     contrasts = contrast_rows(verdicts, scenarios=scenarios)
     selections = selections_of(
@@ -1062,7 +1103,7 @@ def _derive(
         arm_summaries=arm_summaries(verdicts, scenarios=scenarios),
         selections=selections,
         figures=figure_inputs(selections, rows, manifest=manifest, rule=rule, scenario_file=scenario_file, root=root),
-        radius_m=radii.pop() if radii else DEPARTURE_RADIUS_M,
+        radius_m=radius_m,
     )
 
 
@@ -1158,7 +1199,10 @@ def _derive_command(args: argparse.Namespace) -> int:
         raise ValueError(msg)
     evidence_sha256, n_pointers = evidence_digest(evidence_dir)
     store = runner.store
-    loaded = _load_evidence(evidence_dir, store, manifest, ordering, runner)
+    mismatched = bank_key_mismatches(ordering.replay_banks, manifest)
+    if mismatched:
+        raise ValueError("; ".join(mismatched))
+    loaded = load_scoped_evidence(evidence_dir, store, manifest.entries, ordering.replay_banks, runner)
     inputs = ManualResultInputs(
         study_manifest_sha256=prepared.context.manifest_sha256,
         evaluation_sha256=sha256_file(evaluation_file),
@@ -1184,7 +1228,7 @@ def _derive_command(args: argparse.Namespace) -> int:
         workers=workers,
     )
     tables = (
-        _store_table(
+        store_table(
             store,
             f"runs_v{RESULTS_VERSION}",
             "ManualRunRow",
@@ -1192,7 +1236,7 @@ def _derive_command(args: argparse.Namespace) -> int:
             len(derived.rows),
             table_columns(ManualRunRow),
         ),
-        _store_table(
+        store_table(
             store,
             f"contrasts_v{RESULTS_VERSION}",
             "ManualContrastRow",
