@@ -14,6 +14,7 @@ disagrees with what the store holds.
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import shutil
 import subprocess
@@ -33,6 +34,7 @@ from arm_rc_ctrl.experiments.manual_comparison_run import (
     UnitOutcome,
     UnitReservation,
     UnitResult,
+    check_finalized,
     comparison_scope_mismatches,
     comparison_status,
     comparison_units,
@@ -336,6 +338,11 @@ class _Context(ComparisonContext):
         """The synthetic manifest every fake worker reports as installed."""
         del unit, reservation
         return EVIDENCE
+
+    def installed_counts(self, unit: ComparisonUnit, reservation: UnitReservation) -> tuple[int, int, int, int] | None:
+        """What the synthetic manifest holds: every pair completed."""
+        del unit, reservation
+        return (PAIRS, PAIRS, 0, 0)
 
 
 def _result(number: int, *, identity: str, failure: str | None = None) -> UnitResult:
@@ -857,3 +864,59 @@ def test_only_a_refused_fit_is_a_failed_model(
         patched.setattr(manual_evaluation.ManualEvaluationRunner, "evaluate", refused)
         with pytest.raises(ValueError, match="singular"):
             _evaluate(fixture_search, manual_fixture, fixture_freeze, 20)  # M10: no paired bank
+
+
+# --- the owner's second review of M3MS-006 -------------------------------------------------------
+
+
+def test_a_corrupt_cached_fit_is_not_a_failed_model(
+    fixture_search: ManualSearchProtocol,
+    manual_fixture: ManualFixture,
+    fixture_freeze: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A cached fit that no longer verifies is a fault in the store; only a fresh fit's refusal is a result."""
+    _fixture_environment(manual_fixture, monkeypatch)
+    _evaluate(fixture_search, manual_fixture, fixture_freeze, 20)  # M10, fitted and cached
+    context = _FixtureContext(fixture_search, manual_fixture, fixture_freeze)
+    reservation = context.reservation(context.units[20])
+    record = manual_fixture.store.root / cache_uri(reservation.fit_identity or "").relative_path / "fit.json"
+    original = record.read_bytes()
+    data = json.loads(original)
+    data["configuration"] = "another-configuration"
+    record.write_text(json.dumps(data), encoding="utf-8")
+    try:
+        with pytest.raises(EvidenceIntegrityError, match="does not verify"):
+            _evaluate(fixture_search, manual_fixture, fixture_freeze, 20)
+    finally:
+        record.write_bytes(original)
+
+
+def test_finalized_counts_must_be_the_installed_manifests(
+    fixture_search: ManualSearchProtocol,
+    manual_fixture: ManualFixture,
+    fixture_freeze: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Moving one pair between verdicts keeps the total, and is still refused: the breakdown is recounted."""
+    _fixture_environment(manual_fixture, monkeypatch)
+    context = _FixtureContext(fixture_search, manual_fixture, fixture_freeze)
+    unit = context.units[0]
+    result = _evaluate(fixture_search, manual_fixture, fixture_freeze, unit.number)
+    reservation = context.reservation(unit)
+    outcome = verified_unit(context, unit, reservation, result, seconds=1.0)
+    directory = unit_directory(manual_fixture.store, unit)
+    write_record(directory / "reservation.json", reservation)
+    try:
+        write_record(directory / "outcome.json", outcome)
+        check_finalized(context, unit)
+        moved = (
+            replace(outcome, completed=outcome.completed - 1, infeasible=outcome.infeasible + 1)
+            if outcome.completed
+            else replace(outcome, completed=1, infeasible=outcome.infeasible - 1)
+        )
+        write_record(directory / "outcome.json", moved)
+        with pytest.raises(ValueError, match="breakdown"):
+            check_finalized(context, unit)
+    finally:
+        shutil.rmtree(directory)

@@ -62,6 +62,8 @@ from arm_rc_ctrl.experiments.manual_evaluation import (
     bank_identity,
     evaluation_scenarios,
     load_manual_evaluation_config,
+    load_manual_model_evidence,
+    load_manual_replay_bank,
     model_uri,
     prepare_runner,
     read_progress_runs,
@@ -632,6 +634,15 @@ class ComparisonContext:
         stored = installed_manifest(self.store, uri)
         return None if stored is None else stored_reference(stored, self.store)
 
+    def installed_counts(self, unit: ComparisonUnit, reservation: UnitReservation) -> tuple[int, int, int, int] | None:
+        """Pairs, completed, infeasible and unexecuted, recounted from the manifest installed under the identity."""
+        uri = _evidence_uri(unit, self.conditions(unit.rank), reservation.identity)
+        stored = installed_manifest(self.store, uri)
+        if stored is None:
+            return None
+        loaded = load_manual_replay_bank(stored) if unit.kind == REPLAY else load_manual_model_evidence(stored)
+        return (len(loaded.pairs), *_counts(loaded.pairs))
+
     def bank_unit(self, unit: ComparisonUnit) -> ComparisonUnit | None:
         """The replay unit a model is paired against, or ``None`` for the all-ten arm."""
         if unit.kind == REPLAY:
@@ -885,6 +896,13 @@ def finalized_mismatches(context: ComparisonContext, unit: ComparisonUnit) -> li
         installed = context.installed_evidence(unit, derived)
         if installed is None or installed.uri != outcome.evidence:
             found.append("its outcome does not name the manifest installed under its identity")
+        recounted = context.installed_counts(unit, derived)
+        recorded_counts = (outcome.pairs, outcome.completed, outcome.infeasible, outcome.unexecuted)
+        if recounted is not None and recounted != recorded_counts:
+            found.append(
+                f"its outcome's breakdown {recorded_counts} is not the installed manifest's {recounted} "
+                "(pairs, completed, infeasible, unexecuted)"
+            )
     elif outcome.pairs:
         found.append(f"a {outcome.state} unit holds no pairs, got {outcome.pairs}")
     return found

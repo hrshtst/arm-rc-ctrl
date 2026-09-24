@@ -327,3 +327,32 @@ byte, and `publish` into a scratch directory, which serves every unit through
 the new guard, reproduces all 123 committed pointers. No rerun was needed.
 The search's trial worker has the same broad handler; the search is finished,
 so it is noted here rather than changed.
+
+## M3MS-006, round 2 (2026-09-24): one P1, one P2
+
+The owner confirmed the round-1 fixes. All 25 comparison tests and the four
+original reproductions pass, and the real-store status and all 123 pointers
+reproduce byte for byte with simulation and fit publication disabled.
+
+1. **P1: cached-fit corruption could still become a failed model.** A cached
+   fit's record naming another configuration made the fit cache's serve path
+   raise a plain `ValueError`. The worker's fit step then reported a
+   finalizable failure. The fix is in the lowest layer, the fit cache.
+   `fit_or_load` turns any refusal while serving a cached fit into
+   `EvidenceIntegrityError`: another label, a recipe that no longer binds, or
+   weights a refit does not reproduce. A fit the cache already holds was
+   accepted once, so failing to verify it is a fault in the store. Only a
+   fresh fit's refusal remains a verdict on the candidate. This also closes
+   the same gap for the search's trial worker, which serves fits through the
+   same cache.
+2. **P2: finalized counts were not compared with the manifest.**
+   `check_finalized` checked the total pairs and the manifest's location, so
+   moving one pair from completed to infeasible passed. It now recounts
+   completed, infeasible and unexecuted pairs from the installed manifest and
+   requires the outcome's whole breakdown to equal it.
+
+Tests written first from the owner's reproductions; both fail against
+`4762553`. Rechecked against the real store, pinned, with the fixed code:
+`status`, which now recounts every unit from its manifest, reproduces the
+committed status byte for byte, and a scratch `publish` reproduces all 123
+pointers.

@@ -594,7 +594,16 @@ class ManualFitStore:
         """
         identity = inputs.identity(entry)
         if self.exists(identity):
-            return self._serve(entry, identity, inputs)
+            try:
+                return self._serve(entry, identity, inputs)
+            except EvidenceIntegrityError:
+                raise
+            except ValueError as error:
+                # A fit this cache already holds was accepted once. Failing to verify it now -- another
+                # label, a recipe that no longer binds, weights a refit does not reproduce -- is a fault
+                # in the store, never a verdict on the candidate: only a fresh fit's refusal is one.
+                msg = f"cached fit {identity[:12]} does not verify: {error}"
+                raise EvidenceIntegrityError(msg) from error
         started = time.perf_counter()
         recipe, model, episodes = fit_entry(entry, inputs)
         elapsed = time.perf_counter() - started
