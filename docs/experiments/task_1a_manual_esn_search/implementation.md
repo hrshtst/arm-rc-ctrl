@@ -444,6 +444,10 @@ The reuse matches the M3MS-006 record:
 - the three M10 fits were served from the search's cache;
 - none of the six nominal search runs was reused.
 
-The [audit](audit/audit_v1.md) ran from clean `9d7407a`, pinned, in 29 min.
-All seven steps passed, and every one of the 15,990 runs was judged again from
-its own arrays and its row rebuilt whole.
+The first audit ran from clean `9d7407a` and passed, but the owner found it
+trusted the index's headline figures; it is kept in
+[`audit/superseded/`](audit/superseded/README.md). The
+[audit of record](audit/audit_v2.md) ran from clean `43d242e`, pinned, in
+28 min. All seven steps passed. Every one of the 15,990 runs was judged again
+from its own arrays and its row rebuilt whole, and the index's nine headline
+figures and its page were recomputed from the rows.

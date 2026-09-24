@@ -18,7 +18,7 @@ criteria and evidence complete. A negative scientific result can close a task.
 
 ## Current focus
 
-- **Next:** M3MS-008, the reporting assistant's interpretation of the [audited comparison evidence](experiments/task_1a_manual_esn_search/results/results_v1.md) ([audit](experiments/task_1a_manual_esn_search/audit/audit_v1.md) passed); then the owner's M3MS-GATE.
+- **Next:** M3MS-008, the reporting assistant's interpretation of the [audited comparison evidence](experiments/task_1a_manual_esn_search/results/results_v1.md) ([audit v2](experiments/task_1a_manual_esn_search/audit/audit_v2.md) passed); then the owner's M3MS-GATE.
 - **Approved scope:** [M3MS plan](experiments/task_1a_manual_esn_search/plan.md), 100 M10 trials, nominal only, fixed v4/E filters and seed 896, searched ESN parameters/warm-up. Freeze three configurations before comparing S/M10/R10/C10/Replay, then evaluate them sequentially in selection order. Preserve the declared shared resource ceiling; a ceiling-stopped third configuration is reported as incomplete rather than dropped or traded for a larger allowance.
 - **Still gated:** task 1-b/M4-001 awaits D1–D8; its existing IN PROGRESS status is protocol drafting, not implementation permission. M3R-017 remains historically BLOCKED. Later hardware/online epics remain gated.
 - **Latest closure:** DOC-009 reorganized navigation without changing prior task statuses or evidence; [record](tasks/archive/DOC.md). M3MAN-GATE accepted the [report](experiments/task_1a_manual_demonstration/report/report.md); the new search is a separate follow-up.
