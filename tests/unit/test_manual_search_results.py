@@ -501,3 +501,28 @@ def test_an_unreadable_index_is_recorded_rather_than_raised(
     assert {step.name for step in audit.steps if step.unavailable} == needing, "exactly the steps that need it"
     assert all("results index" in step.failures[0] for step in audit.steps if step.unavailable)
     assert all(step.ok for step in audit.steps if step.name not in needing), "the rest still ran and passed"
+
+
+def test_an_index_that_cannot_be_opened_is_recorded_rather_than_raised(
+    built: _Built, manual_fixture: ManualFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A present but unreadable index is read once, inside the audit; its fingerprint is not a second read."""
+    path = built.results_dir / "results_v1.json"
+    mode = path.stat().st_mode
+    path.chmod(0)
+    try:
+        with _environment(built, monkeypatch, manual_fixture):
+            audit = audit_search_comparison(
+                built.context,
+                results_dir=built.results_dir,
+                evidence_dir=built.evidence_dir,
+                status_file=built.status_file,
+                root=built.root,
+            )
+    finally:
+        path.chmod(mode)
+    assert not audit.passed
+    assert audit.results_sha256 == "0" * 64, "no fingerprint of a file that could not be read"
+    unavailable = [step for step in audit.steps if step.unavailable]
+    assert unavailable
+    assert all("PermissionError" in step.failures[0] for step in unavailable)

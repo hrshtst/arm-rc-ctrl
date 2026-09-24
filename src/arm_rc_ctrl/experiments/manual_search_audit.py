@@ -72,11 +72,10 @@ from arm_rc_ctrl.experiments.manual_search_results import (
     account_comparison,
     comparison_scope,
     load_accounting,
-    load_search_results,
     render_search_results,
     stored_rows,
 )
-from arm_rc_ctrl.provenance import ProvenanceRecord, canonical_json, sha256_file, verify_artifact
+from arm_rc_ctrl.provenance import ProvenanceRecord, canonical_json, sha256_bytes, sha256_file, verify_artifact
 from arm_rc_ctrl.repo import repository_root
 
 if TYPE_CHECKING:
@@ -400,12 +399,16 @@ def audit_search_comparison(
 ) -> SearchComparisonAudit:
     """Run every step over the committed derivation and return the record, failures retained."""
     index = results_dir / f"results_v{RESULTS_VERSION}.json"
+    # The index is read once, inside the audit: its record and its fingerprint come from the same bytes, so a
+    # file that cannot be read is a finding recorded by every step that needed it, never an escaped error.
+    results: SearchComparisonResults | None = None
+    results_sha256, index_error = "0" * 64, None
     try:
-        results: SearchComparisonResults | None = load_search_results(index)
-        index_error = None
+        data = index.read_bytes()
+        results_sha256 = sha256_bytes(data)
+        results = from_mapping(cast("dict[str, object]", json.loads(data)), SearchComparisonResults)
     except (*EVIDENCE_ERRORS, TypeError, KeyError) as error:
-        # An index that cannot be read is a finding, recorded by every step that needed it.
-        results, index_error = None, f"{type(error).__name__}: {str(error)[:300]}"
+        index_error = f"{type(error).__name__}: {str(error)[:300]}"
     audited = _Audited(
         context=context,
         results=results,
@@ -420,7 +423,7 @@ def audit_search_comparison(
     return SearchComparisonAudit(
         experiment=EXPERIMENT,
         version=AUDIT_VERSION,
-        results_sha256=sha256_file(index) if index.is_file() else "0" * 64,
+        results_sha256=results_sha256,
         freeze_sha256=context.freeze_sha256,
         steps=steps,
         passed=all(step.ok for step in steps),

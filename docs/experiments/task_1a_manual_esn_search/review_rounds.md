@@ -388,3 +388,26 @@ Tests written first from the owner's six reproductions, extended to every
 headline figure and to an index that parses but is not a record. All failed
 against the reviewed code. Audit v1 moves unedited to `audit/superseded/`, and
 v2 audits the same committed derivation.
+
+## M3MS-007, round 2 (2026-09-24): one P2
+
+The owner confirmed the round-1 fixes. All six original reproductions pass,
+and six real-store steps pass, including all 123 manifests, the 3,348
+aggregates and the corrected completeness checks. The totals match
+independently (7,044/12,090 RC and 3,810/3,900 replay successes), audit v2's
+bindings and rendering match, and v1 is preserved byte for byte.
+
+1. **P2: the index's fingerprint was a second, unguarded read.** The load was
+   guarded, but the record's `results_sha256` hashed the file again outside
+   the guard. An index without read permission therefore raised
+   `PermissionError` instead of returning a failed record. The index is now
+   read once, inside the audit. Its record and its fingerprint come from the
+   same bytes. When it cannot be read, the reason is retained, the fingerprint
+   is recorded as all zeros, and the steps that need the index are
+   unavailable.
+
+The test was written first and reproduces the owner's `PermissionError`. On a
+readable index the fix changes nothing: the fingerprint is the digest of the
+same bytes, and audit v2's recorded `results_sha256` (`1ff737040ef8`) equals
+the committed index's digest. Audit v2 therefore remains the audit of record,
+and it was not run again.
