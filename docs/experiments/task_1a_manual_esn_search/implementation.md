@@ -427,3 +427,23 @@ including the fit reuse and the absence of nominal reuse, and must find a bank
 the closed experiment's pointers name. The audit must pass untouched, and must
 fail in the owning step on an edited summary, unit outcome, status, run array,
 model manifest or freeze binding.
+
+### The derivation and the audit (2026-09-24)
+
+A first derivation recorded the comparison runner's placeholder command in
+place of the `derive` invocation. It was set aside before commit, nothing
+references it, and `9ea711a` fixed the cause. The committed
+[derivation](results/results_v1.md) ran from clean `9ea711a`, pinned. It is
+complete: 93 models, 30 banks, 12,090 RC runs and 3,900 replay runs, with none
+unavailable, and all 123 units' counts equal their rows. 7,044 RC runs and
+3,810 replay runs met every criterion.
+
+The reuse matches the M3MS-006 record:
+
+- configuration 1's ten banks are the closed experiment's own;
+- the three M10 fits were served from the search's cache;
+- none of the six nominal search runs was reused.
+
+The [audit](audit/audit_v1.md) ran from clean `9d7407a`, pinned, in 29 min.
+All seven steps passed, and every one of the 15,990 runs was judged again from
+its own arrays and its row rebuilt whole.

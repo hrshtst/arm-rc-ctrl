@@ -18,7 +18,7 @@ criteria and evidence complete. A negative scientific result can close a task.
 
 ## Current focus
 
-- **Next:** M3MS-007, deriving and auditing the comparison evidence. M3MS-006 finished all three [frozen configurations](experiments/task_1a_manual_esn_search/freeze/selection_v1.md) (123 units, 15,990 pairs; [status](experiments/task_1a_manual_esn_search/comparison/status_v1.md)) within the shared ceiling (6.05 h, 10.49 GiB).
+- **Next:** M3MS-008, the reporting assistant's interpretation of the [audited comparison evidence](experiments/task_1a_manual_esn_search/results/results_v1.md) ([audit](experiments/task_1a_manual_esn_search/audit/audit_v1.md) passed); then the owner's M3MS-GATE.
 - **Approved scope:** [M3MS plan](experiments/task_1a_manual_esn_search/plan.md), 100 M10 trials, nominal only, fixed v4/E filters and seed 896, searched ESN parameters/warm-up. Freeze three configurations before comparing S/M10/R10/C10/Replay, then evaluate them sequentially in selection order. Preserve the declared shared resource ceiling; a ceiling-stopped third configuration is reported as incomplete rather than dropped or traded for a larger allowance.
 - **Still gated:** task 1-b/M4-001 awaits D1–D8; its existing IN PROGRESS status is protocol drafting, not implementation permission. M3R-017 remains historically BLOCKED. Later hardware/online epics remain gated.
 - **Latest closure:** DOC-009 reorganized navigation without changing prior task statuses or evidence; [record](tasks/archive/DOC.md). M3MAN-GATE accepted the [report](experiments/task_1a_manual_demonstration/report/report.md); the new search is a separate follow-up.
@@ -29,12 +29,11 @@ All rows below implement the [owner-approved plan](experiments/task_1a_manual_es
 The search (M3MS-004/005) has run; no perturbed case has been evaluated. Longer review
 rounds/results belong beside that plan, linked from the acceptance cell.
 
-M3MS-001 to M3MS-006 are `DONE`: the protocol, sampled training, the resumable search, the timing
-pilot, the completed search with its freeze, and the five-arm comparison. Their rows are in the [M3MS archive](tasks/archive/M3MS.md).
+M3MS-001 to M3MS-007 are `DONE`: the protocol, sampled training, the resumable search, the timing
+pilot, the completed search with its freeze, the five-arm comparison, and its audited evidence. Their rows are in the [M3MS archive](tasks/archive/M3MS.md).
 
 | ID | Status | Task | Depends on | Acceptance/evidence |
 | --- | --- | --- | --- | --- |
-| M3MS-007 | `IN PROGRESS` | Derive and audit machine-readable comparison evidence | M3MS-006 | Verify sources, selection, payloads, completeness and derived metrics/contrasts; retain failure records and reproducible figure inputs. Account actual replay/nominal reuse and explain withheld-from-search versus historically known perturbations. |
 | M3MS-008 | `TODO` | Interpret and report the tuned comparison — reporting assistant | M3MS-007 | Human-readable paired S/M10/R10/C10/replay findings, failure examples, limitations and reproducible plots. Explain conditioning on M10-selected parameters; no claim of separate singleton tuning or fresh-scenario/multiple-seed validation. Call the frozen configurations the highest nominal scores, never "the three best", and keep nominal feasibility separate from robustness and trajectory quality. |
 | M3MS-GATE | `TODO` | Review and close the follow-up — owner | M3MS-008 | Owner accepts positive/negative/inconclusive findings and records any next decision. No further study, deployment or hardware action is implied. |
 
@@ -73,7 +72,7 @@ an upstream PR merely to make project-local code cleaner.
 - [M3R](tasks/archive/M3R.md): M3R — Task 1-a state-conditioned recovery.
 - [M3REP](tasks/archive/M3REP.md): M3REP — Task 1-a repeated-demonstration control.
 - [M3MAN](tasks/archive/M3MAN.md): M3MAN — Task 1-a manual demonstrations.
-- [M3MS](tasks/archive/M3MS.md): M3MS — Task 1-a manual-data ESN search (M3MS-001 to M3MS-006; the rest is active).
+- [M3MS](tasks/archive/M3MS.md): M3MS — Task 1-a manual-data ESN search (M3MS-001 to M3MS-007; the rest is active).
 - [UP completed work](tasks/archive/UP.md).
 - [Pre-migration status snapshot](tasks/archive/status-2026-09-22.md) and [historical phase gates](tasks/archive/roadmap-2026-09-22.md).
 
