@@ -73,6 +73,7 @@ from arm_rc_ctrl.experiments.manual_search_results import (
     comparison_scope,
     load_accounting,
     load_search_results,
+    render_search_results,
     stored_rows,
 )
 from arm_rc_ctrl.provenance import ProvenanceRecord, canonical_json, sha256_file, verify_artifact
@@ -83,7 +84,8 @@ if TYPE_CHECKING:
 
 __all__ = ["AUDIT_STEPS", "AUDIT_VERSION", "SearchComparisonAudit", "audit_search_comparison", "render_audit"]
 
-AUDIT_VERSION: Final = 1
+AUDIT_VERSION: Final = 2
+"""v1 trusted the index's headline figures and read it outside the recording boundary (M3MS-007 review)."""
 AUDIT_SCHEMA_VERSION: Final = 1
 AUDIT_STEPS: Final = (
     "sources",
@@ -95,6 +97,7 @@ AUDIT_STEPS: Final = (
     "completeness",
 )
 _LIMIT: Final = 200
+_SIMULATED: Final = ("completed", "infeasible")
 
 
 @dataclass(frozen=True)
@@ -127,7 +130,9 @@ class SearchComparisonAudit:
 @dataclass(frozen=True)
 class _Audited:
     context: ComparisonContext
-    results: SearchComparisonResults
+    results: SearchComparisonResults | None
+    """``None`` when the index could not be read; every step that needs it is then unavailable."""
+    index_error: str | None
     results_dir: Path
     evidence_dir: Path
     status_file: Path
@@ -163,14 +168,23 @@ def _guarded(name: str, run: Callable[[], AuditStep]) -> AuditStep:
         )
 
 
+def _index(audited: _Audited) -> SearchComparisonResults:
+    """The results index, or the reason it could not be read, raised inside the step that needed it."""
+    if audited.results is None:
+        msg = f"the results index cannot be read: {audited.index_error}"
+        raise ValueError(msg)
+    return audited.results
+
+
 def _rows(audited: _Audited) -> tuple[ManualRunRow, ...]:
-    return table_from_csv(stored_rows(audited.context.store, audited.results, "ManualRunRow"), ManualRunRow)
+    return table_from_csv(stored_rows(audited.context.store, _index(audited), "ManualRunRow"), ManualRunRow)
 
 
 def check_sources(audited: _Audited) -> AuditStep:
     """The index's bound inputs, documents and tables, each against the digest it records."""
     started = time.perf_counter()
-    context, results, inputs = audited.context, audited.results, audited.results.inputs
+    context, results = audited.context, _index(audited)
+    inputs = results.inputs
     evidence_sha256, n_pointers = evidence_digest(audited.evidence_dir)
     actual = {
         "search protocol": protocol_digest(context.protocol),
@@ -197,12 +211,19 @@ def check_sources(audited: _Audited) -> AuditStep:
         path = audited.results_dir / document.name
         if not path.is_file() or sha256_file(path) != document.sha256:
             failures.append(f"{document.name} is missing or not the document the index records")
+    try:
+        accounting = load_accounting(audited.results_dir / DOCUMENTS["accounting"])
+        page = audited.results_dir / f"results_v{RESULTS_VERSION}.md"
+        if page.read_bytes() != render_search_results(results, accounting).encode("utf-8"):
+            failures.append(f"{page.name} is not the index's rendering")
+    except EVIDENCE_ERRORS as error:
+        failures.append(f"results_v{RESULTS_VERSION}.md cannot be checked: {type(error).__name__}: {str(error)[:200]}")
     for table in results.tables:
         try:
             verify_artifact(context.store, table.payload)
         except EVIDENCE_ERRORS as error:
             failures.append(f"{table.name}: {type(error).__name__}: {str(error)[:200]}")
-    checked = len(actual) + 1 + len(results.documents) + len(results.tables)
+    checked = len(actual) + 2 + len(results.documents) + len(results.tables)
     return _step("sources", "bound inputs, committed documents and stored tables by digest", checked, failures, started)
 
 
@@ -211,11 +232,9 @@ def check_selection(audited: _Audited) -> AuditStep:
     started = time.perf_counter()
     context = audited.context
     failures: list[str] = []
-    if context.freeze_sha256 != audited.results.inputs.freeze_sha256:
-        failures.append(
-            f"the verified freeze is {context.freeze_sha256[:12]}, "
-            f"the index binds {audited.results.inputs.freeze_sha256[:12]}"
-        )
+    bound = _index(audited).inputs.freeze_sha256
+    if context.freeze_sha256 != bound:
+        failures.append(f"the verified freeze is {context.freeze_sha256[:12]}, the index binds {bound[:12]}")
     # A shortfall is a reported outcome of the freeze, not a fault; the comparison must cover exactly what it chose.
     chosen = {item.rank: item.configuration for item in context.freeze.chosen}
     compared = {rank: configuration.label for rank, configuration in context.configurations.items()}
@@ -289,7 +308,7 @@ def check_aggregates(audited: _Audited) -> AuditStep:
     verdicts = verdicts_of(rows)
     contrasts = contrast_rows(verdicts, scenarios=scenarios)
     failures: list[str] = []
-    stored = table_from_csv(stored_rows(context.store, audited.results, "ManualContrastRow"), ManualContrastRow)
+    stored = table_from_csv(stored_rows(context.store, _index(audited), "ManualContrastRow"), ManualContrastRow)
     if contrasts != stored:
         failures.append("the contrasts rebuilt from the run table are not the stored ones")
     summaries = contrast_summaries(contrasts)
@@ -316,20 +335,47 @@ def check_aggregates(audited: _Audited) -> AuditStep:
 def check_completeness(audited: _Audited) -> AuditStep:
     """The accounting rebuilt from the rows and the unit records, and compared whole."""
     started = time.perf_counter()
-    context, results = audited.context, audited.results
+    context, results = audited.context, _index(audited)
     rows = _rows(audited)
-    rebuilt = account_comparison(
-        context, rows, n_models=results.n_models, n_banks=results.n_replay_banks, root=audited.root
-    )
+    # Counted from the rows themselves, never taken from the index being checked.
+    n_models = len({row.evidence_identity for row in rows if row.source == "rc" and row.evidence_identity})
+    n_banks = len({row.evidence_identity for row in rows if row.source == "replay" and row.evidence_identity})
+    rebuilt = account_comparison(context, rows, n_models=n_models, n_banks=n_banks, root=audited.root)
     committed = load_accounting(audited.results_dir / DOCUMENTS["accounting"])
     failures: list[str] = []
     if rebuilt != committed:
         failures.append("the accounting rebuilt from the rows and the unit records is not the committed one")
     if not rebuilt.complete:
         failures.append("the comparison is not complete against its plan")
-    if results.complete != rebuilt.complete:
-        failures.append(f"the index records complete={results.complete}, the accounting {rebuilt.complete}")
-    return _step("completeness", "the accounting and the planned totals", len(rebuilt.units) + 1, failures, started)
+    rc = [row for row in rows if row.source == "rc" and row.status in _SIMULATED]
+    replay = [row for row in rows if row.source == "replay" and row.status in _SIMULATED]
+    figures: dict[str, object] = {
+        "n_models": n_models,
+        "n_replay_banks": n_banks,
+        "n_rc_runs": len(rc),
+        "n_replay_runs": len(replay),
+        "n_unavailable_runs": sum(1 for row in rows if row.status not in _SIMULATED),
+        "n_rc_successes": sum(1 for row in rc if row.success),
+        "n_replay_successes": sum(1 for row in replay if row.success),
+        "complete": rebuilt.complete,
+        "departure_radius_m": context.runner.conditions(0.0, (1.0, 1.0)).dwell_tolerance_m,
+    }
+    recorded = to_mapping(results)
+    failures += [
+        f"the index records {name}={recorded[name]!r}, the rows give {value!r}"
+        for name, value in figures.items()
+        if recorded[name] != value
+    ]
+    table_rows = {table.record: table.n_rows for table in results.tables}
+    if table_rows.get("ManualRunRow") != len(rows):
+        failures.append(f"the index cites {table_rows.get('ManualRunRow')} run rows, the table holds {len(rows)}")
+    return _step(
+        "completeness",
+        "the accounting, the index's headline figures and the planned totals",
+        len(rebuilt.units) + len(figures) + 1,
+        failures,
+        started,
+    )
 
 
 _CHECKS: Final[dict[str, Callable[[_Audited], AuditStep]]] = {
@@ -354,9 +400,16 @@ def audit_search_comparison(
 ) -> SearchComparisonAudit:
     """Run every step over the committed derivation and return the record, failures retained."""
     index = results_dir / f"results_v{RESULTS_VERSION}.json"
+    try:
+        results: SearchComparisonResults | None = load_search_results(index)
+        index_error = None
+    except (*EVIDENCE_ERRORS, TypeError, KeyError) as error:
+        # An index that cannot be read is a finding, recorded by every step that needed it.
+        results, index_error = None, f"{type(error).__name__}: {str(error)[:300]}"
     audited = _Audited(
         context=context,
-        results=load_search_results(index),
+        results=results,
+        index_error=index_error,
         results_dir=results_dir,
         evidence_dir=evidence_dir,
         status_file=status_file,
@@ -367,7 +420,7 @@ def audit_search_comparison(
     return SearchComparisonAudit(
         experiment=EXPERIMENT,
         version=AUDIT_VERSION,
-        results_sha256=sha256_file(index),
+        results_sha256=sha256_file(index) if index.is_file() else "0" * 64,
         freeze_sha256=context.freeze_sha256,
         steps=steps,
         passed=all(step.ok for step in steps),

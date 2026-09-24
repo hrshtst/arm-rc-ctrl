@@ -356,3 +356,35 @@ Tests written first from the owner's reproductions; both fail against
 `status`, which now recounts every unit from its manifest, reproduces the
 committed status byte for byte, and a scratch `publish` reproduces all 123
 pointers.
+
+## M3MS-007, round 1 (2026-09-24): two P2 findings
+
+The owner independently checked the committed results:
+
+- clean provenance, the artifact fingerprints, and both committed renderings;
+- 15,990 distinct rows, with 7,044 RC and 3,810 replay successes;
+- all 3,348 contrasts and summaries reproduce byte for byte;
+- the six non-metric audit steps pass on the real evidence;
+- 150 sampled runs, covering every configuration, arm, tracker and scenario
+  class, reproduce their judgments and rows.
+
+1. **P2: the audit could pass with incorrect headline results.** Completeness
+   checked the accounting but not the index's own figures, and nothing checked
+   `results_v1.md`. The owner changed RC successes, RC runs, unavailable runs
+   and the departure radius, and replaced the page entirely; all seven steps
+   still passed. `completeness` now recomputes every headline figure from the
+   per-run table and compares it with the index: models, banks, RC and replay
+   runs and successes, unavailable runs, the complete flag, the departure
+   radius from the evaluation's own dwell radius, and the cited row count.
+   Model and bank counts come from the rows, not from the index being checked.
+   `sources` requires the page to be the index's rendering.
+2. **P2: an unreadable index prevented a record.** The index was loaded
+   before the guarded steps, so a malformed one raised `JSONDecodeError`. It is
+   now read inside the audit. When it cannot be read, each step that needs it
+   is recorded unavailable with the reason, the steps that do not still run,
+   and the audit returns a failed record.
+
+Tests written first from the owner's six reproductions, extended to every
+headline figure and to an index that parses but is not a record. All failed
+against the reviewed code. Audit v1 moves unedited to `audit/superseded/`, and
+v2 audits the same committed derivation.

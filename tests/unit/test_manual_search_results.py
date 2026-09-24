@@ -437,3 +437,67 @@ def test_a_manifest_that_no_longer_verifies_fails_the_manifests(
         failures = _audit(built)
     assert "manifests" in failures
     assert "payloads_and_metrics" in failures, "the rows that needed it report themselves too"
+
+
+# --- the owner's review of M3MS-007 --------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("n_rc_successes", 1),
+        ("n_replay_successes", 1),
+        ("n_rc_runs", 999),
+        ("n_replay_runs", 999),
+        ("n_unavailable_runs", 99),
+        ("n_models", 7),
+        ("n_replay_banks", 7),
+        ("departure_radius_m", 0.5),
+    ],
+)
+def test_every_headline_figure_of_the_index_is_recomputed(
+    built: _Built, manual_fixture: ManualFixture, monkeypatch: pytest.MonkeyPatch, field: str, value: float
+) -> None:
+    """An index claiming another figure than its rows give is refused, whichever figure it is."""
+    path = built.results_dir / "results_v1.json"
+    data = json.loads(path.read_text(encoding="utf-8"))
+    assert data[field] != value
+    data[field] = value
+    with _environment(built, monkeypatch, manual_fixture), _tampered(path, json.dumps(data).encode("utf-8")):
+        failures = _audit(built)
+    assert any(field in failure for failure in failures.get("completeness", [])), failures
+
+
+def test_the_readable_results_are_the_index_rendered(
+    built: _Built, manual_fixture: ManualFixture, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A results page that is not the index's rendering is refused, even when the index itself is sound."""
+    path = built.results_dir / "results_v1.md"
+    with (
+        _environment(built, monkeypatch, manual_fixture),
+        _tampered(path, b"# Invented results\nAll models were perfect.\n"),
+    ):
+        failures = _audit(built)
+    assert any("results_v1.md" in failure for failure in failures.get("sources", [])), failures
+
+
+@pytest.mark.parametrize("content", [b"{", b'{"experiment": "task_1a_manual_esn_search"}'])
+def test_an_unreadable_index_is_recorded_rather_than_raised(
+    built: _Built, manual_fixture: ManualFixture, monkeypatch: pytest.MonkeyPatch, content: bytes
+) -> None:
+    """Every step is recorded unavailable with the reason, and the audit still returns a failed record."""
+    path = built.results_dir / "results_v1.json"
+    with _environment(built, monkeypatch, manual_fixture), _tampered(path, content):
+        audit = audit_search_comparison(
+            built.context,
+            results_dir=built.results_dir,
+            evidence_dir=built.evidence_dir,
+            status_file=built.status_file,
+            root=built.root,
+        )
+    assert not audit.passed
+    assert tuple(step.name for step in audit.steps) == AUDIT_STEPS
+    needing = {"sources", "selection", "payloads_and_metrics", "aggregates", "completeness"}
+    assert {step.name for step in audit.steps if step.unavailable} == needing, "exactly the steps that need it"
+    assert all("results index" in step.failures[0] for step in audit.steps if step.unavailable)
+    assert all(step.ok for step in audit.steps if step.name not in needing), "the rest still ran and passed"

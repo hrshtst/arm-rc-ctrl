@@ -389,7 +389,7 @@ uv run python -m arm_rc_ctrl.execution run --policy p-cores -- \
   --results docs/experiments/task_1a_manual_esn_search/results \
   --evidence-dir docs/experiments/task_1a_manual_esn_search/comparison/evidence \
   --status docs/experiments/task_1a_manual_esn_search/comparison/status_v1.json \
-  --output docs/experiments/task_1a_manual_esn_search/audit/audit_v1.json --workers 8
+  --output docs/experiments/task_1a_manual_esn_search/audit/audit_v2.json --workers 8
 ```
 
 ## Requirements
