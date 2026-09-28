@@ -3,7 +3,7 @@
 
 # Implementation task queue
 
-**Updated:** 2026-09-23. **Roadmap:** [PLAN.md](PLAN.md).
+**Updated:** 2026-09-24. **Roadmap:** [PLAN.md](PLAN.md).
 
 This is the authoritative entry point for work selection. Each task has exactly
 one canonical status/acceptance row: here for active work, in the linked backlog
@@ -22,6 +22,14 @@ criteria and evidence complete. A negative scientific result can close a task.
 - **Approved scope:** [M3MS plan](experiments/task_1a_manual_esn_search/plan.md), 100 M10 trials, nominal only, fixed v4/E filters and seed 896, searched ESN parameters/warm-up. Freeze three configurations before comparing S/M10/R10/C10/Replay, then evaluate them sequentially in selection order. Preserve the declared shared resource ceiling; a ceiling-stopped third configuration is reported as incomplete rather than dropped or traded for a larger allowance.
 - **Still gated:** task 1-b/M4-001 awaits D1–D8; its existing IN PROGRESS status is protocol drafting, not implementation permission. M3R-017 remains historically BLOCKED. Later hardware/online epics remain gated.
 - **Latest closure:** DOC-009 reorganized navigation without changing prior task statuses or evidence; [record](tasks/archive/DOC.md). M3MAN-GATE accepted the [report](experiments/task_1a_manual_demonstration/report/report.md); the new search is a separate follow-up.
+
+## Additional manual-study presentation
+
+M3MAN-015 is complete: [standalone HTML report](experiments/task_1a_manual_demonstration/expert_report/index.html),
+[validation and reproduction](experiments/task_1a_manual_demonstration/expert_report_validation.md),
+and [archived task](tasks/archive/M3MAN.md#additional-expert-presentation).
+
+M3MAN-016 is complete: [GIF export and matching plots](experiments/task_1a_manual_demonstration/expert_media.md), with reproducible scripts and a verified media manifest.
 
 ## Manual-data ESN search — M3MS
 

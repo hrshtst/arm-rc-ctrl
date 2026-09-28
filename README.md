@@ -309,6 +309,14 @@ The [reproduction guide](docs/experiments/task_1a_manual_demonstration/report/re
 and `scripts/render_manual_report.py` recreate its plots and animation from
 the existing evidence without new training or simulation.
 
+The additional [standalone HTML report](docs/experiments/task_1a_manual_demonstration/expert_report/index.html)
+introduces the research for a new expert and adds eight synchronized five-arm
+case studies, task-space plots and diagnostic time series. Open it locally in a
+browser; its [build guide](docs/experiments/task_1a_manual_demonstration/expert_report/README.md)
+and `scripts/render_manual_expert_report.py` reproduce the offline presentation.
+[Export GIFs and matching plots](docs/experiments/task_1a_manual_demonstration/expert_media.md)
+with `scripts/export_manual_expert_media.py` for reuse in your own report.
+
 ### Manual-demonstration ESN search (M3MS)
 
 The [approved search](docs/experiments/task_1a_manual_esn_search/plan.md) runs

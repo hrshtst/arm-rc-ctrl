@@ -1,0 +1,756 @@
+[
+  {
+    "slug": "rescue",
+    "case_id": "feasible-best__pd_v2__nominal",
+    "title": "A · A weak singleton is rescued",
+    "caption": "At the nominal start, D01's singleton and copies miss the target tolerance; all-ten and synthetic training succeed. This is an example of a gain, not the typical paired effect across all ten parents.",
+    "categories": [
+      "nominal",
+      "all_ten_wins",
+      "first_failure"
+    ],
+    "configuration": "feasible-best",
+    "tracker": "pd_v2",
+    "runs": [
+      {
+        "role": "S",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 14.666966783080477,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "6a5da1db07e737e78c3f9d10adcadc3852fdf9546b20209aa000a674565e2527",
+        "arrays_sha256": "b669b816f2c143dfe746904cfddbc5834d3f4a26d5e119220e46894cc1426af2",
+        "uri": "armrc://runs/run-20260918-6a5da1db07e7/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      },
+      {
+        "role": "M10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 2.8386611339710477,
+        "dwell_task_s": 6.12,
+        "final_dwell_s": 23.88,
+        "sha256": "0199e8aabeb3006af2fa8751bd811d67adc871d8a86b32d64e2e5c22cc67b6ad",
+        "arrays_sha256": "0a6f2201a4c2c9573e62f17bf0eaf7f5ef55b1c6f96b03f2b2ab502da001d12e",
+        "uri": "armrc://runs/run-20260918-0199e8aabeb3/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      },
+      {
+        "role": "R10",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 14.666966781172851,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "3b4a6f4b949d57f0ba75f69240f9f64eaf91ff313da1597e2f57df7eb8dc2b79",
+        "arrays_sha256": "a35709ddbbf6febe8c035d025107f85eb516d8ccc65452955b2cd9959be9b1b4",
+        "uri": "armrc://runs/run-20260918-3b4a6f4b949d/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      },
+      {
+        "role": "C10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 4.014817152409861,
+        "dwell_task_s": 6.5200000000000005,
+        "final_dwell_s": 23.48,
+        "sha256": "57e97b0865ce4fdafdd587cfc3089b51d4b9eced7666403b19a845eda097d6d2",
+        "arrays_sha256": "ba08d0a6a8cbb15496a00e34a83575294a1e32c415d25ffd66caf95fd89e2f7d",
+        "uri": "armrc://runs/run-20260918-57e97b0865ce/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      },
+      {
+        "role": "replay",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.9476524480285646,
+        "dwell_task_s": 14.59,
+        "final_dwell_s": 15.41,
+        "sha256": "adbae59d876c7a4ee9511fabccbee9c5a78fcfe9a709a88e068f657a1e822e1b",
+        "arrays_sha256": "18600aa621159b8e63b3c9dfa4efe8fbb62294a845d4b8e6bfbc0b8d3abad658",
+        "uri": "armrc://runs/run-20260918-adbae59d876c/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      }
+    ]
+  },
+  {
+    "slug": "nominal",
+    "case_id": "feasible-middle__pd_v2__nominal",
+    "title": "B · Nominal success hides augmentation failure",
+    "caption": "One take and all ten both pass here. The synthetic model does not settle at the target. This nominal result alone does not reveal the all-ten model's poor robustness to starting offsets.",
+    "categories": [
+      "nominal",
+      "first_failure"
+    ],
+    "configuration": "feasible-middle",
+    "tracker": "pd_v2",
+    "runs": [
+      {
+        "role": "S",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.128933954563334,
+        "dwell_task_s": 7.53,
+        "final_dwell_s": 22.47,
+        "sha256": "7b85a277e60f1de9fed14a0cbeb73e3e4c7c3fe8b8d4f541c03ff34514f05222",
+        "arrays_sha256": "58c642f121e53c93cea643018453ec838e2ad6196ac5124fa0a77761a2000c72",
+        "uri": "armrc://runs/run-20260918-7b85a277e60f/run.json",
+        "samples": 3001,
+        "termination": "completed"
+      },
+      {
+        "role": "M10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 3.8178170933189466,
+        "dwell_task_s": 7.140000000000001,
+        "final_dwell_s": 22.86,
+        "sha256": "3c404b3c02bfa4233fdc7add2e0ad91539437ec806d2edde8c2d14a80315d8c2",
+        "arrays_sha256": "31421315c6cf0314d21099efde2011c83b0d050d71e80026baafa56064027f31",
+        "uri": "armrc://runs/run-20260918-3c404b3c02bf/run.json",
+        "samples": 3001,
+        "termination": "completed"
+      },
+      {
+        "role": "R10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.1289339545608101,
+        "dwell_task_s": 7.53,
+        "final_dwell_s": 22.47,
+        "sha256": "f06fb53cd5c6ddbbe06214a6768f23e6990d753f92b93fe03003c4f2cc30da23",
+        "arrays_sha256": "984daeb788127df9fbbc8ddb452397ff03a7dd0faf9437f710f083fb4281bdea",
+        "uri": "armrc://runs/run-20260918-f06fb53cd5c6/run.json",
+        "samples": 3001,
+        "termination": "completed"
+      },
+      {
+        "role": "C10",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 462.16916174536107,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "aa0754f972d2a22aad5906d6fabda9089c43eee137374eaf1470f5080cd0d5a0",
+        "arrays_sha256": "ee66f9bb451ae010b21231d94f15ed60416d0716a4b1a23ff88b70c0c46393ea",
+        "uri": "armrc://runs/run-20260918-aa0754f972d2/run.json",
+        "samples": 3001,
+        "termination": "completed"
+      },
+      {
+        "role": "replay",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.9476524480285546,
+        "dwell_task_s": 14.58,
+        "final_dwell_s": 15.42,
+        "sha256": "022c34645708e715d63c7381e478f0439d0e14a1bb7bd5ea4c2ae9ce4e7125c8",
+        "arrays_sha256": "d325405074808e3a2fee4669a8da8446d7e4cee17d1a5f234568e9c8af75ccd0",
+        "uri": "armrc://runs/run-20260918-022c34645708/run.json",
+        "samples": 3001,
+        "termination": "completed"
+      }
+    ]
+  },
+  {
+    "slug": "offset",
+    "case_id": "feasible-middle__pd_v2__posture-small-20261201-01",
+    "title": "B · A small posture offset reverses the comparison",
+    "caption": "The singleton succeeds, all-ten misses by a large distance, and the synthetic run stops at a joint-speed limit. Compare this with the same configuration's nominal case immediately above.",
+    "categories": [
+      "singleton_wins"
+    ],
+    "configuration": "feasible-middle",
+    "tracker": "pd_v2",
+    "runs": [
+      {
+        "role": "S",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.1258475807862252,
+        "dwell_task_s": 8.16,
+        "final_dwell_s": 21.84,
+        "sha256": "63c006acae3ce3904ea6f37c132810cedfde95a2a5b02e89abf1554f7b89753a",
+        "arrays_sha256": "b2386e0daa27b5e9387d51e6430d656e8ab93d24232067c3614f90fda58af1c8",
+        "uri": "armrc://runs/run-20260918-63c006acae3c/run.json",
+        "samples": 3001,
+        "termination": "completed"
+      },
+      {
+        "role": "M10",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 783.3864523148723,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "0b0515f8d883c8b6efe4c2a7d80b9456ddd3f9b5619d0ce510688d6bf2d90354",
+        "arrays_sha256": "8a6f5b4c3a795ea15a58ccf09e41d8423076fc1e07a6e3c6395090eb39e28129",
+        "uri": "armrc://runs/run-20260918-0b0515f8d883/run.json",
+        "samples": 3001,
+        "termination": "completed"
+      },
+      {
+        "role": "R10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.1258475807801838,
+        "dwell_task_s": 8.16,
+        "final_dwell_s": 21.84,
+        "sha256": "cd405e61414787512793fcf7d22a750477cf77fd3e748bec0927ce7263cf68c7",
+        "arrays_sha256": "3dcaf0db610faef4f7172f3fbb3127549cd6b0adc6e99c4f03adf79a3ed37ccc",
+        "uri": "armrc://runs/run-20260918-cd405e614147/run.json",
+        "samples": 3001,
+        "termination": "completed"
+      },
+      {
+        "role": "C10",
+        "success": false,
+        "reason": "limit_violation:joint_velocity",
+        "end": 0.05,
+        "pulse": [],
+        "final_error_mm": 300.0736922935624,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "110e479518b6c1108866c37c7989585baa7d2409977b37bd7a14c27a0e6aceaa",
+        "arrays_sha256": "a398fca6d48a1bf546bfc3fb2984cda48ba290999b25a620f9b51e9b74f910d3",
+        "uri": "armrc://runs/run-20260918-110e479518b6/run.json",
+        "samples": 6,
+        "termination": "limit_violation"
+      },
+      {
+        "role": "replay",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.9476524480285546,
+        "dwell_task_s": 14.58,
+        "final_dwell_s": 15.42,
+        "sha256": "1b070328a3af223c613eec94982af120b3887cdf49049222070b5f1bc3a47f73",
+        "arrays_sha256": "78741f0d40743a8d32625ef6171e4916592e8843c908332f01d4a697de804e6e",
+        "uri": "armrc://runs/run-20260918-1b070328a3af/run.json",
+        "samples": 3001,
+        "termination": "completed"
+      }
+    ]
+  },
+  {
+    "slug": "ceiling",
+    "case_id": "feasible-worst__pd_v2__nominal",
+    "title": "C · All five methods succeed",
+    "caption": "All five approaches reach and hold in this nominal case. More broadly, every learned model at C/PD succeeds in all 65 cases: equal scores here are a ceiling, not proof of equal trajectories.",
+    "categories": [
+      "nominal"
+    ],
+    "configuration": "feasible-worst",
+    "tracker": "pd_v2",
+    "runs": [
+      {
+        "role": "S",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.3760334302903345,
+        "dwell_task_s": 7.77,
+        "final_dwell_s": 22.23,
+        "sha256": "0199fbaf254f6f88b0a302cbc2dbda047f2d6966a1c9e8e98d70b0701d8fdfa1",
+        "arrays_sha256": "2f7cd1ef07750c4c4358cca30939e3ac1252a384fc9b2ac16eb202dadfae11f9",
+        "uri": "armrc://runs/run-20260918-0199fbaf254f/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "M10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 6.154087319041619,
+        "dwell_task_s": 6.86,
+        "final_dwell_s": 23.14,
+        "sha256": "035063be4078e05af5401e289c1f578f0c69a98b9937b232d0271ee6abaf0c2c",
+        "arrays_sha256": "b641b95434c4349767b22a30fb18286abca78dd433842359a62d6681caa65fa6",
+        "uri": "armrc://runs/run-20260918-035063be4078/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "R10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.376033430345581,
+        "dwell_task_s": 7.77,
+        "final_dwell_s": 22.23,
+        "sha256": "b79332e54bfe1b2a4c293dd0afb99c8986782ef5601b9b93446478f51b02ad97",
+        "arrays_sha256": "59de69d8cae7c260fcd500a535b37a6dd377d5c31783176beecf16737fd8c198",
+        "uri": "armrc://runs/run-20260918-b79332e54bfe/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "C10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 6.941078766192827,
+        "dwell_task_s": 7.859999999999999,
+        "final_dwell_s": 22.14,
+        "sha256": "447f979a2784313b2e0e1cd503e65c16baac458b796ba9160b0ff48109a10d8e",
+        "arrays_sha256": "97bc7a81060ad67da1f93d0e681ec55bce9c96d24fd13b41f573d9d1b5e60fea",
+        "uri": "armrc://runs/run-20260918-447f979a2784/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "replay",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.9476524480285546,
+        "dwell_task_s": 14.59,
+        "final_dwell_s": 15.41,
+        "sha256": "827e604a351dd9bfa77858fa0bc50a97364139e98e279518d36c76577b151092",
+        "arrays_sha256": "29b5314ff2db4b187a92026d17e454208c275099b17b0feb63bf3c5454083479",
+        "uri": "armrc://runs/run-20260918-827e604a351d/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      }
+    ]
+  },
+  {
+    "slug": "force",
+    "case_id": "feasible-worst__computed_torque__force-12N-000deg",
+    "title": "C · Disturbance recovery misses a strict tolerance",
+    "caption": "With computed torque and a positive-x force pulse, the singleton, copies, synthetic model and replay recover. All-ten finishes just outside the target radius. Each arm receives its pulse after its own measured dwell trigger, so pulse times differ.",
+    "categories": [
+      "singleton_wins",
+      "first_failure"
+    ],
+    "configuration": "feasible-worst",
+    "tracker": "computed_torque",
+    "runs": [
+      {
+        "role": "S",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [
+          8.27,
+          8.469999999999999
+        ],
+        "final_error_mm": 1.3768707273314973,
+        "dwell_task_s": 11.71,
+        "final_dwell_s": 18.29,
+        "sha256": "ad9bf7d52581e25628bc7fd9389dfca0988549c785d734fe47a331ddd61bd731",
+        "arrays_sha256": "5c8423df248f6048c3af04131101cf94aba86472eecd671e8a8001f5631be879",
+        "uri": "armrc://runs/run-20260918-ad9bf7d52581/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "M10",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [
+          7.35,
+          7.549999999999999
+        ],
+        "final_error_mm": 11.462600813233877,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "5c4a8204ea696b2b586ceef056c6de73003a680d23a521702026a68ed6178929",
+        "arrays_sha256": "3cad8adce1a0b87fb7c5df79ab723313a46bd48ea420f47ef387bc9825801a2e",
+        "uri": "armrc://runs/run-20260918-5c4a8204ea69/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "R10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [
+          8.27,
+          8.469999999999999
+        ],
+        "final_error_mm": 1.3768707273872132,
+        "dwell_task_s": 11.71,
+        "final_dwell_s": 18.29,
+        "sha256": "9f42b618f855cabfae57b0db9ac5476eeecb7294902d0c902878bbc8e1f527d4",
+        "arrays_sha256": "078a91e40fdda32ccf316bae9e110645d1951b31d8ac2430fbfdaf18b217c0e5",
+        "uri": "armrc://runs/run-20260918-9f42b618f855/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "C10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [
+          8.36,
+          8.559999999999999
+        ],
+        "final_error_mm": 6.895898180524282,
+        "dwell_task_s": 13.35,
+        "final_dwell_s": 16.65,
+        "sha256": "cc97dec7a975f1a1752531c61c343c4bbb047895419752fd6b925646173ce5cf",
+        "arrays_sha256": "42c9c7789d2c9c8b5aa235471aaa5bbf4dd2ac345b6214c86a9f615a2cbf1821",
+        "uri": "armrc://runs/run-20260918-cc97dec7a975/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "replay",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [
+          8.69,
+          8.889999999999999
+        ],
+        "final_error_mm": 1.9476524480287432,
+        "dwell_task_s": 14.610000000000001,
+        "final_dwell_s": 15.389999999999999,
+        "sha256": "f2f9d8bdd05e688d19a569543358284834c81b960354e1ec0ab08b4a9570a887",
+        "arrays_sha256": "11eb522ef495123a5afd042e15117823e71bb077d1f9c97ad743aa2eba096b81",
+        "uri": "armrc://runs/run-20260918-f2f9d8bdd05e/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      }
+    ]
+  },
+  {
+    "slug": "abort",
+    "case_id": "failure-actual-dwell__pd_v2__nominal",
+    "title": "D · Learned runs stop at a speed limit",
+    "caption": "All four learned arms stop early, whereas replay completes. The historical label 'failure-actual-dwell' is not the reason these runs fail. The last stored state can be below the abort threshold: the violating next step is rejected rather than retained as a normal sample.",
+    "categories": [
+      "nominal",
+      "first_failure"
+    ],
+    "configuration": "failure-actual-dwell",
+    "tracker": "pd_v2",
+    "runs": [
+      {
+        "role": "S",
+        "success": false,
+        "reason": "limit_violation:joint_velocity",
+        "end": 0.010000000000000009,
+        "pulse": [],
+        "final_error_mm": 286.4333273842215,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "edfc791b4b52a62600ea3387c9a891a43f5b72e816f7f7e8a3b7ca85b35f79e7",
+        "arrays_sha256": "8fc272b8aeb446e27c40e938cd7989216e5ed635e9a169b2b720f5978da20a30",
+        "uri": "armrc://runs/run-20260918-edfc791b4b52/run.json",
+        "samples": 27,
+        "termination": "limit_violation"
+      },
+      {
+        "role": "M10",
+        "success": false,
+        "reason": "limit_violation:joint_velocity",
+        "end": 0.010000000000000009,
+        "pulse": [],
+        "final_error_mm": 286.4333273842215,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "0502ac43f10293dc039cf505883dd2b79ee780ebd8bd46c7b4f7ca7607b383e9",
+        "arrays_sha256": "38d998fdee4fad00d336538abb0f260f3142d75871096ba4248756d2826bfa12",
+        "uri": "armrc://runs/run-20260918-0502ac43f102/run.json",
+        "samples": 27,
+        "termination": "limit_violation"
+      },
+      {
+        "role": "R10",
+        "success": false,
+        "reason": "limit_violation:joint_velocity",
+        "end": 0.010000000000000009,
+        "pulse": [],
+        "final_error_mm": 286.4333273842215,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "59b3012e04ad2295489ba5acaa1c07e65c329201bf7b49d89365bf640b8be7c7",
+        "arrays_sha256": "c4abac8e14cf1ad16aa67cf6364004583729c791c26d1c19ab66f88ee1457242",
+        "uri": "armrc://runs/run-20260918-59b3012e04ad/run.json",
+        "samples": 27,
+        "termination": "limit_violation"
+      },
+      {
+        "role": "C10",
+        "success": false,
+        "reason": "limit_violation:joint_velocity",
+        "end": 0.010000000000000009,
+        "pulse": [],
+        "final_error_mm": 286.4333273842215,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "5959dae99c10d854e6aa500ff9bc5d5ec6d793c23d9c253363be77fe9caed12e",
+        "arrays_sha256": "a1da6deaf64d8995462459d3569602268a5ba0d56823c6771543130f7c5a7a04",
+        "uri": "armrc://runs/run-20260918-5959dae99c10/run.json",
+        "samples": 27,
+        "termination": "limit_violation"
+      },
+      {
+        "role": "replay",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.9476524480285546,
+        "dwell_task_s": 14.58,
+        "final_dwell_s": 15.42,
+        "sha256": "f054921b60830862bb7995255d132774db697b47cf84c7e7da4051027b8870dd",
+        "arrays_sha256": "f3eb32a022a48d7eb3d32d77481fb56ca5206129cc65811c46d2ab7cdb2d159f",
+        "uri": "armrc://runs/run-20260918-f054921b6083/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      }
+    ]
+  },
+  {
+    "slug": "force_abort",
+    "case_id": "failure-joint-velocity__computed_torque__force-12N-000deg",
+    "title": "E · Reach first, then fail under force",
+    "caption": "The learned arms reach sufficiently well to trigger the pulse, but then encounter joint-speed aborts. Replay succeeds. This distinguishes recovery failure from never reaching the trigger condition.",
+    "categories": [
+      "first_failure"
+    ],
+    "configuration": "failure-joint-velocity",
+    "tracker": "computed_torque",
+    "runs": [
+      {
+        "role": "S",
+        "success": false,
+        "reason": "limit_violation:joint_velocity",
+        "end": 8.39,
+        "pulse": [
+          8.31,
+          8.51
+        ],
+        "final_error_mm": 89.43113663262538,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "7a5219ce3d17a0739e65cd4f45236746087e361563de2d3742abc5215d79a8e2",
+        "arrays_sha256": "b43df37bbca0f3d0abe37cb7551b2d13cfc93096f8be0af0eadb9caee39ebabc",
+        "uri": "armrc://runs/run-20260919-7a5219ce3d17/run.json",
+        "samples": 940,
+        "termination": "limit_violation"
+      },
+      {
+        "role": "M10",
+        "success": false,
+        "reason": "limit_violation:joint_velocity",
+        "end": 7.1899999999999995,
+        "pulse": [
+          7.130000000000001,
+          7.33
+        ],
+        "final_error_mm": 66.20668410513959,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "37b16d3bc24018dc9ab088432d0354d2ba91964568b5888fc2f6c49358af442f",
+        "arrays_sha256": "f0db70236b03b6ac03a2a0e1ddfc314e900472a6d8835fb3108f2fc14393cb09",
+        "uri": "armrc://runs/run-20260919-37b16d3bc240/run.json",
+        "samples": 820,
+        "termination": "limit_violation"
+      },
+      {
+        "role": "R10",
+        "success": false,
+        "reason": "limit_violation:joint_velocity",
+        "end": 8.39,
+        "pulse": [
+          8.31,
+          8.51
+        ],
+        "final_error_mm": 89.43113663216658,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "e4a70a7f64032bb7300d218a13a40574c44c6c0641f33c07d6fd9a3f34fc4fbe",
+        "arrays_sha256": "57441cb46142b76f4cfde8805065fc35488f9746da3662c85b906dc4c8381d2b",
+        "uri": "armrc://runs/run-20260919-e4a70a7f6403/run.json",
+        "samples": 940,
+        "termination": "limit_violation"
+      },
+      {
+        "role": "C10",
+        "success": false,
+        "reason": "limit_violation:joint_velocity",
+        "end": 8.3,
+        "pulse": [
+          8.25,
+          8.45
+        ],
+        "final_error_mm": 51.21739447722742,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "cd8e41675c67e76eddc0bf9994958196665a56071523ee24a912d8857ba93d10",
+        "arrays_sha256": "e490070ba525473a3408d9c7485fc8e033e3082b8d7740f88dc0b7aafc219a84",
+        "uri": "armrc://runs/run-20260919-cd8e41675c67/run.json",
+        "samples": 931,
+        "termination": "limit_violation"
+      },
+      {
+        "role": "replay",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [
+          8.67,
+          8.87
+        ],
+        "final_error_mm": 1.947652448028391,
+        "dwell_task_s": 14.6,
+        "final_dwell_s": 15.4,
+        "sha256": "3e09ecf4eebf540b7c77586b00e369c3e5f45753ca8db13103d1bf5320bf481b",
+        "arrays_sha256": "b931b7aaaca0955defe9dcb59b875c1c61565bb46c86712f5cf6e8a62926fcec",
+        "uri": "armrc://runs/run-20260918-3e09ecf4eebf/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      }
+    ]
+  },
+  {
+    "slug": "slow",
+    "case_id": "failure-generated-dwell__pd_v2__force-12N-000deg",
+    "title": "F · Late recovery is still a valid success",
+    "caption": "The singleton and copies eventually recover and hold, while all-ten and synthetic do not satisfy the final dwell criterion. A slower transient is not itself a failure: the protocol judges the final continuous hold within the common horizon.",
+    "categories": [
+      "singleton_wins"
+    ],
+    "configuration": "failure-generated-dwell",
+    "tracker": "pd_v2",
+    "runs": [
+      {
+        "role": "S",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [
+          13.030000000000001,
+          13.23
+        ],
+        "final_error_mm": 6.328150839098248,
+        "dwell_task_s": 25.150000000000002,
+        "final_dwell_s": 4.849999999999998,
+        "sha256": "07e0746e05a1257d83c356533de5c23368472710c2f052d3d6ffbbcf9a03c958",
+        "arrays_sha256": "33900450e2e2efdf8da94fcc37b30e3d89ef210845123515e69f805f9601ffcb",
+        "uri": "armrc://runs/run-20260918-07e0746e05a1/run.json",
+        "samples": 3001,
+        "termination": "completed"
+      },
+      {
+        "role": "M10",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [
+          9.84,
+          10.04
+        ],
+        "final_error_mm": 16.694944021097694,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "2609d19fa374711b9c7658bc2cd1be7232d93d2064be9b0c086ac86b7b6899ca",
+        "arrays_sha256": "7e8a144688bdfd7c2715e6070639f9dee7c041b8467b9635da1374464027f6cb",
+        "uri": "armrc://runs/run-20260918-2609d19fa374/run.json",
+        "samples": 3001,
+        "termination": "completed"
+      },
+      {
+        "role": "R10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [
+          13.030000000000001,
+          13.23
+        ],
+        "final_error_mm": 6.328150839196109,
+        "dwell_task_s": 25.150000000000002,
+        "final_dwell_s": 4.849999999999998,
+        "sha256": "a7b1018174683376ee3b9a1813437ffb7a85f96cd994c58f65e1359a0616f69f",
+        "arrays_sha256": "d9879eb80bace64413e8111233aaab51c8e6011908e433ef736f6af091dde4c6",
+        "uri": "armrc://runs/run-20260918-a7b101817468/run.json",
+        "samples": 3001,
+        "termination": "completed"
+      },
+      {
+        "role": "C10",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [
+          12.280000000000001,
+          12.48
+        ],
+        "final_error_mm": 15.458781463211645,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "c06938ea78f871d36e6c591ea84baed893e9902d3fbd7dd843aca9757d6e978a",
+        "arrays_sha256": "6e2b7825b51994b4dd8e1e9c6b92df5aed28bf9a0752e115bf18b76a24526316",
+        "uri": "armrc://runs/run-20260918-c06938ea78f8/run.json",
+        "samples": 3001,
+        "termination": "completed"
+      },
+      {
+        "role": "replay",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [
+          8.68,
+          8.879999999999999
+        ],
+        "final_error_mm": 1.9476524480285646,
+        "dwell_task_s": 14.59,
+        "final_dwell_s": 15.41,
+        "sha256": "7cfccb4498a949e49448d0a2801f5c6b1e9868b4aec0a90d021af0687dc06b7c",
+        "arrays_sha256": "58ca0ba0ef8845d44d464901cae899d17bb2b64e80cc89b154bb0b1f0c957736",
+        "uri": "armrc://runs/run-20260918-7cfccb4498a9/run.json",
+        "samples": 3001,
+        "termination": "completed"
+      }
+    ]
+  }
+]
