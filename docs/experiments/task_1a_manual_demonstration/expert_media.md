@@ -65,3 +65,18 @@ The exporter lives in `src/arm_rc_ctrl/experiments/manual_expert_export.py`; the
 script is a thin entry point. Tests cover GIF timing and looping, preceding-sample
 selection, unchanged matching figures, source metadata, archive inventory and
 refusal to overwrite an earlier export.
+
+## Validation of the delivered export
+
+Produced from clean commit `322c901` on the isolated `docs/manual-expert-report`
+branch. The [export manifest](expert_media_manifest_v1.json) records all 52 output
+fingerprints; all 52 reproduce byte-for-byte from the tested preview. All eight
+GIFs were decoded and checked for dimensions, frame counts, loop settings and
+playback durations. The ZIP contains all 53 files including its manifest and
+passes its CRC check. Success, pulse and aborted-state frames were visually
+inspected. No study or report asset was modified.
+
+Five exporter tests plus the existing report tests pass. The full pinned gate
+passed: 3,514 tests, 1 skipped, 1 expected failure, 90.48% coverage; dependency
+verification, lint, type checks, C++ and pre-commit all passed. The final closure
+adds only this record, the output manifest and task documentation.

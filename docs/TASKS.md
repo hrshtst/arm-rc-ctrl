@@ -29,9 +29,7 @@ M3MAN-015 is complete: [standalone HTML report](experiments/task_1a_manual_demon
 [validation and reproduction](experiments/task_1a_manual_demonstration/expert_report_validation.md),
 and [archived task](tasks/archive/M3MAN.md#additional-expert-presentation).
 
-| ID | Status | Task | Depends on | Acceptance/evidence |
-| --- | --- | --- | --- | --- |
-| M3MAN-016 | `IN PROGRESS` | Export expert-report animations and matching plots | M3MAN-015 | Owner resumed the cancelled export on 2026-09-28. Eight named GIF case folders, matching task-space/time-series/joint plots, captions, source fingerprints, a ZIP and a reproducible store-free exporter; preserve abort and playback semantics. Exporter and preview verified; pinned full gate: 3,514 passed, 1 skipped, 1 xfailed, 90.48% coverage, all six sessions green. Clean-commit delivery pending. |
+M3MAN-016 is complete: [GIF export and matching plots](experiments/task_1a_manual_demonstration/expert_media.md), with reproducible scripts and a verified media manifest.
 
 ## Manual-data ESN search — M3MS
 
