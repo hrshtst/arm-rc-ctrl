@@ -3,7 +3,7 @@
 
 # Implementation task queue
 
-**Updated:** 2026-09-23. **Roadmap:** [PLAN.md](PLAN.md).
+**Updated:** 2026-09-28. **Roadmap:** [PLAN.md](PLAN.md).
 
 This is the authoritative entry point for work selection. Each task has exactly
 one canonical status/acceptance row: here for active work, in the linked backlog
@@ -26,7 +26,7 @@ criteria and evidence complete. A negative scientific result can close a task.
 ## Manual-data ESN search — M3MS
 
 All rows below implement the [owner-approved plan](experiments/task_1a_manual_esn_search/plan.md).
-The search (M3MS-004/005) has run; no perturbed case has been evaluated. Longer review
+The search and frozen perturbation comparison have run and been audited. Longer review
 rounds/results belong beside that plan, linked from the acceptance cell.
 
 M3MS-001 to M3MS-007 are `DONE`: the protocol, sampled training, the resumable search, the timing
@@ -34,7 +34,7 @@ pilot, the completed search with its freeze, the five-arm comparison, and its au
 
 | ID | Status | Task | Depends on | Acceptance/evidence |
 | --- | --- | --- | --- | --- |
-| M3MS-008 | `TODO` | Interpret and report the tuned comparison — reporting assistant | M3MS-007 | Human-readable paired S/M10/R10/C10/replay findings, failure examples, limitations and reproducible plots. Explain conditioning on M10-selected parameters; no claim of separate singleton tuning or fresh-scenario/multiple-seed validation. Call the frozen configurations the highest nominal scores, never "the three best", and keep nominal feasibility separate from robustness and trajectory quality. |
+| M3MS-008 | `IN PROGRESS` | Interpret and report the tuned comparison — reporting assistant | M3MS-007 | Human-readable paired S/M10/R10/C10/replay findings, failure examples, limitations and reproducible plots. Explain conditioning on M10-selected parameters; no claim of separate singleton tuning or fresh-scenario/multiple-seed validation. Call the frozen configurations the highest nominal scores, never "the three best", and keep nominal feasibility separate from robustness and trajectory quality. |
 | M3MS-GATE | `TODO` | Review and close the follow-up — owner | M3MS-008 | Owner accepts positive/negative/inconclusive findings and records any next decision. No further study, deployment or hardware action is implied. |
 
 ## Future and deferred work

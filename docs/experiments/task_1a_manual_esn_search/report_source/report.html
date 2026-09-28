@@ -1,0 +1,254 @@
+<!doctype html>
+<!-- Copyright (c) 2026 Hiroshi Atsuta · SPDX-License-Identifier: GPL-3.0-only -->
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Nominally tuned reservoir control: an expert report on manual demonstrations</title>
+<link rel="stylesheet" href="assets/report.css"></head><body>
+<a class="skip" href="#background">Skip to report</a>
+<header class="masthead"><b>Robot learning · Experimental report</b><span>M3MS-008 · 28 September 2026</span></header>
+<div class="hero"><p class="eyebrow">Task 1-a · Manual teaching · Nominal-only ESN search</p>
+<h1>Nominal success does not guarantee robust multi-demonstration control</h1>
+<p class="dek">An echo-state network trained on ten human-guided reaches can pass from its taught starting posture,
+yet lose much of that success under starting offsets and force disturbances. This report explains a controlled
+parameter search, the resulting five-arm comparison, and what the evidence does—and does not—establish.</p>
+<div class="hero-stats"><div><strong>100</strong><span>M10 search candidates</span></div><div><strong>3</strong>
+<span>frozen nominal selections</span></div><div><strong>15,990</strong><span>comparison runs accounted for</span></div></div></div>
+<div class="layout"><nav aria-label="Report sections"><p>CONTENTS</p><a href="#background">1 · Background</a>
+<a href="#question">2 · Aim and scope</a><a href="#methods">3 · Methodology</a><a href="#search">4 · Search outcome</a>
+<a href="#results">5 · Paired results</a><a href="#cases">6 · Motion evidence</a><a href="#discussion">7 · Discussion</a>
+<a href="#conclusion">8 · Conclusion</a><a href="#reproduce">9 · Evidence and reproduction</a></nav><main>
+<section id="background"><p class="eyebrow">01 / General background</p><h2>Learning a motion, then closing the loop</h2>
+<p>Teaching by demonstration replaces a hand-designed motion with examples. A human guides an arm from a starting
+posture to a target, and a learned system should reproduce the task while coping with deviations. Recording more
+examples may supply useful variation, but it also changes the learning problem: the same target can be approached
+along different transient trajectories.</p>
+<p>An <strong>echo-state network (ESN)</strong> is a recurrent dynamical model. Its fixed random reservoir transforms
+inputs and their history into an internal state; a linear output layer is trained by ridge regression. Reservoir
+size, recurrence, leakage, input scaling and regularization affect the resulting dynamics. This experiment
+searches those parameters, with a fixed random seed, rather than training all recurrent weights.</p>
+<p>The ESN here receives measured joint positions and velocities, through a frozen input transform, and predicts
+the next desired joint position. It is a <strong>reference generator</strong>, not a torque controller. A separate
+feedback tracker turns desired motion into torque, subject to safety limits. During training the inputs come
+from demonstrations; during execution they come from the simulated arm. Consequently, fitting demonstrated
+next positions is not sufficient to establish that the closed loop will converge after an unfamiliar state.</p>
+<div class="flow"><div><b>Measured arm state</b><span>Joint angles and velocities</span></div><i>→</i>
+<div><b>ESN + trained readout</b><span>Next desired joint position</span></div><i>→</i>
+<div><b>Causal derivatives + tracker</b><span>Bounded torque commands</span></div><i>→</i>
+<div><b>Simulated arm</b><span>Feedback to the ESN; safety checks remain active</span></div></div>
+<p>Replay provides a useful baseline: a fixed recorded trajectory is followed by the same tracker. It has no ESN
+and does not adapt the reference to state, although its tracking controller still uses feedback. Good replay
+performance shows that the demonstration and tracker can accomplish many of these cases; it is not evidence of
+generalization to new targets.</p></section>
+<section id="question"><p class="eyebrow">02 / Experiment background, aim and scope</p><h2>Does tuning on ten demonstrations change the comparison?</h2>
+<p>A preceding study compared one and ten manually recorded trajectories using six configurations inherited from
+a scripted-teacher study. Ten demonstrations did not consistently improve performance. That left an important
+qualification: inherited parameters might favor the earlier task formulation rather than the manual bank.
+The present follow-up searches ESN parameters <em>on the all-ten training arm itself</em>.</p>
+<div class="question"><p><strong>Primary question.</strong> At parameters selected for the nominal success of a model
+trained on all ten demonstrations, how do that model, single-demonstration models, duplicate controls, synthetic
+augmentation and replay compare when the starting state or external force is perturbed?</p></div>
+<p>Only M10 nominal outcomes enter optimization. Singletons, copies, augmentation and perturbed cases are evaluated
+after selection freezes. This protects the specified optimizer from perturbation feedback. The perturbation cases
+are <strong>not newly drawn</strong>: they were used in earlier research, so this is a development comparison with
+cases withheld from this search, not a fresh confirmatory test.</p>
+<p>The scope is one planar arm, one target, one bank of ten demonstrations, one reservoir seed and two fixed
+trackers. It contains no new recordings, separately optimized singleton models, multiple-seed validation,
+hardware trials or adaptive retuning after robustness outcomes become known.</p></section>
+<section id="methods"><p class="eyebrow">03 / Methodology</p><h2>A matched comparison with explicit controls</h2>
+<h3>Robot, teaching and task</h3><p>The gravity-free planar arm has two revolute joints, with link lengths 0.30 and
+0.25 m. Its taught reset posture is [0.2, 1.2] rad and its endpoint target is [0.10, 0.45] m. Ten accepted mouse-guided
+recordings share that reset and target but retain natural differences in transient motion and initial fluctuation.
+They were acquired at 50 Hz, reconstructed from actual timestamps, smoothed while preserving the first sample,
+and placed on the common 100 Hz training/control grid. Full recordings contribute to training; they are not cropped
+to a fixed move window.</p>
+<p>The learned readout predicts absolute next joint position from reservoir state and an explicit bias. Each
+episode has equal total loss weight despite different duration. For K episodes, each row of episode i has weight
+400/L<sub>i</sub>, and the ridge penalty used by the solver is Kα<sub>0</sub>. Equivalently, the objective uses
+mean squared loss per episode plus α<sub>0</sub>/400 times the squared weight norm. The explicit bias is penalized
+consistently. This makes exact duplication a control for numerical equivalence, rather than a way to dilute
+regularization. The input transform is inherited and fixed; it is not estimated from the other nine teachers
+when a singleton is trained.</p>
+<div class="table-scroll"><table><caption>Five arms at every selected configuration</caption><thead><tr><th>Arm</th>
+<th>Training or execution source</th><th>Units per configuration</th><th>Question it addresses</th></tr></thead><tbody>
+<tr><th>S</th><td>One accepted teacher</td><td>10 models, one per parent D01–D10</td><td>Dependence on the choice of teacher</td></tr>
+<tr><th>M10</th><td>All ten teachers, one episode each</td><td>1 model</td><td>Does observed human variation help?</td></tr>
+<tr><th>R10</th><td>Ten identical copies of one parent</td><td>10 models</td><td>Does repetition alone alter the result?</td></tr>
+<tr><th>C10</th><td>One parent + nine accepted synthetic episodes</td><td>10 models</td><td>Does this particular artificial variation help?</td></tr>
+<tr><th>Replay</th><td>Each parent's recorded path, followed by the tracker</td><td>10 banks</td><td>How does learned reference generation compare with direct tracking?</td></tr>
+</tbody></table></div>
+<p>The synthetic bank is inherited unchanged. Its joint-space perturbations ramp from zero at the first sample
+over 0.5 s, contract near the target and taper through final dwell. “Contractive” describes the perturbation
+envelope; it is not a proof of contraction or stability of the learned closed loop. Every parent has a distinct
+frozen synthetic bank. We do not search the augmentation policy.</p>
+<h3>Nominal optimization</h3><p>Optuna runs 100 serial TPE trials, including the ten-trial timing pilot. Reservoir
+seed 896 stays fixed; the sampler seed is 20270301. The six ESN parameters and warm-up are searched within the
+following approved domain. Both tracker gains and causal derivative filters are excluded from the search.</p>
+<div class="table-scroll"><table><thead><tr><th>Parameter</th><th>Search domain</th></tr></thead><tbody>
+<tr><td>Reservoir neurons</td><td>100–400, in steps of 50</td></tr><tr><td>Spectral radius</td><td>0.8–1.3</td></tr>
+<tr><td>Sparsity parameter</td><td>0.5–0.98, using the pinned library's convention</td></tr>
+<tr><td>Leak rate</td><td>0.01–0.3, logarithmic</td></tr><tr><td>Input scaling</td><td>0.02–1.5, logarithmic</td></tr>
+<tr><td>Base ridge α<sub>0</sub></td><td>0.001–1, logarithmic</td></tr><tr><td>Warm-up</td><td>0, 0.25, 0.5, 1 or 2 s</td></tr>
+</tbody></table></div>
+<p>A candidate gets two nominal runs, one under <strong>PD</strong> tracking and one under
+<strong>computed-torque</strong> tracking. PD responds to position/velocity tracking errors; computed torque also
+uses the dynamics model. Their gains stay fixed. The inherited causal velocity and acceleration cutoffs are
+29.980411525699598 and 10.938122239871603 Hz, with maximum timestep ratio 3. Warm-up is applied consistently to
+training preparation and evaluation and lies before the 30 s active horizon.</p>
+<div class="equation">Nominal score = number of successful tracker runs / 2 ∈ {0, 0.5, 1}</div>
+<p>The three distinct parameter points with the highest nominal scores are selected, with ties resolved by earlier
+trial number. No timing, trajectory-quality or perturbed score breaks ties. “Highest nominal scores” therefore
+does not mean “the three best” controllers.</p>
+<h3>Frozen evaluation and success definition</h3><p>Every learned model attempts all 65 cases from fresh resets under
+both trackers. The panel contains one nominal case, 20 small-posture offsets (0.05 rad scale), 20 large-posture
+offsets (0.10 rad scale), four force directions, and 20 combined posture/force cases. These are a fixed panel,
+not 65 independent samples from a known real-world distribution.</p>
+<p>A force case applies a 12 N endpoint pulse for 0.2 s, triggered after the measured arm holds the target predicate
+continuously for 0.5 s. Its actual timestamp is recorded separately for every run. Thus matched force direction
+does not imply matched wall-clock pulse time. Failing to reach the trigger condition is a failure to complete the
+prescribed test, not evidence of surviving the disturbance.</p>
+<p>Success requires completing the 30 s active horizon and satisfying every configured criterion: final uninterrupted
+hold of at least 1 s within 1 cm of the target with every joint at or below 0.05 rad/s; valid generated reference;
+the required force trigger and post-pulse hold where applicable; and effort admissibility. The 6 rad/s joint-speed
+abort and torque limits [10, 5] N·m remain active. An early abort counts as a failure, retains its partial trajectory,
+and does not suppress subsequent cases. A favorable final endpoint alone cannot override a failed criterion.</p>
+<p>Results are paired within configuration, tracker, parent and scenario class. For M10−S, the same M10 result is
+compared with each of the ten singleton parents. M10 is counted once in per-arm totals. Parent-wise differences,
+medians, ranges and improved/worsened/tied counts describe heterogeneity; they are not independent replications
+of M10 and are not confidence intervals.</p></section>
+<section id="search"><p class="eyebrow">04 / Search and execution</p><h2>A coarse objective settles the selection early</h2>
+<p>All 100 candidates were fitted and scored: 70 scored 1, four scored 0.5 and 26 scored 0. No fit failed. The frozen
+selections are <strong>trials 1, 2 and 4</strong>, each with score 1. They are the earliest distinct candidates at the
+maximum nominal score; later successful trials cannot displace them under the declared rule. All 100 trials were
+nevertheless completed. The three configurations below are labelled T1, T2 and T4 by their trial numbers, avoiding
+confusion with the predecessor's A–F labels.</p>
+<div class="table-scroll"><table class="dense"><caption>Frozen parameter points (rounded for display; exact values in the linked freeze)</caption>
+<thead><tr><th>Trial</th><th>Neurons</th><th>Radius</th><th>Sparsity</th><th>Leak</th><th>Input scale</th><th>α₀</th><th>Warm-up (s)</th></tr></thead>
+<tbody>{{CONFIG_TABLE}}</tbody></table></div>
+<p>The comparison completed sequentially at all three configurations: 93 learned models, 30 replay banks,
+{{RC_RUNS}} learned runs and {{REPLAY_RUNS}} replay runs, with none unavailable. The recorded shared spend was
+6.05 h and 10.49 GiB against the approved 10 h / 20 GiB ceiling, including 0.30 h for search. Reused artifacts are
+charged conservatively. Ten replay banks at T1 were verified and reused from the predecessor; all three M10 fits
+were served from the search cache. The six nominal search runs were not reused because their nominal-only
+conditions differ from the full comparison's recorded scope.</p>
+<p>The audit rejudged all 15,990 runs from their own stored arrays and rebuilt their rows and aggregates. It did not
+re-simulate this comparison. This checks consistency between evidence and declared computation; shared evaluation
+code means it is not an independent validation of the scientific adequacy of every metric.</p></section>
+<section id="results"><p class="eyebrow">05 / Results</p><h2>The nominal advantage does not transfer reliably</h2>
+<p>Every selected M10 model passes nominally under both trackers. Across all 65 cases, M10 scores only 28/65 under
+each tracker at T1, 3/65 and 1/65 at T2, and 5/65 and 6/65 at T4. These totals do not by themselves answer whether
+more demonstrations help; the parent-matched differences below do.</p>
+<div class="table-scroll"><table><caption>Primary comparison. Successes out of 65; S and paired differences show median [minimum–maximum] across ten parents.</caption>
+<thead><tr><th>Configuration / tracker</th><th>S</th><th>M10</th><th>M10−S</th><th>Parents improved / worsened / tied</th></tr></thead>
+<tbody>{{SUMMARY_TABLE}}</tbody></table></div>
+<p>M10's median paired difference is negative in five of the six configuration/tracker strata and positive only at
+T1/computed torque. At T1 the difference is modest and depends on the parent; at T2 and T4 every singleton parent
+outperforms M10 across the full panel. Optimizing M10 nominally therefore does not produce a general
+multi-demonstration advantage under the perturbations examined here.</p>
+<figure><img src="assets/success_counts.png" alt="Successful case counts for every model by configuration and tracker">
+<figcaption>Points are models or replay parents, not repeated random trials. Exact overlaps can hide multiple points;
+the table and parent plot retain their counts. M10 appears only once in each stratum.</figcaption></figure>
+<figure><img src="assets/paired_classes.png" alt="Class-specific paired M10 minus singleton success-count differences">
+<figcaption>Each cell is the median of ten paired count differences divided by that class's case count. Colour uses
+the fraction so classes of different sizes remain comparable. A nominal tie is expected after nominal selection;
+it is not evidence of equal robustness.</figcaption></figure>
+<h3>Copies do not supply new information</h3><p>Across {{COPY_PAIRS}} matched S/R10 scenario/tracker pairs, there are
+{{COPY_DISAGREEMENTS}} verdict disagreements. This is consistent with the count-scaled ridge construction:
+repeating an episode does not change the intended regularized objective. This statement concerns verdicts; it does
+not claim bitwise equality of every learned trajectory or establish that adding <em>different</em> demonstrations
+cannot matter.</p>
+<h3>Synthetic augmentation can help, fail completely, or hide one bad parent</h3>
+<p>C10 improves median success over copies at T1 under both trackers. At T2 it is worse than copies for every parent
+under both trackers, with almost no successes. At T4/PD, nine synthetic models pass all 65 cases, while C10/D03
+passes none. The median is therefore 65, but the worst parent is zero. T4/computed torque does not share the same
+robustness: its C10 median is slightly below the copy control. The specific augmentation is not a universal remedy.</p>
+<div class="table-scroll"><table><caption>Each arm's median [range] of success counts out of 65. M10 has one model, so its range is degenerate.</caption>
+<thead><tr><th>Configuration / tracker</th><th>S</th><th>M10</th><th>R10</th><th>C10</th><th>Replay</th></tr></thead>
+<tbody>{{ARM_TABLE}}</tbody></table></div>
+<figure><img src="assets/paired_parents.png" alt="All parent-wise paired differences for M10 versus S, C10 versus copies and M10 versus C10">
+<figcaption>Positive values favour the first named arm. D03's T4 synthetic failure and D10's T1 synthetic failure
+are visible even where the median favours augmentation. Lines connect parent labels only; the labels are not a continuous variable.</figcaption></figure>
+<h3>Replay and trackers remain important controls</h3><p>All replay parents pass 63/65 PD cases and 64/65
+computed-torque cases at each selected configuration. The recorded pooled totals are {{REPLAY_SUCCESS}} successful
+replay runs out of {{REPLAY_RUNS}}, versus {{RC_SUCCESS}} learned successes out of {{RC_RUNS}}. Those pooled numbers
+are bookkeeping, not an estimate of the M10 effect: there are ten S, R10 and C10 models but one M10 per configuration.</p>
+<p>Strong replay performance makes a blanket explanation based on untrackable demonstrations implausible. It does
+not identify the cause of each learned failure. The tracker comparison is also substantive: at T4, PD permits
+many synthetic recoveries that computed torque does not. Holding gains and filters fixed isolates the declared
+search; it does not establish their insensitivity.</p>
+<div class="table-scroll"><table><caption>Learned arm minus parent-matched replay: median [range] of paired success-count differences out of 65.</caption>
+<thead><tr><th>Configuration / tracker</th><th>S−Replay</th><th>M10−Replay</th><th>R10−Replay</th><th>C10−Replay</th></tr></thead>
+<tbody>{{REPLAY_TABLE}}</tbody></table></div>
+<p>The remaining planned contrast, M10−R10, has the same success-count differences as M10−S here because the
+matched S/R10 verdicts agree. All four planned contrasts and all four learned-arm/replay contrasts are retained
+in the <a href="../results/contrast_summary_v1.csv">complete contrast summary</a>.</p>
+<h3>What actually causes the recorded failures?</h3><div class="table-scroll"><table class="dense">
+<caption>M10's deciding reason, counted from its audited run rows. Every row totals 65. A deciding reason may conceal other simultaneously failed criteria.</caption>
+<thead><tr><th>Configuration / tracker</th><th>Pass</th><th>Final dwell</th><th>Trigger</th><th>Limit</th><th>Reference</th><th>Saturation</th></tr></thead>
+<tbody>{{FAILURES}}</tbody></table></div>
+<p>A failed final dwell can mean a large excursion or a small sustained error outside the ring. A trigger failure
+means that the prescribed force test was never reached. A speed-limit failure ends the run early; the violating
+next state may not be stored as a normal sample. The following motion views distinguish these behaviours without
+changing the original verdict.</p></section>
+<section id="cases"><p class="eyebrow">06 / Motion evidence</p><h2>Ten post-hoc views of success and failure</h2>
+<p>These cases were selected <strong>after</strong> inspecting results to explain contrasting behaviours. They are
+not a frozen representative sample, a second selection criterion, or a basis for prevalence estimates. Most use
+parent D01; the explicitly labelled D03 case shows the synthetic exception. Each case keeps all five arms at the
+same configuration, tracker and scenario.</p>
+<p>Press Play or drag the time control. Solid arms are measured motion; dashed arms are commanded reference.
+Playback retains one in ten 100 Hz samples plus endpoints and force/activation events, with coordinates rounded
+for display; the plots use full stored sampling. No motion beyond an aborted trace is simulated. The grey pose
+shown after termination is its last stored state. All playback works offline, without an external JavaScript library.</p>
+{{CASES}}</section>
+<section id="discussion"><p class="eyebrow">07 / Discussion and limitations</p><h2>Separate what was measured from possible mechanisms</h2>
+<p><strong>Supported conclusion:</strong> selecting for M10 nominal feasibility is insufficient to secure a robust
+advantage over one-teacher models in this fixed panel. The result addresses the predecessor's parameter-inheritance
+qualification by searching on M10, but it is not a controlled before/after estimate of tuning's benefit: the
+configuration panel, seed and fixed filter policy differ from that earlier comparison.</p>
+<p><strong>Selection is intentionally weak on robustness.</strong> The objective has only three values. Seventy
+candidates tie at the maximum, and chronology decides which three are retained. The study finds nominally feasible
+parameters; it does not rank those seventy by robustness, smoothness, effort or timing. We cannot infer that no
+unselected candidate would perform better under perturbations.</p>
+<p><strong>A plausible mechanism, not a demonstrated cause:</strong> teachers share endpoints but trace different
+state histories. A common readout must combine those histories, and perturbed feedback may take the reservoir
+outside its demonstrated state distribution. Ridge regularization and reservoir dynamics could then shape
+unhelpful attractors or sensitivity to initial conditions. These explanations require additional diagnostics or
+controlled ablations. Different outputs at similar instantaneous postures are not proof of contradictory labels,
+because the ESN carries memory. The present data do not establish a causal link between any one searched parameter
+and the observed robustness.</p>
+<p><strong>The inference is conditional on M10 selection.</strong> S and C10 were evaluated at parameters selected
+for M10, not separately optimized for their own objectives. Their good results in some strata are meaningful
+baselines under common parameters; they do not identify either arm's attainable optimum. Likewise, augmentation
+changes more than episode count: R10 controls duplication, but C10 tests only one frozen noise construction.</p>
+<ul><li>Only ten demonstrations of one target and one fixed reservoir seed were used. No between-operator or between-seed uncertainty is estimated.</li>
+<li>The two nominal tracker outcomes are deterministic evaluations, not repeated Bernoulli trials. Parent ranges and scenario fractions are descriptive, not population confidence intervals.</li>
+<li>The 64 perturbed cases were withheld from Optuna but already known to the broader research process. No new confirmatory case set was drawn.</li>
+<li>Paired M10 contrasts reuse a single M10 model within each stratum; treating ten contrasts as ten independently trained M10 replicates would overstate evidence.</li>
+<li>A strict 1 cm final hold and the generated-reference, force and safety criteria shape success. Passing does not imply equal motion quality, and near misses should not be silently recoded.</li>
+<li>Tracker/filter insensitivity was not tested. Their values were fixed by design; the observed tracker differences caution against assuming interchangeability.</li>
+<li>The audited computation and presentation are reproducible from stored artifacts. They do not validate model fidelity to a physical robot, nor authorize hardware deployment.</li></ul>
+</section><section id="conclusion"><p class="eyebrow">08 / Conclusion</p><h2>Nominal tuning resolves feasibility, not robustness</h2>
+<p>At the three configurations selected by the approved nominal-only M10 search, all-ten training does not reliably
+outperform one-teacher learning. It has a negative median paired effect in five of six strata, with a modest
+positive exception at T1/computed torque. Duplication leaves verdicts unchanged, while synthetic augmentation is
+strongly dependent on configuration and parent. Replay remains a strong baseline.</p>
+<p>The practical lesson is to retain matched singleton, duplication, synthetic and replay controls when studying
+multi-demonstration learning, and to evaluate perturbed closed-loop behaviour separately from the objective used
+for selection. Any future decision to tune robustness, vary seeds, inspect reservoir states or introduce fresh
+scenarios would be a new protocol. This completed comparison alone does not choose or authorize that next study.</p></section>
+<section id="reproduce"><p class="eyebrow">09 / Evidence and reproduction</p><h2>Every illustration has an audit trail</h2>
+<p>The report is an interpretation of the <a href="../results/results_v1.md">derived results</a> and
+<a href="../audit/audit_v2.md">audit v2</a>. See the <a href="../plan.md">approved protocol</a>,
+<a href="../freeze/selection_v1.md">exact selection record</a>, <a href="../comparison/status_v1.md">execution accounting</a>
+and <a href="../results/arm_summary_v1.csv">arm summaries</a>. The machine-readable
+<a href="manifest.json">presentation manifest</a> binds sources, evidence and every output file; <a href="cases.json">case bindings</a>
+name the original stored payloads and digests for all fifty illustrated traces.</p>
+<p>Recreate the complete presentation in a new directory from this checkout with the external store configured:</p>
+<pre><code>uv run --locked python scripts/render_manual_search_report.py --output /tmp/m3ms-expert-report
+uv run --locked python scripts/render_manual_search_report.py --output /tmp/m3ms-expert-report --verify</code></pre>
+<p>The first command reads verified stored arrays and creates plots, compact browser playback and HTML. It does not
+fit, simulate, change the study or write to the evidence store. The second command needs no store: it checks the
+complete output inventory, source scripts and committed input fingerprints. Keep the entire report directory
+when sharing it. The source template, CSS, playback script and Python renderer are retained in the repository.
+This is the M3MS-008 interpretation; scientific acceptance remains the owner's M3MS-GATE decision.</p></section>
+<footer>Original work © 2026 Hiroshi Atsuta · GPL-3.0-only. Interpretation and presentation prepared with AI assistance.
+Scientific results remain those of the recorded protocol and audited evidence.</footer>
+</main></div><script>window.manualCases = [];</script>{{CASE_SCRIPTS}}<script src="assets/player.js"></script></body></html>

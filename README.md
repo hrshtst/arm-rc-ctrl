@@ -565,3 +565,12 @@ Original code and documentation are licensed under GPL-3.0-only
 ([`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md)). Citation metadata is in
 [`CITATION.cff`](CITATION.cff); the release policy is in
 [`docs/PUBLICATION.md`](docs/PUBLICATION.md).
+
+### Manual-data ESN search: expert report (M3MS-008)
+
+Open the [standalone expert HTML report](docs/experiments/task_1a_manual_esn_search/report/index.html)
+for background, protocol, parent-matched findings and ten post-hoc animated
+comparisons. All plots, playback data and the HTML are reproducible with
+`scripts/render_manual_search_report.py`; the [reproduction guide](docs/experiments/task_1a_manual_esn_search/report/README.md)
+describes read-only generation and store-free verification. Scientific acceptance
+remains M3MS-GATE.
