@@ -1,0 +1,927 @@
+[
+  {
+    "slug": "t1-nominal",
+    "case_id": "search-t0001__pd_v2__D01__nominal",
+    "title": "T1 \u00b7 Nominal feasibility",
+    "caption": "All five arms pass. This is the type of evidence the nominal objective rewards; it does not measure recovery.",
+    "categories": [
+      "post-hoc explanatory selection"
+    ],
+    "configuration": "search-t0001",
+    "tracker": "pd_v2",
+    "runs": [
+      {
+        "role": "S",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 2.541641091477725,
+        "dwell_task_s": 4.71,
+        "final_dwell_s": 25.29,
+        "sha256": "8c662da8ad5148dd89eee858e591ba55cf027f204f9a8bc78c151afd0c90f70c",
+        "arrays_sha256": "b2e167b514cc2dc03ea1130b65f0a860a949d10a26d6290797190102ed9f97a8",
+        "uri": "armrc://runs/run-20260923-8c662da8ad51/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "M10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 3.0155329305391283,
+        "dwell_task_s": 4.8,
+        "final_dwell_s": 25.2,
+        "sha256": "2729c0e7c0235a25260a8aa7dd3f8812ccfb819f0a98a530dfba5b5e9a3fd9d6",
+        "arrays_sha256": "860b614eb9ce7b3e654cab6eb73341a0d669981a3d39ca2f407cf6e179b9baed",
+        "uri": "armrc://runs/run-20260923-2729c0e7c023/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "R10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 2.5416410914772385,
+        "dwell_task_s": 4.71,
+        "final_dwell_s": 25.29,
+        "sha256": "95f1a73501c6c4a93e8394d9eef9be394091ae694146958c264fd8f5b415a5d1",
+        "arrays_sha256": "9bd1d2e0fb77ef977c019823bd7aec3fc2cf7b2223454270576daabd8b5784b5",
+        "uri": "armrc://runs/run-20260923-95f1a73501c6/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "C10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 2.4224994811911476,
+        "dwell_task_s": 4.33,
+        "final_dwell_s": 25.67,
+        "sha256": "df0d8b68a9fe4f4c148ea592913d32aba6004d228ed7d9f09c0e73079abfad6c",
+        "arrays_sha256": "299c1fd5649173e3e5a4caefc0dffd744f82dd620e96290db9f0354fc712037a",
+        "uri": "armrc://runs/run-20260923-df0d8b68a9fe/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "replay",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.9476524480285546,
+        "dwell_task_s": 14.58,
+        "final_dwell_s": 15.42,
+        "sha256": "6c12c1a56f072666d0ad3d4b08bae3a1f21f12b20e914c4111ab2ac53ff875c0",
+        "arrays_sha256": "949a38db98180e361b9360d860bebe6e05a506231505dabe2e77ec7bd69f00f7",
+        "uri": "armrc://runs/run-20260918-6c12c1a56f07/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      }
+    ]
+  },
+  {
+    "slug": "t1-offset",
+    "case_id": "search-t0001__pd_v2__D01__posture-small-20261201-02",
+    "title": "T1 \u00b7 Synthetic episodes help locally",
+    "caption": "A post-hoc example in which C10 succeeds but M10 does not. The aggregate parent plot shows how uneven this benefit is.",
+    "categories": [
+      "post-hoc explanatory selection"
+    ],
+    "configuration": "search-t0001",
+    "tracker": "pd_v2",
+    "runs": [
+      {
+        "role": "S",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 745.9613036562878,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "54a46d908f220f8d0ec1fc2dedeb56cb9b341c9ed573d3e73aaf460b4cd2c7b4",
+        "arrays_sha256": "35a29e19040efbd83a1567b93601aa37caeb061dfb1ed440136cdef16c433870",
+        "uri": "armrc://runs/run-20260923-54a46d908f22/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "M10",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 771.568897757468,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "11f4f3cfc789279c0f292c5099290bea7fe8cc28dee64a77813b3c906fcfe87d",
+        "arrays_sha256": "cdee743d565ace17020817e296791514e8bdca26cbf10c3e7e3140bd90d80b72",
+        "uri": "armrc://runs/run-20260923-11f4f3cfc789/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "R10",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 745.9613036566581,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "6138943ce60bf52dc5c43b17d1d0357a2e424f3334f9ae80d4a1fb20df55c4c8",
+        "arrays_sha256": "faaff0c0352f02b77093c4c2c6106015498cdf777a08e65e4b5c1a771dca75c3",
+        "uri": "armrc://runs/run-20260923-6138943ce60b/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "C10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 2.4224994811911293,
+        "dwell_task_s": 5.37,
+        "final_dwell_s": 24.63,
+        "sha256": "fc7b3869213bb246cfebcdfe2fa3da2223354e01d3b5a777b4c58c5fd3d6c3a0",
+        "arrays_sha256": "2bc566611a56784ad45f547a992de7f31a110f803fc0600b748aaf9d8ad17d46",
+        "uri": "armrc://runs/run-20260923-fc7b3869213b/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "replay",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.9476524480285546,
+        "dwell_task_s": 14.58,
+        "final_dwell_s": 15.42,
+        "sha256": "4e4c26d462b42a8d16a798e904a0f113010bbac3c08fbcc36539c21f93f9d0e9",
+        "arrays_sha256": "63fe4d5766149367672d43f2ca24ab29616d580da7a5020dd8b68af6bde48c86",
+        "uri": "armrc://runs/run-20260918-4e4c26d462b4/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      }
+    ]
+  },
+  {
+    "slug": "t1-force",
+    "case_id": "search-t0001__pd_v2__D01__force-12N-000deg",
+    "title": "T1 \u00b7 A force pulse defeats nominally successful learners",
+    "caption": "The learned arms fail the final dwell after the pulse; replay recovers. A nominal pass does not test this transition.",
+    "categories": [
+      "post-hoc explanatory selection"
+    ],
+    "configuration": "search-t0001",
+    "tracker": "pd_v2",
+    "runs": [
+      {
+        "role": "S",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [
+          5.21,
+          5.41
+        ],
+        "final_error_mm": 745.9613036562879,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "80f8ae19afe5e84c8a45ed1415be4f9ef1fddbb387281310b87b693ad7f691f8",
+        "arrays_sha256": "1991f37a1cc7251a785a05ef3ac380e0b86ee7a2dcd5b8a0860fc1268099d8fe",
+        "uri": "armrc://runs/run-20260923-80f8ae19afe5/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "M10",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [
+          5.3,
+          5.5
+        ],
+        "final_error_mm": 771.5688977574679,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "14a7b5c36b536666c5a5c813f4b9c1c44ecf9571dd3acfbd0bc46473ca5ec22f",
+        "arrays_sha256": "37aee0d49a89512159d71e54c2e63e7770e2a501ec36aad8622b8225b8ca31dd",
+        "uri": "armrc://runs/run-20260923-14a7b5c36b53/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "R10",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [
+          5.21,
+          5.41
+        ],
+        "final_error_mm": 745.9613036566581,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "2676fca2adecf85cf0280fd9b7d8472c38c79e914fb40d8e23876047aa455925",
+        "arrays_sha256": "04641b3808c9f0b31463b2d56191c52c310638166e77a31ae8d04d1d98e32bf3",
+        "uri": "armrc://runs/run-20260923-2676fca2adec/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "C10",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [
+          4.83,
+          5.03
+        ],
+        "final_error_mm": 777.9497371923788,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "2f1806549cf1c19c6a2aeb6c72a38ad0021197e1654acf3571e7bf9e7ebec773",
+        "arrays_sha256": "c56f0f906c1e4fc30b7ec0d3168e2066d9b36cdde8a5e035fc8de3109410496f",
+        "uri": "armrc://runs/run-20260923-2f1806549cf1/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      },
+      {
+        "role": "replay",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [
+          8.67,
+          8.87
+        ],
+        "final_error_mm": 1.9476524480285546,
+        "dwell_task_s": 14.58,
+        "final_dwell_s": 15.42,
+        "sha256": "8bd2cf7ac979bea3c8ca1ebf544cb59e54b26025caeb7aa01f2a479f4de32094",
+        "arrays_sha256": "33d2f52a8a53a2268f6c6648abf43950b95618079c7c64754ea62a84be2292a1",
+        "uri": "armrc://runs/run-20260918-8bd2cf7ac979/run.json",
+        "samples": 3101,
+        "termination": "completed"
+      }
+    ]
+  },
+  {
+    "slug": "t2-nominal",
+    "case_id": "search-t0002__pd_v2__D01__nominal",
+    "title": "T2 \u00b7 M10 passes, synthetic training fails",
+    "caption": "The selected M10 and singleton pass at reset; C10 fails even here. The search never scored C10.",
+    "categories": [
+      "post-hoc explanatory selection"
+    ],
+    "configuration": "search-t0002",
+    "tracker": "pd_v2",
+    "runs": [
+      {
+        "role": "S",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 2.9815153277654916,
+        "dwell_task_s": 8.44,
+        "final_dwell_s": 21.560000000000002,
+        "sha256": "13a82c3f31b0875fd7bc8754fff8e170930ea21069e22df19a102ea9d7cc22f9",
+        "arrays_sha256": "741d6f32a67c48886cf07d731e6f8f942ec7cd28dee797d5924646be3cbe1449",
+        "uri": "armrc://runs/run-20260923-13a82c3f31b0/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      },
+      {
+        "role": "M10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 3.9635625005317934,
+        "dwell_task_s": 7.880000000000001,
+        "final_dwell_s": 22.119999999999997,
+        "sha256": "89380aca54fbde0ff3917f02ca87eda25798d898348756734c93be8d01a4ef4b",
+        "arrays_sha256": "dc95c1fb0c8616104310ffbe14e45eff8150db4305a0fb412927237fad8c67ca",
+        "uri": "armrc://runs/run-20260923-89380aca54fb/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      },
+      {
+        "role": "R10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 2.981515323176577,
+        "dwell_task_s": 8.44,
+        "final_dwell_s": 21.560000000000002,
+        "sha256": "6338ebbb2f5b5c6f0b24cedcfd6f96798a814cd1dff6ea203bb74c10639e84c0",
+        "arrays_sha256": "e349316e9e95d0e0382433290523961e5e64057f560a2cb6f3c9438bd77d31f1",
+        "uri": "armrc://runs/run-20260923-6338ebbb2f5b/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      },
+      {
+        "role": "C10",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 611.3875386989886,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "27e3e8dc8315d24f1d39909fc53232b07e6bc371aafdc3bcbbef398419ed58f2",
+        "arrays_sha256": "6baaf276faa4b4b4e7b589b6e610a92c9ac91f4cd27e9bfc67514f4e0c8c07f4",
+        "uri": "armrc://runs/run-20260923-27e3e8dc8315/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      },
+      {
+        "role": "replay",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.9476524480285546,
+        "dwell_task_s": 14.58,
+        "final_dwell_s": 15.42,
+        "sha256": "839c73dbce8710e9b24c18d031a4fa26f9efa65f27d027532b8d8620dff2b15e",
+        "arrays_sha256": "e3c10df00517daa3d943bec034408d71d9e8783d1b0c0c20b062ea624470f44c",
+        "uri": "armrc://runs/run-20260923-839c73dbce87/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      }
+    ]
+  },
+  {
+    "slug": "t2-offset",
+    "case_id": "search-t0002__pd_v2__D01__posture-small-20261201-00",
+    "title": "T2 \u00b7 A small initial offset breaks M10",
+    "caption": "S and replay pass; M10 fails to hold and C10 aborts. This is the same parent and tracker as the preceding nominal example.",
+    "categories": [
+      "post-hoc explanatory selection"
+    ],
+    "configuration": "search-t0002",
+    "tracker": "pd_v2",
+    "runs": [
+      {
+        "role": "S",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 2.95842601078058,
+        "dwell_task_s": 9.51,
+        "final_dwell_s": 20.490000000000002,
+        "sha256": "6cad9214de8fab57fff488b734f9cf2b9305b9fce441edc84a0071039c90546e",
+        "arrays_sha256": "43cc7dba01f89a93cdcc00929fd3af5c935ecbbad48483654817de7a99bcc634",
+        "uri": "armrc://runs/run-20260923-6cad9214de8f/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      },
+      {
+        "role": "M10",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 765.9387801545415,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "1ab338d1d6ae703214179c88a61afb93690aa4ba52c5c733b1f6859e648badcc",
+        "arrays_sha256": "8510f6ae43f1521b5c5657e1a64116a89cf7d2c1b59a2245fcf5eabe86412651",
+        "uri": "armrc://runs/run-20260923-1ab338d1d6ae/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      },
+      {
+        "role": "R10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 2.958426006292208,
+        "dwell_task_s": 9.51,
+        "final_dwell_s": 20.490000000000002,
+        "sha256": "388a822b36ebeb2812368a68ef5cc140e01e12aa9bf0a9e3b398f3832ba195aa",
+        "arrays_sha256": "ce6c711f187562d80fa4fcced437187a14af34b8b0dd452246eeefba4fb33c01",
+        "uri": "armrc://runs/run-20260923-388a822b36eb/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      },
+      {
+        "role": "C10",
+        "success": false,
+        "reason": "limit_violation:joint_velocity",
+        "end": 0.13,
+        "pulse": [],
+        "final_error_mm": 366.8448586599677,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "ccac8b4d20d7d58209e6e81b7dffb111aef3c128d8162d010fcad8fd1499e56d",
+        "arrays_sha256": "22fdd5c00b568e00f65db53a56a677aac6dd8fc4b7ef6edbddfd2e305f4e0086",
+        "uri": "armrc://runs/run-20260923-ccac8b4d20d7/run.json",
+        "samples": 39,
+        "termination": "limit_violation"
+      },
+      {
+        "role": "replay",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.9476524480285546,
+        "dwell_task_s": 14.58,
+        "final_dwell_s": 15.42,
+        "sha256": "b63140a941fb4f6a5a3c3e216e2008c930c0190e4f44de471898b1af0969c593",
+        "arrays_sha256": "adeb4c243be3004e8626af841e03f72068540c6362d58a1aaf8a9ad142148e86",
+        "uri": "armrc://runs/run-20260923-b63140a941fb/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      }
+    ]
+  },
+  {
+    "slug": "t2-torque",
+    "case_id": "search-t0002__computed_torque__D01__nominal",
+    "title": "T2 \u00b7 Failure at the velocity limit",
+    "caption": "At nominal reset the computed-torque tracker still permits M10 to pass, while C10 aborts. Safety stops are retained as failures.",
+    "categories": [
+      "post-hoc explanatory selection"
+    ],
+    "configuration": "search-t0002",
+    "tracker": "computed_torque",
+    "runs": [
+      {
+        "role": "S",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 2.9540832653228652,
+        "dwell_task_s": 9.15,
+        "final_dwell_s": 20.85,
+        "sha256": "8f465b250f36383076c6bdce488510af015589295c87dff958450754b24994ed",
+        "arrays_sha256": "502911b1395f430acba12c6296ff33c51a262bdbaf5c94caba2e8172d58524a2",
+        "uri": "armrc://runs/run-20260923-8f465b250f36/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      },
+      {
+        "role": "M10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 4.148160424032453,
+        "dwell_task_s": 7.970000000000001,
+        "final_dwell_s": 22.03,
+        "sha256": "298eac85acd257092da3dea21b9bb9c2638517fd1c88c9befaaf7c103ab6922e",
+        "arrays_sha256": "d78e313dd07990ce31db2f8ec207382d126f4892218c6a17e571cbfbd095e35a",
+        "uri": "armrc://runs/run-20260923-298eac85acd2/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      },
+      {
+        "role": "R10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 2.9540832609123844,
+        "dwell_task_s": 9.15,
+        "final_dwell_s": 20.85,
+        "sha256": "1ee3aa089195ac1efa29bd16eaf37306fedc3807fc328412b7deff79c8a61a79",
+        "arrays_sha256": "2e717a527e6dd41b3830102f1c388d83c05ba36c1a4afa4744036c98ca2895a3",
+        "uri": "armrc://runs/run-20260923-1ee3aa089195/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      },
+      {
+        "role": "C10",
+        "success": false,
+        "reason": "limit_violation:joint_velocity",
+        "end": 1.02,
+        "pulse": [],
+        "final_error_mm": 200.20661147748885,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "1aa62cad1f49f36f48d6037382f3d05df831c0fa25a0acfce287139e488635dd",
+        "arrays_sha256": "5b7cc3f0fe50d5c1fdb6d03d9f2a39226857f98e1aefc0d3a17cd1ecce258ec0",
+        "uri": "armrc://runs/run-20260923-1aa62cad1f49/run.json",
+        "samples": 128,
+        "termination": "limit_violation"
+      },
+      {
+        "role": "replay",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.947652448028391,
+        "dwell_task_s": 14.6,
+        "final_dwell_s": 15.4,
+        "sha256": "44b4f3855de98c3a7658ead03061be4bae09a71b786f72b6bf076e41b022dae2",
+        "arrays_sha256": "086afb5bf28b485aa51161045b9333566cacb12d16c97586976849809ef9ee44",
+        "uri": "armrc://runs/run-20260923-44b4f3855de9/run.json",
+        "samples": 3026,
+        "termination": "completed"
+      }
+    ]
+  },
+  {
+    "slug": "t4-offset",
+    "case_id": "search-t0004__pd_v2__D01__posture-small-20261201-00",
+    "title": "T4 \u00b7 Close to the ring still fails",
+    "caption": "M10 ends just outside the strict target region; S, copies, C10 and replay pass. Small endpoint error is not the full success predicate.",
+    "categories": [
+      "post-hoc explanatory selection"
+    ],
+    "configuration": "search-t0004",
+    "tracker": "pd_v2",
+    "runs": [
+      {
+        "role": "S",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.7210228470094244,
+        "dwell_task_s": 7.49,
+        "final_dwell_s": 22.509999999999998,
+        "sha256": "ef1dee5870b1580d2ee8e955b26f02c62126a8f80d5f97993e737f684e7ba75c",
+        "arrays_sha256": "a1c00d99553c8867ae1fc715f26bf8bfa9351ca0e93b3d16531dd149aa553208",
+        "uri": "armrc://runs/run-20260923-ef1dee5870b1/run.json",
+        "samples": 3051,
+        "termination": "completed"
+      },
+      {
+        "role": "M10",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 12.52563471339054,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "250ad26cfac1400cb0e60bebd696b37386ba807fbfa234cdacb451f3a451395a",
+        "arrays_sha256": "1eeacbe165678bc6a861b33a9cf5bcd2df73805a14d39e7e1cce3f9007a8ab92",
+        "uri": "armrc://runs/run-20260923-250ad26cfac1/run.json",
+        "samples": 3051,
+        "termination": "completed"
+      },
+      {
+        "role": "R10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.7210228470125366,
+        "dwell_task_s": 7.49,
+        "final_dwell_s": 22.509999999999998,
+        "sha256": "45a3fb28de53545f563e66b118091e1412ddde2471057b4b51006d633927eaa5",
+        "arrays_sha256": "a12a937178aecb167a5181cd3b97f776b111389eefa50761b9d09e9cb8e4c77a",
+        "uri": "armrc://runs/run-20260923-45a3fb28de53/run.json",
+        "samples": 3051,
+        "termination": "completed"
+      },
+      {
+        "role": "C10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.6717045660824923,
+        "dwell_task_s": 7.48,
+        "final_dwell_s": 22.52,
+        "sha256": "46bf0492adfd052a141aaf4a21535bfa203f25cbf72336a76945b782f334c4cb",
+        "arrays_sha256": "6fd4cfee66afbb84e35ce15471eea24edcb89329538af761618179ff4d83c2d0",
+        "uri": "armrc://runs/run-20260923-46bf0492adfd/run.json",
+        "samples": 3051,
+        "termination": "completed"
+      },
+      {
+        "role": "replay",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 1.9476524480285546,
+        "dwell_task_s": 14.58,
+        "final_dwell_s": 15.42,
+        "sha256": "27b19fedef07cbf926a0c91789dcea6ee50e827fd95a5bf68c15e2f0d57e8e08",
+        "arrays_sha256": "841cac70b4f7a7bf0f5c49f1b29d5afb962d81654b01927e71e5055c93532339",
+        "uri": "armrc://runs/run-20260923-27b19fedef07/run.json",
+        "samples": 3051,
+        "termination": "completed"
+      }
+    ]
+  },
+  {
+    "slug": "t4-parent03",
+    "case_id": "search-t0004__pd_v2__D03__nominal",
+    "title": "T4 \u00b7 The exceptional synthetic parent",
+    "caption": "C10/D03 fails even nominally. The other nine C10 parents pass all 65 PD cases, so a median of 65 must not hide this parent.",
+    "categories": [
+      "post-hoc explanatory selection"
+    ],
+    "configuration": "search-t0004",
+    "tracker": "pd_v2",
+    "runs": [
+      {
+        "role": "S",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 3.385138943447922,
+        "dwell_task_s": 6.29,
+        "final_dwell_s": 23.71,
+        "sha256": "ae3321882cd9af8760f34b2697583c69b38c73c66a2f8377258ffc7cab478df2",
+        "arrays_sha256": "9811e0b9b5658ee41770fa51c60679d18f8a81c2f58a58da4b63abdabed32918",
+        "uri": "armrc://runs/run-20260923-ae3321882cd9/run.json",
+        "samples": 3051,
+        "termination": "completed"
+      },
+      {
+        "role": "M10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 8.09756471165724,
+        "dwell_task_s": 6.3100000000000005,
+        "final_dwell_s": 23.689999999999998,
+        "sha256": "88fdd2e07d63d9578912d6320f47980e0eb42017215b5ab617d9462369cf66ff",
+        "arrays_sha256": "e31c71622badad7e055322355324090e3076cb7125b962e35882c8c0f761df95",
+        "uri": "armrc://runs/run-20260923-88fdd2e07d63/run.json",
+        "samples": 3051,
+        "termination": "completed"
+      },
+      {
+        "role": "R10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 3.3851389434508397,
+        "dwell_task_s": 6.29,
+        "final_dwell_s": 23.71,
+        "sha256": "c2502492d33254ebb9c3d65743049f114959b14cd3ccb90f66677a2a39b4afec",
+        "arrays_sha256": "8f529363cb9ecf21d29ba06b990fd11cd1e9229a9d6a71e91b245b4809d3ec51",
+        "uri": "armrc://runs/run-20260923-c2502492d332/run.json",
+        "samples": 3051,
+        "termination": "completed"
+      },
+      {
+        "role": "C10",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 19.74099752876168,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "e6adae3c6bc40d2651fd66402a3f1f759b6e07527184db464bb88d23f9fb3690",
+        "arrays_sha256": "ec35df7d633dd03e47803c15c7c66c58dcbe6ba0f728f1331abbafe485d4faa0",
+        "uri": "armrc://runs/run-20260923-e6adae3c6bc4/run.json",
+        "samples": 3051,
+        "termination": "completed"
+      },
+      {
+        "role": "replay",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [],
+        "final_error_mm": 4.403503546924715,
+        "dwell_task_s": 13.01,
+        "final_dwell_s": 16.990000000000002,
+        "sha256": "747f3f19a8589e399ad492e98f37fa99cba9eed6437cbd4cf251697c5f5c5b7b",
+        "arrays_sha256": "7d6ca50591a855d440c894fbea5f59c906d5c2aeb21053e60cc0941be6dd3061",
+        "uri": "armrc://runs/run-20260923-747f3f19a858/run.json",
+        "samples": 3051,
+        "termination": "completed"
+      }
+    ]
+  },
+  {
+    "slug": "t4-force-pd",
+    "case_id": "search-t0004__pd_v2__D01__force-12N-000deg",
+    "title": "T4 \u00b7 Recovery with PD",
+    "caption": "S, copies, C10 and replay recover; M10 does not. Compare with the identical case under computed torque below.",
+    "categories": [
+      "post-hoc explanatory selection"
+    ],
+    "configuration": "search-t0004",
+    "tracker": "pd_v2",
+    "runs": [
+      {
+        "role": "S",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [
+          8.09,
+          8.29
+        ],
+        "final_error_mm": 1.7230542472553745,
+        "dwell_task_s": 9.69,
+        "final_dwell_s": 20.310000000000002,
+        "sha256": "c4f77b418c7bc376c923b0af5e9a708b159405e035e9058bd4c0e4246f350fdf",
+        "arrays_sha256": "e8b78a29fa5e045e963fde6565dcce91d246238186b578c41bb259086f72e885",
+        "uri": "armrc://runs/run-20260923-c4f77b418c7b/run.json",
+        "samples": 3051,
+        "termination": "completed"
+      },
+      {
+        "role": "M10",
+        "success": false,
+        "reason": "dwell:no_final_dwell",
+        "end": 30.0,
+        "pulse": [
+          6.8100000000000005,
+          7.010000000000001
+        ],
+        "final_error_mm": 227.2014315275593,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "429e882686ba412b761e5d0dd9b73ec47548b92b95f15c89732c7a84fd1b3805",
+        "arrays_sha256": "45fd25fc2adf05dd8828a06e3d61e0c691191162184176534da45959c2d785d0",
+        "uri": "armrc://runs/run-20260923-429e882686ba/run.json",
+        "samples": 3051,
+        "termination": "completed"
+      },
+      {
+        "role": "R10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [
+          8.09,
+          8.29
+        ],
+        "final_error_mm": 1.7230542472592443,
+        "dwell_task_s": 9.69,
+        "final_dwell_s": 20.310000000000002,
+        "sha256": "4ef995e26421133cd4dc04b7c8b6257e9f51f7a4854b8f017bb97e7a5c6d3fd5",
+        "arrays_sha256": "a2174f21577deddc2bfa002415c1d5a48e2dd4a764d990f14fe07535428f07c2",
+        "uri": "armrc://runs/run-20260923-4ef995e26421/run.json",
+        "samples": 3051,
+        "termination": "completed"
+      },
+      {
+        "role": "C10",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [
+          8.040000000000001,
+          8.24
+        ],
+        "final_error_mm": 1.6674621097494753,
+        "dwell_task_s": 10.44,
+        "final_dwell_s": 19.560000000000002,
+        "sha256": "bebd79cdd0bb4b39e13b9e45579e9aff4719a86ef4efb5b5f13bd3c4f89871c4",
+        "arrays_sha256": "8f2967ac59d2e8bd552991fffaaf83998165b91d3dc11811e19e4d0a476a95b8",
+        "uri": "armrc://runs/run-20260923-bebd79cdd0bb/run.json",
+        "samples": 3051,
+        "termination": "completed"
+      },
+      {
+        "role": "replay",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [
+          8.67,
+          8.87
+        ],
+        "final_error_mm": 1.9476524480285546,
+        "dwell_task_s": 14.58,
+        "final_dwell_s": 15.42,
+        "sha256": "f896ee99f0677dd157af2d1bf48219cc586289fd8382da1f392d881ae001db65",
+        "arrays_sha256": "3dd2df7e0bf035771fa4459200d03a8ad7ebd50069fb55713883305019b645f2",
+        "uri": "armrc://runs/run-20260923-f896ee99f067/run.json",
+        "samples": 3051,
+        "termination": "completed"
+      }
+    ]
+  },
+  {
+    "slug": "t4-force-ct",
+    "case_id": "search-t0004__computed_torque__D01__force-12N-000deg",
+    "title": "T4 \u00b7 Tracker-dependent aborts",
+    "caption": "With the fixed computed-torque tracker the learned arms abort at the speed limit, while replay succeeds. Tracker sensitivity cannot be dismissed.",
+    "categories": [
+      "post-hoc explanatory selection"
+    ],
+    "configuration": "search-t0004",
+    "tracker": "computed_torque",
+    "runs": [
+      {
+        "role": "S",
+        "success": false,
+        "reason": "limit_violation:joint_velocity",
+        "end": 8.18,
+        "pulse": [
+          8.09,
+          8.29
+        ],
+        "final_error_mm": 103.5632218683349,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "ebf2aa5e0d61d4ab5b99ca5ab94c90e0b8dfae9be4abb208311bb3db77e0b3fa",
+        "arrays_sha256": "dd4ecbf2afc0a4808793d6fae855830baa183970c6039ea19a5d3d601818f35c",
+        "uri": "armrc://runs/run-20260923-ebf2aa5e0d61/run.json",
+        "samples": 869,
+        "termination": "limit_violation"
+      },
+      {
+        "role": "M10",
+        "success": false,
+        "reason": "limit_violation:joint_velocity",
+        "end": 6.890000000000001,
+        "pulse": [
+          6.82,
+          7.0200000000000005
+        ],
+        "final_error_mm": 80.14651670560987,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "93bdf16c9fb95cfdd449f076e2fd6b3125cf1925b416383f00c62223e5ba9948",
+        "arrays_sha256": "b06baf4af5d2b0c2166ae814db9475691536873d35bd203e390f5e6a0df3b3de",
+        "uri": "armrc://runs/run-20260923-93bdf16c9fb9/run.json",
+        "samples": 740,
+        "termination": "limit_violation"
+      },
+      {
+        "role": "R10",
+        "success": false,
+        "reason": "limit_violation:joint_velocity",
+        "end": 8.18,
+        "pulse": [
+          8.09,
+          8.29
+        ],
+        "final_error_mm": 103.5632218683204,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "6cf1f76424111ad3130772af0235e5b87b6c7c60e437edd057df47dd9d3bf04b",
+        "arrays_sha256": "4aeec3cba2363b372a9c3775d38ce3a873551405add4b7137c2262538b81e823",
+        "uri": "armrc://runs/run-20260923-6cf1f7642411/run.json",
+        "samples": 869,
+        "termination": "limit_violation"
+      },
+      {
+        "role": "C10",
+        "success": false,
+        "reason": "limit_violation:joint_velocity",
+        "end": 8.09,
+        "pulse": [
+          8.040000000000001,
+          8.24
+        ],
+        "final_error_mm": 55.614775412685496,
+        "dwell_task_s": null,
+        "final_dwell_s": 0.0,
+        "sha256": "57ef58e9d3cba7dc181d82fda19e7113eec6bae6e2d8a760b729342f4f9749aa",
+        "arrays_sha256": "a0286832ad10ca09280a4812b93f83d430bd99bfdc2e2f655dd8fa4cb21a689b",
+        "uri": "armrc://runs/run-20260923-57ef58e9d3cb/run.json",
+        "samples": 860,
+        "termination": "limit_violation"
+      },
+      {
+        "role": "replay",
+        "success": true,
+        "reason": null,
+        "end": 30.0,
+        "pulse": [
+          8.67,
+          8.87
+        ],
+        "final_error_mm": 1.947652448028391,
+        "dwell_task_s": 14.6,
+        "final_dwell_s": 15.4,
+        "sha256": "757ba17fb66391864a4aef42616408bb1bb123c5a2e03b6c28d102133240507f",
+        "arrays_sha256": "f0fe3e21b2db8ffd94f2845d48dc464c2969264200a843eeb2754f7d65915a69",
+        "uri": "armrc://runs/run-20260923-757ba17fb663/run.json",
+        "samples": 3051,
+        "termination": "completed"
+      }
+    ]
+  }
+]
