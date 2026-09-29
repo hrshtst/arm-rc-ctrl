@@ -55,6 +55,10 @@ pilot, the completed search with its freeze, the five-arm comparison, its audite
 | REP-001: older cropped manual replication | [Deferred replication](tasks/backlog/replication.md); remains TODO |
 | M3R-017: historical confirmatory authorization | [M3R archive](tasks/archive/M3R.md); remains BLOCKED |
 
+## Cross-cutting quality
+
+CI-001 is complete: store-independent tests restore the 90 % coverage gate without the evidence store; [archived row](tasks/archive/CI.md).
+
 ## Cross-cutting upstream work
 
 Use these IDs when a need is discovered before its owning milestone. Do not start
@@ -80,6 +84,7 @@ an upstream PR merely to make project-local code cleaner.
 - [M3REP](tasks/archive/M3REP.md): M3REP — Task 1-a repeated-demonstration control.
 - [M3MAN](tasks/archive/M3MAN.md): M3MAN — Task 1-a manual demonstrations.
 - [M3MS](tasks/archive/M3MS.md): M3MS — Task 1-a manual-data ESN search (M3MS-001 to M3MS-008; the owner gate is active).
+- [CI](tasks/archive/CI.md): Cross-cutting quality.
 - [UP completed work](tasks/archive/UP.md).
 - [Pre-migration status snapshot](tasks/archive/status-2026-09-22.md) and [historical phase gates](tasks/archive/roadmap-2026-09-22.md).
 

@@ -19,6 +19,7 @@ second status database.
 | M2-* | [M2 archive](archive/M2.md) |
 | M3-* | [M3 archive](archive/M3.md) |
 | TOOL-* | [TOOL archive](archive/TOOL.md) |
+| CI-* | [CI archive](archive/CI.md) |
 | M3R-* | [M3R archive](archive/M3R.md) |
 | M3REP-* | [M3REP archive](archive/M3REP.md) |
 | M3MAN-* | [M3MAN archive](archive/M3MAN.md) |
