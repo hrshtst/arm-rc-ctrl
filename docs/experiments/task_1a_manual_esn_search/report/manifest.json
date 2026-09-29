@@ -1,0 +1,243 @@
+{
+  "cases": [
+    "search-t0001__pd_v2__D01__nominal",
+    "search-t0001__pd_v2__D01__posture-small-20261201-02",
+    "search-t0001__pd_v2__D01__force-12N-000deg",
+    "search-t0002__pd_v2__D01__nominal",
+    "search-t0002__pd_v2__D01__posture-small-20261201-00",
+    "search-t0002__computed_torque__D01__nominal",
+    "search-t0004__pd_v2__D01__posture-small-20261201-00",
+    "search-t0004__pd_v2__D03__nominal",
+    "search-t0004__pd_v2__D01__force-12N-000deg",
+    "search-t0004__computed_torque__D01__force-12N-000deg"
+  ],
+  "display": {
+    "angle_decimals": 6,
+    "events_and_last_sample_retained": true,
+    "stride": 10
+  },
+  "inputs": {
+    "configs/evaluations/task_1a_manual_dev_v1.toml": "8780be5bac7f4ccb99d6636c947f78901646b886b5f768846b6d9ba5d48acb2b",
+    "configs/studies/manual_esn_search_v1.toml": "3874cc0a6c0cd869ba2b61c62ecd78941d0da8ff83862b325590a14645acf092",
+    "configs/tasks/task_1a_manual_v2.toml": "4abdad9b15046905e4e17929196907f92e97df9c770748c7acded242508577fb",
+    "docs/experiments/task_1a_manual_demonstration/study_manifest_v1.json": "b07b824c362a3513c03c9c34fa0437b390f47d148ac5a288231fba218aaa36b7",
+    "docs/experiments/task_1a_manual_esn_search/audit/audit_v2.json": "e1b0ca31e6bb90f559a58a1993c7305a412f73fb41c4d580cb090e158dd65426",
+    "docs/experiments/task_1a_manual_esn_search/comparison/status_v1.json": "d7462c09c5668de3fe4877f4133bde13daa44af625bb8b213f2dd395c71368b8",
+    "docs/experiments/task_1a_manual_esn_search/freeze/selection_v1.json": "7e97649720f2555e797d3238dc190a24786f305499e7ce114583cb70129e581a",
+    "docs/experiments/task_1a_manual_esn_search/results/accounting_v1.json": "c7b24d98669170392568036a3916bd6ec67461592b82c54b15b48314bea6137f",
+    "docs/experiments/task_1a_manual_esn_search/results/arm_summary_v1.csv": "cd1363038657c10aa680c7290a95e0e618bb27b1748358ca6361dcc5f17ee0ca",
+    "docs/experiments/task_1a_manual_esn_search/results/contrast_summary_v1.csv": "63f74874f45e4257668259adbb7a93e08b066564090801a83eeca917ab004157",
+    "docs/experiments/task_1a_manual_esn_search/results/results_v1.json": "1ff737040ef8d8e8d792d44cc5caf961a2ff98ee9fef5d3b37e7073dee194ed8"
+  },
+  "outputs": {
+    "README.md": {
+      "sha256": "7867cd7c8041ab322cc8701db48dee7f94f350de806fc33671120c373b8bf756",
+      "size": 1792
+    },
+    "assets/paired_classes.png": {
+      "sha256": "8610d27c301eb7165d0362c93e2434e451354337975a0ee6ca73401163979ce5",
+      "size": 25980
+    },
+    "assets/paired_parents.png": {
+      "sha256": "ff55ba11006a6e2d563f379af1390bb3a89f1b0ff824e56b2adad8303abddd66",
+      "size": 61279
+    },
+    "assets/player.js": {
+      "sha256": "591b0beb9501955994a0cf9c2515aff1b5b0bc0c72920ff34ce0b0b6e1491a10",
+      "size": 5339
+    },
+    "assets/report.css": {
+      "sha256": "64f42fa5da82b08a964953dadb50b08fc613ff937721126b4b35245cbf6540af",
+      "size": 6783
+    },
+    "assets/success_counts.png": {
+      "sha256": "37491b03d4dac55da787b2a095573c0fb217cdae916de7483c3eaf1814f13603",
+      "size": 19059
+    },
+    "assets/t1-force-joints.png": {
+      "sha256": "b31bf2977051cb65773d6c8c521b535d23dcfe0eb0ad58353cb6d2e7522f5d34",
+      "size": 46284
+    },
+    "assets/t1-force-space.png": {
+      "sha256": "5e88963c994e6d4fb0187a14197a7db47472638f5b206f7b7aa7369fed5955c5",
+      "size": 15988
+    },
+    "assets/t1-force-time.png": {
+      "sha256": "5591f66410e1e7b4e88d8d84547ef5089e9ef5f2406980288f45a148307de062",
+      "size": 71484
+    },
+    "assets/t1-force.js": {
+      "sha256": "933f1bba1f302d3138b74559fb57e03ed0db8560df75269935c2aef2cc73bb73",
+      "size": 73642
+    },
+    "assets/t1-nominal-joints.png": {
+      "sha256": "f7f69f1db929e038c959a8c2a3420e0718b462f3871db102325dbde4c971ef1b",
+      "size": 50004
+    },
+    "assets/t1-nominal-space.png": {
+      "sha256": "d50243c5d88c3464522cc863e5694d030554643900d60f8b2ab02fea3805b080",
+      "size": 12441
+    },
+    "assets/t1-nominal-time.png": {
+      "sha256": "3827d5ded46d368342194b8d937d1ca77dc54b3a36ca3d0983ed2ccc5303c505",
+      "size": 68474
+    },
+    "assets/t1-nominal.js": {
+      "sha256": "d2555a3533030e2258e87fb88b578cf45651010ee6f62d8c8cba803cb862680c",
+      "size": 70088
+    },
+    "assets/t1-offset-joints.png": {
+      "sha256": "3a495d8653780e3492112079cc67a895f1b771f327181775e46613bc1999534c",
+      "size": 40727
+    },
+    "assets/t1-offset-space.png": {
+      "sha256": "514e9e656628cfeea718cd54ce0ab82827d5e39fcca5f725d8910775797fba75",
+      "size": 13919
+    },
+    "assets/t1-offset-time.png": {
+      "sha256": "b0f6faa9be3161249effcfd1944636bcbdb264d0e5d1013046a79391faa8e2db",
+      "size": 64408
+    },
+    "assets/t1-offset.js": {
+      "sha256": "5b9206336dd9366724e6e76e21f696714ec400f8299ffdae2c6668851b21050b",
+      "size": 73707
+    },
+    "assets/t2-nominal-joints.png": {
+      "sha256": "f09b85440d5219945a346567b07a4dceca9c4a9587a9c0d302a5932e0f8d5543",
+      "size": 42848
+    },
+    "assets/t2-nominal-space.png": {
+      "sha256": "c88d88d01ede95583cf76032e07a84ba9309f63c25c255691d4add72e8e0efa9",
+      "size": 13339
+    },
+    "assets/t2-nominal-time.png": {
+      "sha256": "bb90051aa3b0aa8db3e8e1e97a1a3532f77e8b2cf349475697a5e4e8774320b3",
+      "size": 78682
+    },
+    "assets/t2-nominal.js": {
+      "sha256": "62b40f8c0acf8f5966e32ff6744489b5dc4e35e9adb4f10e408b25fac7669c84",
+      "size": 71283
+    },
+    "assets/t2-offset-joints.png": {
+      "sha256": "b106b1785c31d3b84603aaa78660e11597961eb26cc0eaaed5ea8da5cca24c0a",
+      "size": 44055
+    },
+    "assets/t2-offset-space.png": {
+      "sha256": "602a0665c30b57232bf7cb182e8cde55c9493f95596c0863a713dffece097f4c",
+      "size": 13720
+    },
+    "assets/t2-offset-time.png": {
+      "sha256": "2f8ea97a01332ba716a85f2b03db210e9bc50ce42d78ecc2ffac20c9b2f8ad3c",
+      "size": 70092
+    },
+    "assets/t2-offset.js": {
+      "sha256": "0fb7476be087b9ff2a75071ac854115cd12521dfdf9ffd756a571adbfedcd47e",
+      "size": 57602
+    },
+    "assets/t2-torque-joints.png": {
+      "sha256": "068b455bb02ed07ed30438818bffb59314448ccea46409a9fba1b00a549705ff",
+      "size": 46094
+    },
+    "assets/t2-torque-space.png": {
+      "sha256": "fdd140273c272204f468e2abb501ddcaeee4c1f7013ababbb153870980db4038",
+      "size": 13105
+    },
+    "assets/t2-torque-time.png": {
+      "sha256": "2ea1b09e6037e1adb2e3a8758ff4550d5504fbd42f486b2be1f166f5e9f60d8a",
+      "size": 76662
+    },
+    "assets/t2-torque.js": {
+      "sha256": "3174f52ca6925e58b4cc20cdf006a8326ddc6e9289094d105b8800d71616f234",
+      "size": 57488
+    },
+    "assets/t4-force-ct-joints.png": {
+      "sha256": "c26c1496f33f5507428e92ea70d0227b4be22f5c6a5c669ccf1990b2aa6d09a8",
+      "size": 48376
+    },
+    "assets/t4-force-ct-space.png": {
+      "sha256": "15e65fb8f0f01ca864b4b898bceb75ee02ff989a2dd0a9df63617cca87c0909f",
+      "size": 12706
+    },
+    "assets/t4-force-ct-time.png": {
+      "sha256": "d29a8a530598b5fd0c2de320bfa3c7fe2d05d3da8601896eca4c33be60576379",
+      "size": 69620
+    },
+    "assets/t4-force-ct.js": {
+      "sha256": "796d455cec2eda1c40f5c392b0479d332c83fedb5c598736a10235f06ad9aa88",
+      "size": 30194
+    },
+    "assets/t4-force-pd-joints.png": {
+      "sha256": "e7c6bb71b26bd165f56e7d55ebeb6cc53855647651da38d89c712affecbb7b45",
+      "size": 59843
+    },
+    "assets/t4-force-pd-space.png": {
+      "sha256": "3aae866ea58f9bf7ac49af20e3a3f2220799df7b6881cbc9d4fb0e6b07cfbb06",
+      "size": 12838
+    },
+    "assets/t4-force-pd-time.png": {
+      "sha256": "46eaa7a9eb5a03f89432e61ac8f5854a83edc4a62b89d387c3b1596452aea4ad",
+      "size": 79730
+    },
+    "assets/t4-force-pd.js": {
+      "sha256": "d65513213d92fe07648a756e6e0d7c2d007860285bc3907f285ed3481c3211a4",
+      "size": 69716
+    },
+    "assets/t4-offset-joints.png": {
+      "sha256": "47324f36eef600e42c6fc8ff8ee35a5cd3de492e9d4d746c19768ebfa9cd7d8e",
+      "size": 54677
+    },
+    "assets/t4-offset-space.png": {
+      "sha256": "eadadbb5cb29236a647272cc351c67c8e3561679d0afa36d488d83551bdb6fb0",
+      "size": 12539
+    },
+    "assets/t4-offset-time.png": {
+      "sha256": "f20358e468b7db537f1a6492fb464baa27b3f1ae5fa3136d751847dca79916bc",
+      "size": 65334
+    },
+    "assets/t4-offset.js": {
+      "sha256": "5da5ca49498dc84cad48cc3fc8f17053a1996c90b80e14b2ba76513802c20e8d",
+      "size": 69778
+    },
+    "assets/t4-parent03-joints.png": {
+      "sha256": "2753eac969359bdae181b584f1608e93f9da41d7dc4cead9dedc5db4c3f09a57",
+      "size": 51541
+    },
+    "assets/t4-parent03-space.png": {
+      "sha256": "df92463b927cc80bd1e8efde6297447314b58b3e383c251911efa9cbb0a1f120",
+      "size": 13074
+    },
+    "assets/t4-parent03-time.png": {
+      "sha256": "d88d5e51955d171b505a95ba6269f397beee8cbfbda66a7e0aca93499b3fec77",
+      "size": 59316
+    },
+    "assets/t4-parent03.js": {
+      "sha256": "3639b0ff0ac01a923d5235af2b778824ec5086b077c4febdac24da4975f5f45d",
+      "size": 69413
+    },
+    "cases.json": {
+      "sha256": "899840a17cd03ce1020e2ba347823eff50b08d2cf1f9d00bd970b9ec43df9a93",
+      "size": 32867
+    },
+    "index.html": {
+      "sha256": "96d0160d1ed675474cb328e6fc47d0593535d0eceffd3bce989e3321120e4d80",
+      "size": 61882
+    }
+  },
+  "project_commit": "9e51c6f179d2146bf91a2f37ec7b0898b9c09fc5",
+  "project_dirty": false,
+  "run_table": {
+    "sha256": "1809b71a273428f734b24e414f8e03c4e6f06629618e93b4306465c944bcbce3",
+    "uri": "armrc://reports/task_1a_manual_search/results/runs_v1-1809b71a2734.csv"
+  },
+  "sources": {
+    "docs/experiments/task_1a_manual_esn_search/report_source/README.md": "7867cd7c8041ab322cc8701db48dee7f94f350de806fc33671120c373b8bf756",
+    "docs/experiments/task_1a_manual_esn_search/report_source/player.js": "591b0beb9501955994a0cf9c2515aff1b5b0bc0c72920ff34ce0b0b6e1491a10",
+    "docs/experiments/task_1a_manual_esn_search/report_source/report.css": "64f42fa5da82b08a964953dadb50b08fc613ff937721126b4b35245cbf6540af",
+    "docs/experiments/task_1a_manual_esn_search/report_source/report.html": "a044193199628c15d6e976db96c5e7f88af21b385e86ff3b18742d588b4b561c",
+    "scripts/render_manual_search_report.py": "ab2d96af51fdf51f9eb29e8f575105da936e73ccbe7a68e4fe8badda24ae2e61",
+    "src/arm_rc_ctrl/experiments/manual_figures.py": "0936dd7d1fb4ca66433218d4240c0ec9b7597ef4a512799f0e6e878239c2122b",
+    "src/arm_rc_ctrl/experiments/manual_search_report.py": "07e294dd4594091b24f98e5580e499d0837d88c1aa2a35c28ce9550a8b7ba460",
+    "src/arm_rc_ctrl/experiments/manual_search_report_plots.py": "d1cb8f4696f9e4e4e56a60fb5750e7ab9b38bf46ca24a04e31beac6dcc1833ef"
+  },
+  "task": "M3MS-008"
+}

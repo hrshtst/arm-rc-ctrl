@@ -3,7 +3,7 @@
 
 # Reservoir-computing robot-arm roadmap
 
-**Updated:** 2026-09-22. **Queue:** [TASKS.md](TASKS.md).
+**Updated:** 2026-09-28. **Queue:** [TASKS.md](TASKS.md).
 
 Read this roadmap and the queue first. Then read only the relevant experiment
 plan and specification sections. Details: [design/](design/README.md);
@@ -15,7 +15,7 @@ frozen-config references; those files were not rewritten during this move.
 Optimize M10 on nominal scenarios only for 100 Optuna trials, searching ESN
 parameters and warm-up with fixed tracker/filter settings and seed. Freeze the
 three highest-scoring configurations before the five-arm perturbation comparison.
-No implementation/search has started. M3MAN remains closed. The separate task 1-b draft still awaits its own decisions D1–D8.
+Search, audit and report are complete; M3MS-GATE awaits owner acceptance. M3MAN is closed; task 1-b awaits D1–D8.
 
 ## 1. Objective
 
@@ -116,7 +116,7 @@ Use `src/` for logic, `scripts/` for entry points, `configs/` for protocols, `da
 | M3R | Closed with a negative recovery result; historical confirmatory task remains blocked | [Archive](tasks/archive/M3R.md) |
 | M3REP | Closed repetition/regularization study | [Plan](experiments/task_1a_repeated_demonstration/plan.md) |
 | M3MAN | Closed and report accepted on 2026-09-22 | [Report](experiments/task_1a_manual_demonstration/report/report.md) |
-| M3MS | Approved manual-data ESN search; next implementation queue | [Plan](experiments/task_1a_manual_esn_search/plan.md) |
+| M3MS | Search, audit and expert report complete; owner acceptance pending | [Plan](experiments/task_1a_manual_esn_search/plan.md) |
 | M4 | Task 1-b protocol planning; owner lock required before implementation | [Backlog](tasks/backlog/M4.md) |
 | M5 | C++ / 7-DOF simulation, gated | [Backlog](tasks/backlog/M5.md) |
 | M6 | Supervised physical trials, separately safety-qualified | [Backlog](tasks/backlog/M6.md) |
